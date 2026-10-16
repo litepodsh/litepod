@@ -1,5 +1,7 @@
 /apps/.agents
 /apps/.claude
+/apps/.crush
+/apps/skills-lock.json
 
 
 /apps/.bun-tmp
