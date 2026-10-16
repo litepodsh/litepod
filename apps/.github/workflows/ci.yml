@@ -1,0 +1,88 @@
+name: ci
+
+# Compile gate for main: API (with the `saml` feature the release binary
+# ships), UI type-check + build, and the release Dockerfile (amd64, no push).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-24.04
+    env:
+      # api/.cargo/config.toml sets rustc-wrapper = "sccache"; back it with
+      # the GitHub Actions cache.
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native deps (xmlsec1 for saml, libclang for bindgen)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libxmlsec1-dev libclang-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: api
+
+      - name: cargo build
+        run: cargo build --locked --features saml
+
+  ui:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run build
+
+  image:
+    # Same Dockerfile + build args as `just release-dockerhub`, amd64 only.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: podman build (linux/amd64)
+        run: |
+          podman build --platform=linux/amd64 \
+            -f Dockerfile \
+            --build-arg VITE_API_URL="" \
+            --build-arg LITEPOD_VERSION="ci-${GITHUB_SHA::7}" \
+            --build-arg LITEPOD_GIT_SHA="${GITHUB_SHA::7}" \
+            --build-arg TARGETARCH=amd64 \
+            -t localhost/litepod-ci:latest \
+            .
+
+      - name: Probe image (podman, podman-compose, CA bundle)
+        run: |
+          img=localhost/litepod-ci:latest
+          podman run --rm --entrypoint /bin/sh "$img" -c 'test -x /usr/bin/podman'
+          podman run --rm --entrypoint /bin/sh "$img" -c 'dpkg --compare-versions "$(dpkg-query -W podman | cut -f2)" ge 4.7'
+          podman run --rm --entrypoint /bin/sh "$img" -c 'test -x /usr/bin/podman-compose && dpkg-query -W podman-compose'
+          podman run --rm --entrypoint /usr/bin/test "$img" -s /etc/ssl/certs/ca-certificates.crt

@@ -210,11 +210,27 @@ def test_release_recipe_waits_for_registry_before_announcing_release() -> None:
     immutable_push = 'podman manifest push --all "${local_manifest}" "${immutable_image}"'
     wait = 'bash podx/scripts/wait-for-immutable-tag.sh'
     moving_push = 'podman manifest push --all "${local_manifest}" "${moving_image}"'
-    upload = 'bash podx/scripts/publish-install-scripts.sh'
-    publish = 'just publish-version -- --alpha'
 
     assert recipe.index(immutable_push) < recipe.index(wait) < recipe.index(moving_push)
-    assert recipe.index(wait) < recipe.index(upload) < recipe.index(publish)
+
+
+def test_release_recipe_does_not_touch_s3() -> None:
+    recipe = (APP_ROOT / "justfile").read_text()
+    for recipe_name in ("podx-lint *ARGS:", "release-dockerhub *ARGS:"):
+        start = recipe.index(recipe_name)
+        end = recipe.find("\n# ", start + len(recipe_name))
+        body = recipe[start:] if end == -1 else recipe[start:end]
+        assert "S3_" not in body
+        assert "publish-install-scripts.sh" not in body
+        assert "publish-version" not in body
+
+
+def test_release_recipe_dry_run_exits_before_any_push() -> None:
+    recipe = (APP_ROOT / "justfile").read_text()
+    dry_run_exit = 'if [[ "${dry_run}" == true ]]; then'
+    immutable_push = 'podman manifest push --all "${local_manifest}" "${immutable_image}"'
+
+    assert recipe.index(dry_run_exit) < recipe.index(immutable_push)
 
 
 def test_release_recipe_builds_and_checks_the_requested_version() -> None:
@@ -322,6 +338,8 @@ def main() -> int:
         test_immutable_tag_guard_reports_only_verified_registry_state,
         test_immutable_tag_wait_retries_only_a_missing_registry_manifest,
         test_release_recipe_waits_for_registry_before_announcing_release,
+        test_release_recipe_does_not_touch_s3,
+        test_release_recipe_dry_run_exits_before_any_push,
         test_release_recipe_builds_and_checks_the_requested_version,
         test_release_recipe_uses_cache_unless_no_cache_is_requested,
         test_release_workflow_uses_the_fixed_litepod_dockerhub_target,

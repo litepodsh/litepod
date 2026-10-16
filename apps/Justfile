@@ -203,10 +203,6 @@ podx-lint *ARGS:
     DOCKERHUB_REPO=litepod
     : "${DOCKERHUB_USER:?DOCKERHUB_USER required}"
     : "${DOCKERHUB_REPO:?DOCKERHUB_REPO required}"
-    : "${S3_ENDPOINT:?S3_ENDPOINT required}"
-    : "${S3_BUCKET:?S3_BUCKET required}"
-    : "${S3_ACCESS_KEY:?S3_ACCESS_KEY required}"
-    : "${S3_SECRET_KEY:?S3_SECRET_KEY required}"
     if [[ "$channel" == alpha ]]; then
         VERSION="$(grep -E '^LITEPOD_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
     else
@@ -256,15 +252,65 @@ podx-lint *ARGS:
 #   just bump litepod v0.1.72
 #   just bump dragonfly v2.0.1
 #   just bump caddy 2.11.5
+# Bumping litepod also commits the pinned files, tags vX.Y.Z and (after a
+# prompt) pushes both, which triggers .github/workflows/release.yml.
 bump component version:
     @just _bump stable {{component}} {{version}}
+    @just _release-tag stable {{component}}
 
 # Alpha tags only live in api/.env; compose and installers always use stable.
 #   just bump-alpha litepod v0.1.30-alpha.1
 #   just bump-alpha dragonfly v2.0.1
 #   just bump-alpha caddy 2.11.5
+# Bumping litepod tags HEAD as vX.Y.Z-alpha.N and (after a prompt) pushes it.
 bump-alpha component version:
     @just _bump alpha {{component}} {{version}}
+    @just _release-tag alpha {{component}}
+
+# Tag a litepod bump for the GitHub release workflow. Stable commits only the
+# files `_bump` rewrites, so unrelated work in the tree is left alone. Pushing
+# is confirmed interactively; without a TTY it prints the push command instead.
+_release-tag channel component:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case '{{component}}' in litepod|litepd) ;; *) exit 0 ;; esac
+    if [[ '{{channel}}' == alpha ]]; then
+        tag="$(sed -n 's/^LITEPOD_VERSION_ALPHA=//p' api/.env | head -n1)"
+    else
+        tag="$(sed -n 's/^LITEPOD_VERSION=//p' api/.env | head -n1)"
+    fi
+    bash podx/scripts/validate-release-tag.sh '{{channel}}' "${tag}"
+    if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+        echo "tag ${tag} already exists locally" >&2; exit 1
+    fi
+    if [[ -n "$(git ls-remote --tags origin "refs/tags/${tag}")" ]]; then
+        echo "tag ${tag} already exists on origin" >&2; exit 1
+    fi
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    [[ "${branch}" == main ]] || echo "warning: tagging from ${branch}, not main" >&2
+
+    if [[ '{{channel}}' == stable ]]; then
+        files=(podman-compose.yml podman-compose-staging.yml podman-compose-prod.yml
+               scripts/install.sh scripts/install-cloud.sh
+               scripts/test-install-channel.sh scripts/test-install-cloud.sh)
+        if ! git diff --quiet HEAD -- "${files[@]}"; then
+            git commit -m "chore(release): ${tag}" -- "${files[@]}"
+        else
+            echo "no pinned files changed; tagging HEAD"
+        fi
+    fi
+    git tag -a "${tag}" -m "litepod ${tag}"
+    echo "tagged ${tag} at $(git rev-parse --short HEAD)"
+
+    push_cmd=(git push --atomic origin "HEAD:refs/heads/${branch}" "refs/tags/${tag}")
+    if [[ -t 0 ]]; then
+        read -r -p "push ${branch} + ${tag} to origin (starts the release workflow)? [y/N] " answer
+        if [[ "${answer}" == [yY] ]]; then
+            "${push_cmd[@]}"
+            exit 0
+        fi
+    fi
+    echo "not pushed. To release: ${push_cmd[*]}"
 
 _bump channel component version:
     #!/usr/bin/env bash
@@ -415,7 +461,8 @@ podx-build:
 # Build + push the selected release channel from api/.env. Stable is the
 # default; Just requires `-- --alpha` to pass the alpha flag to a recipe.
 # Pass `-- --no-cache` only when a clean rebuild is required; normal releases
-# reuse Podman's local layer cache.
+# reuse Podman's local layer cache. Pass `-- --dry-run` to run every build,
+# probe and manifest step without pushing to Docker Hub or uploading to S3.
 #
 # On success the local per-arch images and the assembled manifest list are
 # removed (the artifact now lives on Docker Hub); a failed run keeps them so
@@ -432,9 +479,10 @@ release-dockerhub *ARGS:
     set -euo pipefail
     set -- {{ARGS}}
     # Just passes its `--` separator through variadic recipe arguments.
-    [[ "$#" -eq 2 && "$1" == "--" ]] && shift
+    [[ "$#" -ge 1 && "$1" == "--" ]] && shift
     channel=stable
     no_cache=false
+    dry_run=false
     for arg in "$@"; do
         case "$arg" in
           --alpha)
@@ -445,8 +493,12 @@ release-dockerhub *ARGS:
             [[ "$no_cache" == false ]] || { echo "--no-cache specified more than once" >&2; exit 2; }
             no_cache=true
             ;;
+          --dry-run)
+            [[ "$dry_run" == false ]] || { echo "--dry-run specified more than once" >&2; exit 2; }
+            dry_run=true
+            ;;
           *)
-            echo "Usage: just release-dockerhub [-- --alpha] [--no-cache]" >&2
+            echo "Usage: just release-dockerhub [-- --alpha] [--no-cache] [--dry-run]" >&2
             exit 2
             ;;
         esac
@@ -589,6 +641,16 @@ release-dockerhub *ARGS:
     # resolves it — see podx/scripts/check-immutable-tag.sh.
     immutable_state="$(IMAGE="${immutable_image}" REPOSITORY="${immutable_repository}" TAG="${VERSION}" \
         bash podx/scripts/check-immutable-tag.sh)"
+    if [[ "${dry_run}" == true ]]; then
+        echo "dry run: built and probed ${VERSION} (${channel}, ${build_arch}); immutable tag is ${immutable_state} on Docker Hub"
+        echo "dry run: skipped push of ${immutable_image} and ${moving_image}"
+        podman manifest inspect "${local_manifest}"
+        for img in "${images[@]}"; do
+            podman rmi "${img}" >/dev/null 2>&1 || echo "warning: could not remove ${img}" >&2
+        done
+        podman manifest rm "${local_manifest}" >/dev/null 2>&1 || true
+        exit 0
+    fi
     if [[ "${immutable_state}" == absent ]]; then
         echo "==> pushing ${immutable_image} (${build_arch})"
         podman manifest push --all "${local_manifest}" "${immutable_image}"
@@ -603,9 +665,6 @@ release-dockerhub *ARGS:
     # manifest list IS the tag — no pull/tag/push dance on a single image.
     echo "==> pushing ${moving_image}"
     podman manifest push --all "${local_manifest}" "${moving_image}"
-    S3_ENDPOINT="${S3_ENDPOINT}" S3_BUCKET="${S3_BUCKET}" \
-        S3_ACCESS_KEY="${S3_ACCESS_KEY}" S3_SECRET_KEY="${S3_SECRET_KEY}" \
-        bash podx/scripts/publish-install-scripts.sh
     echo "released ${VERSION} (${channel}, ${build_arch}) → docker.io/${DOCKERHUB_USER}/${DOCKERHUB_REPO}"
 
     # Reclaim disk: the release now lives on Docker Hub, so drop the local
