@@ -1,7 +1,8 @@
 name: ci
 
 # Compile gate for main: API (with the `saml` feature the release binary
-# ships), UI type-check + build, and the release Dockerfile (amd64, no push).
+# ships) and UI type-check + build. The Dockerfile is exercised by the release
+# workflow (manual dispatch defaults to a dry run).
 
 on:
   push:
@@ -62,30 +63,3 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run build
-
-  image:
-    # Same Dockerfile + build args as `just release-dockerhub`, amd64 only.
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: podman build (linux/amd64)
-        working-directory: apps
-        run: |
-          podman build --platform=linux/amd64 \
-            -f Dockerfile \
-            --build-arg VITE_API_URL="" \
-            --build-arg LITEPOD_VERSION="ci-${GITHUB_SHA::7}" \
-            --build-arg LITEPOD_GIT_SHA="${GITHUB_SHA::7}" \
-            --build-arg TARGETARCH=amd64 \
-            -t localhost/litepod-ci:latest \
-            .
-
-      - name: Probe image (podman, podman-compose, CA bundle)
-        run: |
-          img=localhost/litepod-ci:latest
-          podman run --rm --entrypoint /bin/sh "$img" -c 'test -x /usr/bin/podman'
-          podman run --rm --entrypoint /bin/sh "$img" -c 'dpkg --compare-versions "$(dpkg-query -W podman | cut -f2)" ge 4.7'
-          podman run --rm --entrypoint /bin/sh "$img" -c 'test -x /usr/bin/podman-compose && dpkg-query -W podman-compose'
-          podman run --rm --entrypoint /usr/bin/test "$img" -s /etc/ssl/certs/ca-certificates.crt

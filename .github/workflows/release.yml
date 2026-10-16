@@ -1,7 +1,12 @@
 name: release
 
-# Runs `just release-dockerhub` (multiarch: amd64 native + arm64 via `cross`,
-# probed under qemu) on a GitHub runner instead of the Linux release server.
+# Multiarch release to Docker Hub, split into parallel jobs:
+#   prepare        -> resolve + validate version/channel/caddy pin
+#   build (amd64)  -> native image build + probe          } in parallel
+#   build (arm64)  -> `cross` binary + qemu image + probe  }
+#   publish        -> load both images, assemble the manifest list, push
+# Mirrors `just release-dockerhub` (used on the Linux release server); keep the
+# build args, label check and probes in sync with that recipe.
 #
 # Triggers:
 #   - push a tag vX.Y.Z           -> stable channel (:vX.Y.Z + :latest)
@@ -9,9 +14,7 @@ name: release
 #   - manual dispatch with a version (same rules). `dry_run` (default on)
 #     builds, probes and assembles the manifest but pushes nothing.
 #
-# The runner is always fresh, so every run is the equivalent of `-- --no-cache`.
-# apps/api/.env and apps/podx/.env are generated here from the tag, the pins in
-# apps/scripts/install.sh, and the DOCKERHUB_TOKEN secret.
+# The runners are always fresh, so every run is the equivalent of `-- --no-cache`.
 #
 # version.json and the install scripts are published from the website
 # (litepod.sh), not here.
@@ -37,27 +40,26 @@ concurrency:
 permissions:
   contents: read
 
-# The project (Justfile, Dockerfile, api/, ui/, podx/) lives in apps/.
+# The project (Dockerfile, api/, ui/, podx/) lives in apps/.
 defaults:
   run:
     working-directory: apps
 
 jobs:
-  release:
+  prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
+      dry_run: ${{ steps.version.outputs.dry_run }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h /
 
       - name: Resolve version and channel
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
             version="${INPUT_VERSION}"
@@ -66,42 +68,130 @@ jobs:
           fi
           if [[ "${version}" == *-alpha.* ]]; then channel=alpha; else channel=stable; fi
           bash podx/scripts/validate-release-tag.sh "${channel}" "${version}"
+          caddy="$(sed -n 's/^readonly FALLBACK_CADDY_IMAGE_TAG="\(.*\)"/\1/p' scripts/install.sh)"
+          : "${caddy:?caddy pin missing in scripts/install.sh}"
+          [[ "${caddy}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ && "${caddy}" != latest ]] || {
+            echo "invalid core service tag: ${caddy}" >&2; exit 1;
+          }
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      IMAGE: localhost/litepod-build-${{ matrix.arch }}:${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The release cargo build (duckdb, etc.) overflows the runner's default
+      # free disk otherwise ("no space left on device").
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
 
       - uses: dtolnay/rust-toolchain@stable
+        if: matrix.arch == 'arm64'
         with:
           targets: aarch64-unknown-linux-gnu
 
       - uses: taiki-e/install-action@v2
+        if: matrix.arch == 'arm64'
         with:
-          tool: just,cross
+          tool: cross
 
       - name: Register qemu binfmt (arm64 image build + probe)
+        if: matrix.arch == 'arm64'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Write api/.env and podx/.env
+      # Natively cross-compiled on the amd64 host; the Dockerfile's arm64
+      # stage only copies it in (PREBUILT_API), so no Rust runs under qemu.
+      - name: cross build arm64 binary
+        if: matrix.arch == 'arm64'
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          CHANNEL: ${{ steps.version.outputs.channel }}
+          CROSS_CONTAINER_ENGINE: podman
         run: |
-          caddy="$(sed -n 's/^readonly FALLBACK_CADDY_IMAGE_TAG="\(.*\)"/\1/p' scripts/install.sh)"
-          : "${caddy:?caddy pin missing in scripts/install.sh}"
-          suffix=""
-          [[ "${CHANNEL}" == alpha ]] && suffix=_ALPHA
-          {
-            echo "LITEPOD_VERSION${suffix}=${VERSION}"
-            echo "CADDY_VERSION${suffix}=${caddy}"
-          } > api/.env
-          {
-            echo "DOCKERHUB_USER=litepod"
-            echo "DOCKERHUB_REPO=litepod"
-            echo "TARGET_PLATFORM=linux/amd64"
-            echo "CROSS_CONTAINER_ENGINE=podman"
-            echo "BUILD_ARCH=multiarch"
-          } > podx/.env
+          cross build --release \
+            --features saml \
+            --target aarch64-unknown-linux-gnu \
+            --manifest-path api/Cargo.toml \
+            --target-dir api/target
+
+      - name: podman build (linux/${{ matrix.arch }})
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          extra=()
+          [[ "${ARCH}" == arm64 ]] && extra+=(--build-arg PREBUILT_API=api/target/aarch64-unknown-linux-gnu/release/litepod-api)
+          podman build --platform="linux/${ARCH}" \
+            -f Dockerfile \
+            --build-arg VITE_API_URL="" \
+            --build-arg LITEPOD_VERSION="${VERSION}" \
+            --build-arg LITEPOD_GIT_SHA="${GITHUB_SHA::7}" \
+            --build-arg TARGETARCH="${ARCH}" \
+            "${extra[@]}" \
+            -t "${IMAGE}" \
+            .
+
+      # Version label gate + podman/podman-compose/CA probes, as in
+      # `just release-dockerhub`. dpkg queries, not `podman`, because podman
+      # segfaults under qemu.
+      - name: Probe image
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          label="$(podman image inspect --format '{{ index .Labels "org.opencontainers.image.version" }}' "${IMAGE}")"
+          [[ "${label}" == "${VERSION}" ]] || { echo "version label mismatch: expected ${VERSION}, got ${label:-<missing>}" >&2; exit 1; }
+          run() { podman run --rm --platform="linux/${ARCH}" "$@"; }
+          run --entrypoint /bin/sh "${IMAGE}" -c 'test -x /usr/bin/podman'
+          run --entrypoint /bin/sh "${IMAGE}" -c 'dpkg --compare-versions "$(dpkg-query -W podman | cut -f2)" ge 4.7'
+          run --entrypoint /bin/sh "${IMAGE}" -c 'test -x /usr/bin/podman-compose && dpkg-query -W podman-compose'
+          run --entrypoint /usr/bin/test "${IMAGE}" -s /etc/ssl/certs/ca-certificates.crt
+
+      - name: Save image
+        run: podman save -o "${RUNNER_TEMP}/image-${{ matrix.arch }}.tar" "${IMAGE}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.arch }}
+          path: ${{ runner.temp }}/image-${{ matrix.arch }}.tar
+          retention-days: 1
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      CHANNEL: ${{ needs.prepare.outputs.channel }}
+      DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+      REPOSITORY: litepod/litepod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: ${{ runner.temp }}/images
+          merge-multiple: true
+
+      - name: Assemble manifest list
+        run: |
+          local_manifest="localhost/litepod-release:${VERSION}"
+          podman manifest create "${local_manifest}"
+          for a in amd64 arm64; do
+            podman load -i "${RUNNER_TEMP}/images/image-${a}.tar"
+            podman manifest add "${local_manifest}" "containers-storage:localhost/litepod-build-${a}:${VERSION}"
+          done
+          podman manifest inspect "${local_manifest}"
 
       - name: podman login docker.io
         env:
@@ -110,32 +200,38 @@ jobs:
           : "${DOCKERHUB_TOKEN:?secret DOCKERHUB_TOKEN is not set}"
           printf '%s' "${DOCKERHUB_TOKEN}" | podman login docker.io -u litepod --password-stdin
 
-      - name: just release-dockerhub
-        env:
-          CHANNEL: ${{ steps.version.outputs.channel }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      - name: Push
         run: |
-          args=()
-          [[ "${CHANNEL}" == alpha ]] && args+=(--alpha)
-          [[ "${DRY_RUN}" == true ]] && args+=(--dry-run)
-          if (( ${#args[@]} )); then
-            just release-dockerhub -- "${args[@]}"
-          else
-            just release-dockerhub
+          local_manifest="localhost/litepod-release:${VERSION}"
+          immutable_image="docker.io/${REPOSITORY}:${VERSION}"
+          moving_tag=latest
+          [[ "${CHANNEL}" == alpha ]] && moving_tag=alpha
+          moving_image="docker.io/${REPOSITORY}:${moving_tag}"
+          # Resumable: never republish the immutable tag if the registry
+          # already resolves it — see podx/scripts/check-immutable-tag.sh.
+          immutable_state="$(IMAGE="${immutable_image}" REPOSITORY="${REPOSITORY}" TAG="${VERSION}" \
+            bash podx/scripts/check-immutable-tag.sh)"
+          if [[ "${DRY_RUN}" == true ]]; then
+            echo "dry run: immutable tag is ${immutable_state} on Docker Hub; skipped push of ${immutable_image} and ${moving_image}"
+            exit 0
           fi
+          if [[ "${immutable_state}" == absent ]]; then
+            podman manifest push --all "${local_manifest}" "${immutable_image}"
+          else
+            echo "immutable tag ${VERSION} already exists; reusing the remote release artifact"
+          fi
+          IMAGE="${immutable_image}" REPOSITORY="${REPOSITORY}" TAG="${VERSION}" \
+            bash podx/scripts/wait-for-immutable-tag.sh
+          podman manifest push --all "${local_manifest}" "${moving_image}"
 
       - name: Summary
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          CHANNEL: ${{ steps.version.outputs.channel }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
           {
             if [[ "${DRY_RUN}" == true ]]; then
               echo "### Dry run OK: ${VERSION} (${CHANNEL}, multiarch), nothing pushed"
             else
               echo "### Released ${VERSION} (${CHANNEL}, multiarch)"
-              echo "- image: \`docker.io/litepod/litepod:${VERSION}\`"
+              echo "- image: \`docker.io/${REPOSITORY}:${VERSION}\`"
             fi
             echo "- sha: ${GITHUB_SHA::7}"
           } >> "$GITHUB_STEP_SUMMARY"
