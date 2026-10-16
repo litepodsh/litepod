@@ -10,6 +10,11 @@ use crate::security::authz::permission::system_role_permissions;
 use crate::security::authz::{PermissionSet, Target};
 use crate::state::state::SharedState;
 
+/// Organizations one cloud user may create. Billing is per user
+/// (`billing_accounts.user_id`), so this is also the cap per subscription.
+/// Self-hosted has no cap.
+pub const CLOUD_MAX_ORGANIZATIONS_PER_USER: i64 = 20;
+
 pub async fn create_organization(
     state: &SharedState,
     user_id: &str,
@@ -40,10 +45,12 @@ pub async fn create_organization(
         crate::git::repositories::db::retry_on_stale_snapshot(|| async {
             let conn = crate::git::repositories::db::get_conn(state).await;
             let mut tx = conn.begin().await?;
-            if organization::count_created_on(&mut *tx, user_id).await? >= 3 {
-                return Err(AppError::ValidationError(
-                    "Cloud users can create at most three organizations".into(),
-                ));
+            if organization::count_created_on(&mut *tx, user_id).await?
+                >= CLOUD_MAX_ORGANIZATIONS_PER_USER
+            {
+                return Err(AppError::ValidationError(format!(
+                    "Cloud users can create at most {CLOUD_MAX_ORGANIZATIONS_PER_USER} organizations"
+                )));
             }
             organization::create_organization_on(
                 &mut *tx, &id, &req.name, &req.slug, desc, icon, icon_bg, plan, user_id,
