@@ -13,6 +13,8 @@ export type AnalyticsPoint = {
 	bytes_out: number;
 	avg_ms: number | null;
 	p95_ms: number | null;
+	/** Distinct non-bot visitors in this bucket. */
+	visitors: number;
 	/** Requests per application in this bucket, busiest first (organization view only). */
 	applications?: { key: string; requests: number }[];
 };
@@ -25,12 +27,14 @@ export type AnalyticsTotals = {
 	bytes_in: number;
 	avg_ms: number | null;
 	p95_ms: number | null;
+	/** Distinct non-bot visitors over the range (a visitor is unique per day). */
+	visitors: number;
 };
 
 export type StatusCount = { status: number; requests: number };
 
 export type TopEntry = {
-	/** Host, path or application id, depending on the list. */
+	/** Host, path, application id or dimension value, depending on the list. */
 	key: string;
 	requests: number;
 	errors: number;
@@ -48,6 +52,12 @@ export type Analytics = {
 	paths: TopEntry[];
 	/** Organization view only. */
 	applications: TopEntry[];
+	methods: TopEntry[];
+	protocols: TopEntry[];
+	/** Browser family, `bot`, `tool` (curl, SDKs), `other` or `unknown`. */
+	clients: TopEntry[];
+	/** Referer hosts other than the site itself. */
+	referrers: TopEntry[];
 };
 
 export type Sparklines = {

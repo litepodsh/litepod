@@ -22,7 +22,19 @@ top_domains = "Top 10 dominios"
 top_pages = "Top 10 páginas"
 total_requests = "Total de solicitudes"
 
+[client]
+bot = "Bots y rastreadores"
+other = "Otro"
+tool = "Scripts y SDKs"
+unknown = "Desconocido"
+
 [panel]
+clients = "Clientes"
+methods = "Métodos"
+protocols = "Protocolos"
+top_referrers = "Sitios de referencia"
+visitors = "Visitantes"
+visitors_sub = "Únicos por día, sin bots"
 app_description = "Solicitudes que esta app recibió a través del proxy de litepod."
 avg_hint = "prom. {value}"
 bandwidth = "Datos enviados"

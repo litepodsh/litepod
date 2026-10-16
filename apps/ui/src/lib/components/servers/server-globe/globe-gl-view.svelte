@@ -20,6 +20,8 @@
 	 * published; meshopt + WebP bring it to ~5 MB with full geometry and 1K maps.
 	 */
 	const ISS_MODEL = '/models/iss.glb';
+	/** NASA's Z2 spacesuit, Draco 16.9 MB → meshopt + 512 px WebP, 260 KB. */
+	const SUIT_MODEL = '/models/z2-suit.glb';
 	/** "UFO Flying Saucer Spaceship OVNI" by BlackHawk0512 (Sketchfab Standard), 26 MB → 1.5 MB. */
 	const UFO_MODEL = '/models/ufo.glb';
 
@@ -90,27 +92,24 @@
 	const ISS_BEACON_HIDE = 8;
 	/** ISS span in globe units (~115 km): NASA's 112 m model, blown up to be findable. */
 	const ISS_SPAN = 1.8;
-	/** Two laps of the earth. */
-	const UFO_FLIGHT_MS = 20_000;
+	/** Suit height in globe units: ~2.5 m on that ISS, a little over true scale so a zoom finds it. */
+	const SUIT_HEIGHT = 0.04;
+	/** Camera altitude when following the ISS: ~3 globe units above it (it flies at ~0.066). */
+	const ISS_FOLLOW_ALTITUDE = 0.1;
+	/** Moon to orbit, and orbit back to the moon. */
+	const UFO_TRAVEL_MS = 8_000;
+	/** Three laps of the earth. */
+	const UFO_LAPS = 3;
+	const UFO_ORBIT_MS = 30_000;
+	const UFO_FLIGHT_MS = 2 * UFO_TRAVEL_MS + UFO_ORBIT_MS;
 	/** Orbit radius, ~1100 km up, and the saucer's diameter, both in globe units. */
 	const UFO_ORBIT = 117;
 	const UFO_SIZE = 2.6;
-	const HOUR = 3600e3;
+	const UFO_EVERY = 15 * 60e3;
 
-	/** The hour's UFO moment, hashed from the hour so reloads and tabs agree on it. */
-	function ufoMoment(hour: number) {
-		let x = Math.imul(hour ^ 0x9e3779b9, 0x85ebca6b);
-		x ^= x >>> 13;
-		x = Math.imul(x, 0xc2b2ae35);
-		x ^= x >>> 16;
-		return hour * HOUR + ((x >>> 0) / 2 ** 32) * (HOUR - UFO_FLIGHT_MS);
-	}
-
-	/** The next UFO moment after `now`: one per clock hour, at a random minute. */
+	/** The next UFO moment after `now`: every quarter hour on the clock, so reloads and tabs agree. */
 	function nextUfo(now: number) {
-		const hour = Math.floor(now / HOUR);
-		const at = ufoMoment(hour);
-		return at > now ? at : ufoMoment(hour + 1);
+		return (Math.floor(now / UFO_EVERY) + 1) * UFO_EVERY;
 	}
 
 	/**
@@ -273,8 +272,9 @@ vec3 ground(float lng, float lat) {
 	let issDetailShown = false;
 	// svelte-ignore-next-line
 	let issWorld: any = null;
+	/** Scratch vectors for the ISS's attitude, reused every frame. */
 	// svelte-ignore-next-line
-	let issEuler: any = null;
+	let issAxes: any = null;
 	/** Loaded on the UFO's first flight, then reused. */
 	// svelte-ignore-next-line
 	let ufoModel: Promise<{ three: any; scene: any; dispose: () => void } | null> | null = null;
@@ -283,6 +283,8 @@ vec3 ground(float lng, float lat) {
 	let ufoTimer = 0;
 	/** Set while the ISS card is open, refreshed as it moves. */
 	let issInfo = $state<IssState | null>(null);
+	/** The camera follows the ISS once its fly-in transition ends. */
+	let issFollowFrom = 0;
 	const nightUniform: { value: unknown } = { value: null };
 	// svelte-ignore-next-line
 	let sunLight: any = null;
@@ -383,9 +385,18 @@ vec3 ground(float lng, float lat) {
 			scene.scale.setScalar(ISS_SPAN / span);
 			// glTF is Y-up; globe.gl's surface-facing objects are Z-up.
 			scene.rotation.x = Math.PI / 2;
+			// Before it is parented, its own matrices are issModel's frame.
+			scene.updateMatrixWorld();
+			const spots = suitSpots(three, scene);
 			issModel.add(scene);
 			issDetailShown = true;
-			return model;
+			const suit = spots.length ? loadSuits(spots) : Promise.resolve(null);
+			return {
+				dispose: () => {
+					model.dispose();
+					void suit.then((detail) => detail?.dispose());
+				},
+			};
 		} catch (error) {
 			// The beacon alone marks the ISS; only dev logs it.
 			if (import.meta.env.DEV) console.warn('[server-globe] ISS model not loaded', error);
@@ -394,9 +405,84 @@ vec3 ground(float lng, float lat) {
 	}
 
 	/**
-	 * Easter egg: a UFO comes out from behind the earth, laps it twice and slips
-	 * back behind it. It loads (~1.5 MB) only on its first flight. The orbit plane
-	 * holds the camera's line of sight, so both laps cross the visible disc.
+	 * Easter egg: spacewalkers spread over the ISS, two out on the truss and the
+	 * rest on the modules. Each `[x, y]` is a fraction of the model's half-extent
+	 * from its centre (x along the truss, y along-track); `y: null` searches the
+	 * whole depth for the truss. `yaw` lays the suit along the truss or a module.
+	 */
+	const SUIT_SPOTS: { x: number; y: number | null; yaw: number }[] = [
+		{ x: 0.35, y: null, yaw: -Math.PI / 2 },
+		{ x: -0.3, y: null, yaw: Math.PI / 2 },
+		{ x: 0.03, y: 0.3, yaw: 0 },
+		{ x: -0.05, y: -0.25, yaw: Math.PI },
+		{ x: 0.1, y: -0.55, yaw: 0.4 },
+		{ x: -0.12, y: 0.6, yaw: Math.PI - 0.4 },
+	];
+
+	/** Drops a ray onto NASA's ISS for each spot, so no suit floats; spots over nothing are skipped. */
+	function suitSpots(three: any, iss: any) {
+		const box = new three.Box3().setFromObject(iss);
+		const centre = box.getCenter(new three.Vector3());
+		const half = box.getSize(new three.Vector3()).multiplyScalar(0.5);
+		const ray = new three.Raycaster();
+		const down = new three.Vector3(0, 0, -1);
+		const from = new three.Vector3(0, 0, box.max.z + 1);
+		const drop = (y: number) => {
+			ray.set(from.setY(y), down);
+			return ray.intersectObject(iss, true)[0]?.point ?? null;
+		};
+		const spots = [];
+		for (const { x, y, yaw } of SUIT_SPOTS) {
+			from.setX(centre.x + half.x * x);
+			let point = y === null ? null : drop(centre.y + half.y * y);
+			// Across the whole depth, so the truss is found wherever it sits; the topmost surface wins.
+			if (y === null) {
+				for (let at = box.min.y; at <= box.max.y; at += half.y / 30) {
+					const hit = drop(at);
+					if (hit && (!point || hit.z > point.z)) point = hit;
+				}
+			}
+			if (point) spots.push({ point, yaw });
+		}
+		if (!spots.length && import.meta.env.DEV) console.warn('[server-globe] no spot for the spacesuits');
+		return spots;
+	}
+
+	async function loadSuits(
+		spots: { point: any; yaw: number }[],
+	): Promise<{ dispose: () => void } | null> {
+		try {
+			const model = await loadModel(SUIT_MODEL);
+			if (!model || !issModel) {
+				model?.dispose();
+				return null;
+			}
+			const { three, scene } = model;
+			const height = new three.Box3().setFromObject(scene).getSize(new three.Vector3()).y;
+			const scale = SUIT_HEIGHT / height;
+			// Clones share the one model's geometry and maps, so its dispose frees them all.
+			for (const [i, { point, yaw }] of spots.entries()) {
+				const suit = i === 0 ? scene : scene.clone();
+				suit.scale.setScalar(scale);
+				// Lying on the hull, face down to its work and head raised off it, so the
+				// camera, which always looks straight down at the earth, sees all of it.
+				suit.rotation.set(0.3, Math.PI, yaw, 'ZXY');
+				// Lifted by the suit's chest depth so it rests on the hull instead of in it.
+				suit.position.copy(point).setZ(point.z + 0.45 * scale);
+				issModel.add(suit);
+			}
+			return model;
+		} catch (error) {
+			if (import.meta.env.DEV) console.warn('[server-globe] spacesuit not loaded', error);
+			return null;
+		}
+	}
+
+	/**
+	 * Easter egg: a UFO drops in from the moon, laps the earth three times and
+	 * heads back. It loads (~1.5 MB) only on its first flight. The orbit plane
+	 * holds the moon and the camera's line of sight, so the laps cross the
+	 * visible disc and it arrives and leaves under the moon.
 	 */
 	async function launchUfo() {
 		if (!world || ufoFlight) return;
@@ -412,15 +498,19 @@ vec3 ground(float lng, float lat) {
 		scene.scale.setScalar(1);
 		const diameter = new three.Box3().setFromObject(scene).getSize(new three.Vector3()).x;
 		const toCamera = world.camera().position.clone().normalize();
-		const tilt = new three.Vector3().randomDirection();
-		const normal = new three.Vector3().crossVectors(toCamera, tilt).normalize();
-		// Starts at the far side, straight behind the earth.
-		const start = toCamera.clone().negate();
-		const across = new three.Vector3().crossVectors(normal, start);
+		const moonAt = new three.Vector3();
+		place(moonAt, [moonUniform.value.x, moonUniform.value.y], MOON_DISTANCE - MOON_RADIUS);
+		// Laps start and end straight under the moon.
+		const start = moonAt.clone().normalize();
+		const normal = new three.Vector3().crossVectors(start, toCamera);
+		// Moon right behind or in front of the camera: any plane through it will do.
+		if (normal.lengthSq() < 1e-4) normal.crossVectors(start, new three.Vector3().randomDirection());
+		const across = new three.Vector3().crossVectors(normal.normalize(), start);
 		if (Math.random() < 0.5) across.negate();
 		ufoFlight = {
 			scene,
 			started: performance.now(),
+			moonAt,
 			start,
 			across,
 			scale: UFO_SIZE / diameter,
@@ -444,9 +534,10 @@ vec3 ground(float lng, float lat) {
 			ufoFlight = null;
 			return;
 		}
-		// Two laps; eased at both ends so it pulls away and settles instead of popping.
-		const eased = p < 0.5 ? 0.5 * (2 * p) ** 1.6 : 1 - 0.5 * (2 - 2 * p) ** 1.6;
-		const angle = eased * 4 * Math.PI;
+		// Laps eased at both ends so it pulls away and settles instead of popping.
+		const o = Math.min(1, Math.max(0, (elapsed - UFO_TRAVEL_MS) / UFO_ORBIT_MS));
+		const eased = o < 0.5 ? 0.5 * (2 * o) ** 1.6 : 1 - 0.5 * (2 - 2 * o) ** 1.6;
+		const angle = eased * UFO_LAPS * 2 * Math.PI;
 		const radius = UFO_ORBIT + Math.sin(elapsed / 450) * 0.6;
 		flight.radial
 			.copy(flight.start)
@@ -457,13 +548,18 @@ vec3 ground(float lng, float lat) {
 			.multiplyScalar(Math.cos(angle))
 			.addScaledVector(flight.start, -Math.sin(angle));
 		scene.position.copy(flight.radial).multiplyScalar(radius);
+		// The moon legs: braking into orbit on the way in, speeding up on the way out.
+		const inbound = 1 - elapsed / UFO_TRAVEL_MS;
+		const outbound = (elapsed - UFO_TRAVEL_MS - UFO_ORBIT_MS) / UFO_TRAVEL_MS;
+		if (inbound > 0) scene.position.lerp(flight.moonAt, inbound ** 3);
+		else if (outbound > 0) scene.position.lerp(flight.moonAt, outbound ** 3);
 		// Deck away from the earth, a slow wobble, and the spin of a saucer.
 		scene.quaternion.setFromUnitVectors(flight.axisY, flight.radial);
 		scene.quaternion.premultiply(
 			flight.turn.setFromAxisAngle(flight.tangent, Math.sin(elapsed / 700) * 0.18),
 		);
 		scene.quaternion.multiply(flight.turn.setFromAxisAngle(flight.axisY, elapsed * 0.005));
-		// Fades in and out by scale (hidden behind the earth anyway at both ends).
+		// Fades in and out by scale, at the moon on both ends.
 		const grow = Math.min(1, elapsed / 600, (UFO_FLIGHT_MS - elapsed) / 600);
 		scene.scale.setScalar(flight.scale * grow);
 	}
@@ -515,11 +611,18 @@ vec3 ground(float lng, float lat) {
 		// hopping; globe.gl only places it once and would re-digest on every update.
 		const wrapper = issModel?.parent;
 		const state = issOrbit && world ? issOrbit.module.issState(issOrbit.satrec, now) : null;
-		if (state && wrapper && issEuler) {
+		const ahead = state && issOrbit ? issOrbit.module.issState(issOrbit.satrec, now + 1000) : null;
+		if (state && ahead && wrapper && issAxes) {
 			const { x, y, z } = world.getCoords(state.lat, state.lng, state.altitudeKm / 6371);
+			const next = world.getCoords(ahead.lat, ahead.lng, ahead.altitudeKm / 6371);
 			wrapper.position.set(x, y, z);
-			issEuler.set((-state.lat * Math.PI) / 180, (state.lng * Math.PI) / 180, 0, 'YXZ');
-			wrapper.setRotationFromEuler(issEuler);
+			// LVLH, like the real ISS: top to zenith, along-track axis on the velocity, truss across it.
+			const { up, fwd, side, basis } = issAxes;
+			up.set(x, y, z).normalize();
+			fwd.set(next.x - x, next.y - y, next.z - z).projectOnPlane(up).normalize();
+			side.crossVectors(fwd, up);
+			// The model's truss is X and its top Z (see loadIssDetail), so along-track is Y.
+			wrapper.quaternion.setFromRotationMatrix(basis.makeBasis(side, fwd, up));
 		}
 		if (state && now - issMovedAt > 500) {
 			issMovedAt = now;
@@ -530,6 +633,10 @@ vec3 ground(float lng, float lat) {
 			const shadowed = greatCircle(subsolar, [state.lng, state.lat]) > 90 + dip;
 			issBeacon?.color.set(shadowed ? palette.accent : '#fff3d6');
 			if (issInfo) issInfo = state;
+		}
+		// Riding over the ISS while its card is open; the zoom stays the user's.
+		if (state && issInfo && performance.now() > issFollowFrom) {
+			world.pointOfView({ lat: state.lat, lng: state.lng, altitude: world.pointOfView().altitude });
 		}
 		if (ufoFlight) flyUfo(performance.now());
 		if (issModel && issWorld && world) {
@@ -597,6 +704,8 @@ vec3 ground(float lng, float lat) {
 				.onGlobeReady(() => {
 					if (!disposed) ready = true;
 				})
+				// A click on the earth hands the camera back from the ISS.
+				.onGlobeClick(() => unfollowIss(true))
 				.backgroundColor('rgba(0,0,0,0)')
 				// globe.gl paints this on its own sky sphere, so the stars keep their
 				// spacing at any viewport ratio and hold still as the camera turns.
@@ -746,8 +855,11 @@ vec3 ground(float lng, float lat) {
 			};
 			// The model is a few pixels at the default zoom, so a beacon of fixed
 			// screen size marks it; tick() tints it by sunlight vs earth shadow.
+			// Faint on purpose: the ISS is an easter egg, not a landmark.
 			issBeacon = new three.SpriteMaterial({
 				map: issParts.glow,
+				opacity: 0.35,
+				transparent: true,
 				blending: three.AdditiveBlending,
 				depthWrite: false,
 				sizeAttenuation: false,
@@ -756,11 +868,16 @@ vec3 ground(float lng, float lat) {
 			const buildIss = () => {
 				const model = new three.Group();
 				const beacon = new three.Sprite(issBeacon);
-				beacon.scale.setScalar(0.045);
+				beacon.scale.setScalar(0.018);
 				model.add(beacon);
 				issModel = model;
 				issWorld = new three.Vector3();
-				issEuler = new three.Euler();
+				issAxes = {
+					up: new three.Vector3(),
+					fwd: new three.Vector3(),
+					side: new three.Vector3(),
+					basis: new three.Matrix4(),
+				};
 				return model;
 			};
 			void import('#lib/utils/iss.js')
@@ -775,7 +892,7 @@ vec3 ground(float lng, float lat) {
 						.objectAltitude((item: object) => (item as IssState).altitudeKm / 6371)
 						.objectFacesSurface(true)
 						.objectThreeObject(buildIss)
-						.onObjectClick(() => (issInfo = issOrbit!.module.issState(issOrbit!.satrec)));
+						.onObjectClick(followIss);
 				})
 				.catch((error) => {
 					// No ISS is fine; the globe never shows an error for it, only dev logs it.
@@ -836,7 +953,7 @@ vec3 ground(float lng, float lat) {
 			issDetailShown = false;
 			issModel = null;
 			issWorld = null;
-			issEuler = null;
+			issAxes = null;
 			issBeacon = null;
 			issOrbit = null;
 			issInfo = null;
@@ -846,6 +963,26 @@ vec3 ground(float lng, float lat) {
 			element.replaceChildren();
 		};
 	});
+
+	/** Opens the ISS card and flies down to ride over it, close enough to find the spacewalker. */
+	function followIss() {
+		if (!world || !issOrbit) return;
+		const state = issOrbit.module.issState(issOrbit.satrec);
+		if (!state) return;
+		issInfo = state;
+		world.controls().autoRotate = false;
+		world.pointOfView({ lat: state.lat, lng: state.lng, altitude: ISS_FOLLOW_ALTITUDE }, 1200);
+		issFollowFrom = performance.now() + 1200;
+	}
+
+	/** Stops following the ISS; `zoomOut` also pulls back to the whole earth. */
+	function unfollowIss(zoomOut: boolean) {
+		if (!issInfo) return;
+		issInfo = null;
+		if (!world) return;
+		world.controls().autoRotate = !view && !reducedMotion();
+		if (zoomOut) world.pointOfView({ altitude: 2.3 }, 1200);
+	}
 
 	function resize() {
 		if (!world || !host) return;
@@ -918,7 +1055,7 @@ vec3 ground(float lng, float lat) {
 				type="button"
 				class="grid size-6 place-items-center rounded-full text-[#a2a8b4] transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
 				aria-label={t('organizations.topology.globe_iss_close')}
-				onclick={() => (issInfo = null)}>
+				onclick={() => unfollowIss(false)}>
 				<XIcon class="size-3.5" />
 			</button>
 		</div>

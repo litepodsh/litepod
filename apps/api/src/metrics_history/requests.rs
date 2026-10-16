@@ -66,10 +66,33 @@ CREATE TABLE IF NOT EXISTS request_paths (
     requests BIGINT NOT NULL,
     errors BIGINT NOT NULL,
     duration_sum_ms DOUBLE NOT NULL
+);
+-- Bounded per-minute top values of one request attribute (method, protocol, client, referrer).
+CREATE TABLE IF NOT EXISTS request_dimensions (
+    ts TIMESTAMP NOT NULL,
+    organization_id VARCHAR NOT NULL,
+    application_id VARCHAR NOT NULL,
+    dimension VARCHAR NOT NULL,
+    value VARCHAR NOT NULL,
+    requests BIGINT NOT NULL,
+    errors BIGINT NOT NULL
+);
+-- One row per (minute, application, visitor): a salted hash of day, client IP and
+-- User-Agent, never the IP itself. The day in the salt means visitors are unique per day.
+CREATE TABLE IF NOT EXISTS request_visitors (
+    ts TIMESTAMP NOT NULL,
+    organization_id VARCHAR NOT NULL,
+    application_id VARCHAR NOT NULL,
+    visitor BIGINT NOT NULL
 );";
 
 /// Tables `apply_retention` prunes alongside `container_samples`.
-pub const TABLES: [&str; 2] = ["request_rollups", "request_paths"];
+pub const TABLES: [&str; 4] = [
+    "request_rollups",
+    "request_paths",
+    "request_dimensions",
+    "request_visitors",
+];
 
 /// Upper bounds (ms) of the latency histogram columns `lat_0..lat_8`; the last is open.
 const LATENCY_BOUNDS_MS: [f64; 9] = [
@@ -89,6 +112,11 @@ const FLUSH_EVERY: Duration = Duration::from_secs(60);
 /// raise or move to a sketch if real top-N accuracy matters.
 const MAX_PATH_KEYS: usize = 20_000;
 const PATHS_PER_APP_MINUTE: usize = 20;
+/// shortcut: per-minute cap on distinct visitors held in memory; past it a minute's
+/// unique count undercounts. Raise or switch to a sketch for very high traffic.
+const MAX_VISITOR_KEYS: usize = 100_000;
+const DIMENSIONS: [&str; 4] = ["method", "protocol", "client", "referrer"];
+const METHODS: [&str; 7] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const MAX_PATH_LEN: usize = 160;
 const TOP_LIMIT: usize = 10;
 const ACCESS_LOGGER: &str = "litepod_access";
@@ -161,6 +189,73 @@ struct AccessLine {
     duration_ms: f64,
     bytes_out: i64,
     bytes_in: i64,
+    /// One of [`METHODS`] or `OTHER`.
+    method: &'static str,
+    /// `HTTP/1.1`, `HTTP/2.0`, `HTTP/3.0`; None when Caddy did not log one.
+    protocol: Option<String>,
+    /// See [`client_family`].
+    client: &'static str,
+    /// Referer host, None when absent or the site itself.
+    referrer: Option<String>,
+    /// Salted hash of (day, client IP, User-Agent); None for bots and scripts.
+    visitor: Option<i64>,
+}
+
+/// Coarse client from a User-Agent. Order matters: Edge and Opera also say Chrome,
+/// and Chrome also says Safari.
+fn client_family(user_agent: &str) -> &'static str {
+    const BOTS: [&str; 10] = [
+        "bot",
+        "crawl",
+        "spider",
+        "slurp",
+        "facebookexternalhit",
+        "preview",
+        "monitor",
+        "uptime",
+        "headless",
+        "lighthouse",
+    ];
+    const TOOLS: [&str; 14] = [
+        "curl", "wget", "python", "go-http", "okhttp", "axios", "node", "java/", "httpie",
+        "postman", "insomnia", "libwww", "reqwest", "ruby",
+    ];
+    let ua = user_agent.to_ascii_lowercase();
+    let has = |needles: &[&str]| needles.iter().any(|needle| ua.contains(needle));
+    if ua.is_empty() {
+        "unknown"
+    } else if has(&BOTS) {
+        "bot"
+    } else if has(&TOOLS) {
+        "tool"
+    } else if has(&["edg/", "edga/", "edgios/"]) {
+        "edge"
+    } else if has(&["opr/", "opera"]) {
+        "opera"
+    } else if has(&["firefox/", "fxios/"]) {
+        "firefox"
+    } else if has(&["chrome/", "crios/", "chromium/"]) {
+        "chrome"
+    } else if ua.contains("safari/") {
+        "safari"
+    } else {
+        "other"
+    }
+}
+
+fn visitor_id(day: i64, ip: &str, user_agent: &str) -> i64 {
+    use sha2::{Digest, Sha256};
+    // Validated at startup in main.rs; the salt keeps the hash from mapping back to an IP.
+    static SECRET: LazyLock<String> =
+        LazyLock::new(|| std::env::var("HASH_SECRET").unwrap_or_default());
+    let digest = Sha256::new()
+        .chain_update(SECRET.as_bytes())
+        .chain_update(day.to_le_bytes())
+        .chain_update(ip.as_bytes())
+        .chain_update([0])
+        .chain_update(user_agent.as_bytes())
+        .finalize();
+    i64::from_le_bytes(digest[..8].try_into().expect("sha256 is 32 bytes"))
 }
 
 fn parse_line(line: &str, now_ms: i64) -> Option<AccessLine> {
@@ -189,12 +284,39 @@ fn parse_line(line: &str, now_ms: i64) -> Option<AccessLine> {
         }
         path.truncate(cut);
     }
+    let ts_ms = value["ts"]
+        .as_f64()
+        .map(|seconds| (seconds * 1_000.0) as i64)
+        .unwrap_or(now_ms);
+    let host = host.to_ascii_lowercase();
+    // Caddy logs each header as a list of values under its canonical name.
+    let header = |name: &str| request["headers"][name][0].as_str().unwrap_or("");
+    let user_agent = header("User-Agent");
+    let client = client_family(user_agent);
+    let method = request["method"].as_str().unwrap_or("");
+    let method = METHODS
+        .into_iter()
+        .find(|known| *known == method)
+        .unwrap_or("OTHER");
+    let protocol = request["proto"]
+        .as_str()
+        .filter(|proto| proto.starts_with("HTTP/") && proto.len() <= 8)
+        .map(str::to_owned);
+    let referrer = reqwest::Url::parse(header("Referer"))
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .filter(|referrer| *referrer != host);
+    // `client_ip` honors trusted proxies (a CDN in front); older Caddy only has `remote_ip`.
+    let ip = request["client_ip"]
+        .as_str()
+        .or_else(|| request["remote_ip"].as_str())
+        .filter(|ip| !ip.is_empty());
+    let visitor = ip
+        .filter(|_| !matches!(client, "bot" | "tool"))
+        .map(|ip| visitor_id(ts_ms.div_euclid(86_400_000), ip, user_agent));
     Some(AccessLine {
-        ts_ms: value["ts"]
-            .as_f64()
-            .map(|seconds| (seconds * 1_000.0) as i64)
-            .unwrap_or(now_ms),
-        host: host.to_ascii_lowercase(),
+        ts_ms,
+        host,
         path,
         // Caddy logs 0 when no handler wrote a header; the client got its implicit 200.
         status: value["status"]
@@ -204,6 +326,11 @@ fn parse_line(line: &str, now_ms: i64) -> Option<AccessLine> {
         duration_ms: value["duration"].as_f64().unwrap_or(0.0) * 1_000.0,
         bytes_out: value["size"].as_i64().unwrap_or(0),
         bytes_in: value["bytes_read"].as_i64().unwrap_or(0),
+        method,
+        protocol,
+        client,
+        referrer,
+        visitor,
     })
 }
 
@@ -230,14 +357,62 @@ struct PathRollup {
     duration_sum_ms: f64,
 }
 
+#[derive(Debug, Default, Clone, PartialEq)]
+struct Counts {
+    requests: i64,
+    errors: i64,
+}
+
 type RollupKey = (i64, Owner, Option<String>, String, i64);
 type PathKey = (i64, Owner, String);
-type Drained = (Vec<(RollupKey, Rollup)>, Vec<(PathKey, PathRollup)>);
+type DimensionKey = (i64, Owner, &'static str, String);
+type VisitorKey = (i64, Owner, i64);
+
+#[derive(Debug, Default)]
+struct Drained {
+    rollups: Vec<(RollupKey, Rollup)>,
+    paths: Vec<(PathKey, PathRollup)>,
+    dimensions: Vec<(DimensionKey, Counts)>,
+    visitors: Vec<VisitorKey>,
+}
+
+impl Drained {
+    fn is_empty(&self) -> bool {
+        self.rollups.is_empty()
+            && self.paths.is_empty()
+            && self.dimensions.is_empty()
+            && self.visitors.is_empty()
+    }
+}
 
 #[derive(Debug, Default)]
 struct Aggregator {
     rollups: HashMap<RollupKey, Rollup>,
     paths: HashMap<PathKey, PathRollup>,
+    dimensions: HashMap<DimensionKey, Counts>,
+    visitors: HashSet<VisitorKey>,
+}
+
+/// The `limit` busiest rows of each group, ties broken by key.
+fn top_per_group<G: Eq + std::hash::Hash + Clone, K: Ord, V>(
+    rows: impl Iterator<Item = (G, K, V)>,
+    limit: usize,
+    requests: impl Fn(&V) -> i64,
+) -> Vec<(G, K, V)> {
+    let mut groups: HashMap<G, Vec<(K, V)>> = HashMap::new();
+    for (group, key, value) in rows {
+        groups.entry(group).or_default().push((key, value));
+    }
+    let mut out = Vec::new();
+    for (group, mut rows) in groups {
+        rows.sort_by(|a, b| requests(&b.1).cmp(&requests(&a.1)).then(a.0.cmp(&b.0)));
+        rows.truncate(limit);
+        out.extend(
+            rows.into_iter()
+                .map(|(key, value)| (group.clone(), key, value)),
+        );
+    }
+    out
 }
 
 impl Aggregator {
@@ -263,6 +438,29 @@ impl Aggregator {
             .position(|bound| line.duration_ms <= *bound)
             .unwrap_or(LATENCY_BOUNDS_MS.len() - 1);
         rollup.latency[bucket] += 1;
+        let error = i64::from(line.status >= 500);
+
+        let values = [
+            Some(line.method.to_owned()),
+            line.protocol,
+            Some(line.client.to_owned()),
+            line.referrer,
+        ];
+        for (dimension, value) in DIMENSIONS.into_iter().zip(values) {
+            let Some(value) = value else { continue };
+            let key = (minute, owner.clone(), dimension, value);
+            if self.dimensions.len() >= MAX_PATH_KEYS && !self.dimensions.contains_key(&key) {
+                continue;
+            }
+            let counts = self.dimensions.entry(key).or_default();
+            counts.requests += 1;
+            counts.errors += error;
+        }
+        if let Some(visitor) = line.visitor
+            && self.visitors.len() < MAX_VISITOR_KEYS
+        {
+            self.visitors.insert((minute, owner.clone(), visitor));
+        }
 
         let key = (minute, owner, line.path);
         if self.paths.len() >= MAX_PATH_KEYS && !self.paths.contains_key(&key) {
@@ -270,30 +468,42 @@ impl Aggregator {
         }
         let path = self.paths.entry(key).or_default();
         path.requests += 1;
-        path.errors += i64::from(line.status >= 500);
+        path.errors += error;
         path.duration_sum_ms += line.duration_ms;
     }
 
     /// Everything so far; partial minutes are fine because every query sums.
     fn drain(&mut self) -> Drained {
-        let rollups = self.rollups.drain().collect();
-        let mut by_app: HashMap<(i64, Owner), Vec<(String, PathRollup)>> = HashMap::new();
-        for ((minute, owner, path), rollup) in self.paths.drain() {
-            by_app
-                .entry((minute, owner))
-                .or_default()
-                .push((path, rollup));
+        let paths = top_per_group(
+            self.paths
+                .drain()
+                .map(|((minute, owner, path), rollup)| ((minute, owner), path, rollup)),
+            PATHS_PER_APP_MINUTE,
+            |rollup| rollup.requests,
+        );
+        let dimensions = top_per_group(
+            self.dimensions
+                .drain()
+                .map(|((minute, owner, dimension, value), counts)| {
+                    ((minute, owner, dimension), value, counts)
+                }),
+            PATHS_PER_APP_MINUTE,
+            |counts| counts.requests,
+        );
+        Drained {
+            rollups: self.rollups.drain().collect(),
+            paths: paths
+                .into_iter()
+                .map(|((minute, owner), path, rollup)| ((minute, owner, path), rollup))
+                .collect(),
+            dimensions: dimensions
+                .into_iter()
+                .map(|((minute, owner, dimension), value, counts)| {
+                    ((minute, owner, dimension, value), counts)
+                })
+                .collect(),
+            visitors: self.visitors.drain().collect(),
         }
-        let mut paths = Vec::new();
-        for ((minute, owner), mut rows) in by_app {
-            rows.sort_by(|a, b| b.1.requests.cmp(&a.1.requests).then(a.0.cmp(&b.0)));
-            rows.truncate(PATHS_PER_APP_MINUTE);
-            paths.extend(
-                rows.into_iter()
-                    .map(|(path, rollup)| ((minute, owner.clone(), path), rollup)),
-            );
-        }
-        (rollups, paths)
     }
 }
 
@@ -328,13 +538,9 @@ fn ts(ms: i64) -> duckdb::types::Value {
     duckdb::types::Value::Timestamp(duckdb::types::TimeUnit::Millisecond, ms)
 }
 
-fn insert(
-    conn: &Connection,
-    rollups: &[(RollupKey, Rollup)],
-    paths: &[(PathKey, PathRollup)],
-) -> duckdb::Result<()> {
+fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
     let mut appender = conn.appender("request_rollups")?;
-    for ((minute, owner, server_id, host, status), r) in rollups {
+    for ((minute, owner, server_id, host, status), r) in &batch.rollups {
         let l = &r.latency;
         appender.append_row(params![
             ts(*minute),
@@ -361,7 +567,7 @@ fn insert(
     }
     appender.flush()?;
     let mut appender = conn.appender("request_paths")?;
-    for ((minute, owner, path), r) in paths {
+    for ((minute, owner, path), r) in &batch.paths {
         appender.append_row(params![
             ts(*minute),
             owner.organization_id,
@@ -370,6 +576,29 @@ fn insert(
             r.requests,
             r.errors,
             r.duration_sum_ms,
+        ])?;
+    }
+    appender.flush()?;
+    let mut appender = conn.appender("request_dimensions")?;
+    for ((minute, owner, dimension, value), counts) in &batch.dimensions {
+        appender.append_row(params![
+            ts(*minute),
+            owner.organization_id,
+            owner.application_id,
+            dimension,
+            value,
+            counts.requests,
+            counts.errors,
+        ])?;
+    }
+    appender.flush()?;
+    let mut appender = conn.appender("request_visitors")?;
+    for (minute, owner, visitor) in &batch.visitors {
+        appender.append_row(params![
+            ts(*minute),
+            owner.organization_id,
+            owner.application_id,
+            visitor,
         ])?;
     }
     appender.flush()
@@ -414,6 +643,8 @@ pub struct AnalyticsPoint {
     pub bytes_out: i64,
     pub avg_ms: Option<f64>,
     pub p95_ms: Option<f64>,
+    /// Distinct non-bot visitors in this bucket.
+    pub visitors: i64,
     /// Requests per application in this bucket, busiest first (organization view only).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub applications: Vec<BucketApplication>,
@@ -434,6 +665,8 @@ pub struct AnalyticsTotals {
     pub bytes_in: i64,
     pub avg_ms: Option<f64>,
     pub p95_ms: Option<f64>,
+    /// Distinct non-bot visitors over the range (a visitor is unique per day).
+    pub visitors: i64,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -444,7 +677,7 @@ pub struct StatusCount {
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct TopEntry {
-    /// Host, path or application id, depending on the list.
+    /// Host, path, application id or dimension value, depending on the list.
     pub key: String,
     pub requests: i64,
     pub errors: i64,
@@ -463,6 +696,12 @@ pub struct AnalyticsDto {
     pub paths: Vec<TopEntry>,
     /// Per-application breakdown (organization view only; empty for one application).
     pub applications: Vec<TopEntry>,
+    pub methods: Vec<TopEntry>,
+    pub protocols: Vec<TopEntry>,
+    /// Browser family, `bot`, `tool` (curl, SDKs), `other` or `unknown`.
+    pub clients: Vec<TopEntry>,
+    /// Referer hosts other than the site itself.
+    pub referrers: Vec<TopEntry>,
 }
 
 /// ponytail: p95 from a fixed 9-bucket histogram, reported as the bucket's upper bound
@@ -530,6 +769,10 @@ fn analytics(
         hosts: Vec::new(),
         paths: Vec::new(),
         applications: Vec::new(),
+        methods: Vec::new(),
+        protocols: Vec::new(),
+        clients: Vec::new(),
+        referrers: Vec::new(),
     };
     if applications.is_empty() {
         return Ok(dto);
@@ -667,6 +910,53 @@ fn analytics(
             })
         })?
         .collect::<duckdb::Result<_>>()?;
+
+    let mut bucket_values = vec![duckdb::types::Value::BigInt(bucket_seconds)];
+    bucket_values.extend(values.iter().cloned());
+    let mut statement = conn.prepare(&format!(
+        "SELECT epoch_ms(time_bucket(to_seconds(?::BIGINT), ts, TIMESTAMP '1970-01-01')) AS bucket,
+                count(DISTINCT visitor)
+         FROM request_visitors WHERE {filter} GROUP BY bucket"
+    ))?;
+    let rows = statement.query_map(params_from_iter(bucket_values), |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    for row in rows {
+        let (bucket, visitors) = row?;
+        if let Some(point) = dto.series.iter_mut().find(|point| point.ts == bucket) {
+            point.visitors = visitors;
+        }
+    }
+    dto.totals.visitors = conn.query_row(
+        &format!("SELECT count(DISTINCT visitor) FROM request_visitors WHERE {filter}"),
+        params_from_iter(values.iter()),
+        |row| row.get(0),
+    )?;
+
+    let mut statement = conn.prepare(&format!(
+        "SELECT value, sum(requests) AS n, sum(errors) FROM request_dimensions
+         WHERE {filter} AND dimension = ?
+         GROUP BY value ORDER BY n DESC, value LIMIT {TOP_LIMIT}"
+    ))?;
+    let mut dimension = |name: &str| -> duckdb::Result<Vec<TopEntry>> {
+        let mut params = values.clone();
+        params.push(duckdb::types::Value::Text(name.to_string()));
+        statement
+            .query_map(params_from_iter(params), |row| {
+                Ok(TopEntry {
+                    key: row.get(0)?,
+                    requests: row.get(1)?,
+                    errors: row.get(2)?,
+                    bytes_out: None,
+                    avg_ms: None,
+                })
+            })?
+            .collect()
+    };
+    dto.methods = dimension("method")?;
+    dto.protocols = dimension("protocol")?;
+    dto.clients = dimension("client")?;
+    dto.referrers = dimension("referrer")?;
     Ok(dto)
 }
 
@@ -756,14 +1046,14 @@ async fn refresh_hosts(state: &SharedState) -> Result<(), AppError> {
 }
 
 async fn flush() -> Result<(), AppError> {
-    let (rollups, paths) = AGGREGATOR
+    let batch = AGGREGATOR
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .drain();
-    if rollups.is_empty() && paths.is_empty() {
+    if batch.is_empty() {
         return Ok(());
     }
-    with_db(move |conn| insert(conn, &rollups, &paths)).await
+    with_db(move |conn| insert(conn, &batch)).await
 }
 
 /// Caddy's own address(es) plus loopback (dev, where podman forwards from the host).
@@ -1055,6 +1345,11 @@ mod tests {
             duration_ms,
             bytes_out: 100,
             bytes_in: 10,
+            method: "GET",
+            protocol: Some("HTTP/2.0".into()),
+            client: "chrome",
+            referrer: None,
+            visitor: Some(1),
         }
     }
 
@@ -1079,6 +1374,61 @@ mod tests {
             r#"{"logger":"http.log.access","request":{"host":"[::1]","uri":"/"},"status":204}"#;
         assert_eq!(parse_line(ipv6, NOW).unwrap().host, "[::1]");
         assert_eq!(parse_line(ipv6, NOW).unwrap().ts_ms, NOW);
+        assert_eq!(parse_line(ipv6, NOW).unwrap().client, "unknown");
+        assert_eq!(parse_line(ipv6, NOW).unwrap().visitor, None);
+    }
+
+    #[test]
+    fn parses_client_referrer_and_visitor() {
+        let raw = |ip: &str, ua: &str, referer: &str| {
+            format!(
+                r#"{{"logger":"http.log.access","ts":1790000000,"status":200,"request":{{"client_ip":"{ip}","remote_ip":"10.0.0.1","proto":"HTTP/3.0","method":"PROPFIND","host":"shop.test","uri":"/","headers":{{"User-Agent":["{ua}"],"Referer":["{referer}"]}}}}}}"#
+            )
+        };
+        let chrome = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/130.0 Safari/537.36";
+        let line = parse_line(
+            &raw("1.2.3.4", chrome, "https://News.ycombinator.com/item?id=1"),
+            0,
+        )
+        .unwrap();
+        assert_eq!(line.method, "OTHER");
+        assert_eq!(line.protocol.as_deref(), Some("HTTP/3.0"));
+        assert_eq!(line.client, "chrome");
+        assert_eq!(line.referrer.as_deref(), Some("news.ycombinator.com"));
+        // client_ip wins over remote_ip; same day, IP and UA hash to the same visitor.
+        let same = parse_line(&raw("1.2.3.4", chrome, ""), 0).unwrap();
+        assert_eq!(same.visitor, line.visitor);
+        assert_eq!(same.referrer, None);
+        let other = parse_line(&raw("10.0.0.1", chrome, ""), 0).unwrap();
+        assert_ne!(other.visitor, line.visitor);
+        // Self-referrals are not referrers; bots are not visitors.
+        let bot = parse_line(&raw("1.2.3.4", "Googlebot/2.1", "https://shop.test/a"), 0).unwrap();
+        assert_eq!(bot.client, "bot");
+        assert_eq!(bot.referrer, None);
+        assert_eq!(bot.visitor, None);
+    }
+
+    #[test]
+    fn classifies_clients() {
+        for (ua, family) in [
+            ("Mozilla/5.0 Chrome/130.0 Safari/537.36 Edg/130.0", "edge"),
+            ("Mozilla/5.0 Chrome/130.0 Safari/537.36 OPR/114.0", "opera"),
+            (
+                "Mozilla/5.0 (X11; rv:131.0) Gecko/20100101 Firefox/131.0",
+                "firefox",
+            ),
+            (
+                "Mozilla/5.0 (iPhone) Version/18.0 Mobile/15E148 Safari/604.1",
+                "safari",
+            ),
+            ("curl/8.7.1", "tool"),
+            ("Mozilla/5.0 (compatible; bingbot/2.0)", "bot"),
+            ("HeadlessChrome/130.0", "bot"),
+            ("SomethingElse/1.0", "other"),
+            ("", "unknown"),
+        ] {
+            assert_eq!(client_family(ua), family, "{ua}");
+        }
     }
 
     #[test]
@@ -1137,17 +1487,17 @@ mod tests {
             owner("other"),
             None,
         );
-        let (rollups, paths) = aggregator.drain();
+        let batch = aggregator.drain();
         assert!(aggregator.rollups.is_empty() && aggregator.paths.is_empty());
-        insert(&conn, &rollups, &paths).unwrap();
+        insert(&conn, &batch).unwrap();
         // A second flush for the same minute just adds rows; queries sum them.
         aggregator.record(
             line(base + 2_000, "a.test", "/", 200, 5.0),
             owner("app"),
             None,
         );
-        let (rollups, paths) = aggregator.drain();
-        insert(&conn, &rollups, &paths).unwrap();
+        let batch = aggregator.drain();
+        insert(&conn, &batch).unwrap();
 
         let dto = analytics(
             &conn,
@@ -1214,6 +1564,17 @@ mod tests {
         assert_eq!(foreign.totals.requests, 0);
         assert_eq!(request_row_count(&conn).unwrap(), 5);
 
+        // Every line above shares visitor 1 and the HTTP/2.0 Chrome GET defaults.
+        assert_eq!(dto.totals.visitors, 1);
+        assert_eq!(dto.series.iter().map(|p| p.visitors).max(), Some(1));
+        assert_eq!(dto.methods[0].key, "GET");
+        assert_eq!(dto.methods[0].requests, 6);
+        assert_eq!(dto.methods[0].errors, 1);
+        assert_eq!(dto.protocols[0].key, "HTTP/2.0");
+        assert_eq!(dto.clients[0].key, "chrome");
+        assert!(dto.referrers.is_empty());
+        assert_eq!(foreign.totals.visitors, 0);
+
         let lines = sparklines(&conn, "org", &["app".into(), "missing".into()], NOW).unwrap();
         assert_eq!(lines.applications.len(), 1);
         assert_eq!(lines.applications["app"].len(), 48);
@@ -1246,9 +1607,9 @@ mod tests {
                 None,
             );
         }
-        let (rollups, paths) = aggregator.drain();
-        assert_eq!(rollups.len(), 1);
-        assert_eq!(paths.len(), PATHS_PER_APP_MINUTE);
+        let batch = aggregator.drain();
+        assert_eq!(batch.rollups.len(), 1);
+        assert_eq!(batch.paths.len(), PATHS_PER_APP_MINUTE);
     }
 
     #[test]
@@ -1265,10 +1626,11 @@ mod tests {
             owner("app"),
             None,
         );
-        let (rollups, paths) = aggregator.drain();
-        insert(&conn, &rollups, &paths).unwrap();
+        let batch = aggregator.drain();
+        insert(&conn, &batch).unwrap();
         let deleted = super::super::apply_retention(&conn, &[], 7, NOW).unwrap();
-        assert_eq!(deleted, 2);
+        // One rollup, path and visitor plus three dimensions (no referrer) for the old minute.
+        assert_eq!(deleted, 6);
         assert_eq!(request_row_count(&conn).unwrap(), 1);
     }
 }

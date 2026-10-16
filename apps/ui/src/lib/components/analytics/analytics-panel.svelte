@@ -5,6 +5,7 @@
 	import ArrowUpFromLineIcon from '@lucide/svelte/icons/arrow-up-from-line';
 	import ChartColumnIcon from '@lucide/svelte/icons/chart-column';
 	import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
+	import UsersIcon from '@lucide/svelte/icons/users';
 	import AnalyticsDashboard from './analytics-dashboard.svelte';
 	import CellChart from '#lib/components/custom/cell-chart.svelte';
 	import SegmentedSwitch from '#lib/components/custom/segmented-switch.svelte';
@@ -119,6 +120,36 @@
 				.map((entry) => ({ key: entry.key, label: entry.key, value: entry.requests })),
 		});
 		out.push({
+			title: t('analytics.panel.top_referrers'),
+			mono: true,
+			rows: data.referrers
+				.slice(0, 6)
+				.map((entry) => ({ key: entry.key, label: entry.key, value: entry.requests })),
+		});
+		out.push({
+			title: t('analytics.panel.clients'),
+			rows: data.clients.slice(0, 6).map((entry) => ({
+				key: entry.key,
+				label: clientLabel(entry.key),
+				value: entry.requests,
+				tone: entry.key === 'bot' || entry.key === 'tool' ? 'info' : undefined,
+			})),
+		});
+		out.push({
+			title: t('analytics.panel.methods'),
+			mono: true,
+			rows: data.methods
+				.slice(0, 6)
+				.map((entry) => ({ key: entry.key, label: entry.key, value: entry.requests })),
+		});
+		out.push({
+			title: t('analytics.panel.protocols'),
+			mono: true,
+			rows: data.protocols
+				.slice(0, 6)
+				.map((entry) => ({ key: entry.key, label: entry.key, value: entry.requests })),
+		});
+		out.push({
 			title: t('analytics.panel.status_codes'),
 			rows: data.statuses.slice(0, 6).map((entry) => ({
 				key: String(entry.status),
@@ -129,6 +160,19 @@
 		});
 		return out;
 	});
+
+	const BROWSERS: Record<string, string> = {
+		chrome: 'Chrome',
+		safari: 'Safari',
+		firefox: 'Firefox',
+		edge: 'Edge',
+		opera: 'Opera',
+	};
+	function clientLabel(key: string): string {
+		if (BROWSERS[key]) return BROWSERS[key];
+		if (key === 'bot' || key === 'tool' || key === 'unknown') return t(`analytics.client.${key}`);
+		return t('analytics.client.other');
+	}
 
 	function statusTone(status: number): StatusTone {
 		if (status >= 500) return 'danger';
@@ -218,7 +262,7 @@
 			aria-busy="true"
 			aria-label={t('analytics.panel.loading')}>
 			<div class="kpis">
-				{#each { length: 4 } as _, index (index)}
+				{#each { length: 5 } as _, index (index)}
 					<Skeleton class="h-32 rounded-2xl" />
 				{/each}
 			</div>
@@ -243,6 +287,11 @@
 				sub={t('analytics.panel.requests_sub')}
 				value={count(totals.requests)}
 				icon={ActivityIcon} />
+			<KpiCard
+				title={t('analytics.panel.visitors')}
+				sub={t('analytics.panel.visitors_sub')}
+				value={count(totals.visitors)}
+				icon={UsersIcon} />
 			<KpiCard
 				title={t('analytics.panel.error_rate')}
 				sub={t('analytics.panel.error_rate_sub')}
