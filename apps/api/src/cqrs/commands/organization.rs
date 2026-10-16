@@ -275,7 +275,46 @@ pub async fn update_member_role(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{cleanup_database, set_base_role, test_state};
+    use crate::testing::{cleanup_database, set_base_role, test_state, test_state_for};
+
+    fn org_request(index: i64) -> CreateOrganizationRequest {
+        CreateOrganizationRequest {
+            name: format!("Org {index}"),
+            slug: format!("cap-org-{index}"),
+            description: None,
+            icon: None,
+            icon_bg: None,
+            plan: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn cloud_caps_organizations_per_user_and_self_hosted_does_not() {
+        let (state, path) = test_state_for(true).await;
+        for index in 0..CLOUD_MAX_ORGANIZATIONS_PER_USER {
+            create_organization(&state, "outsider", &org_request(index))
+                .await
+                .unwrap();
+        }
+        assert!(matches!(
+            create_organization(
+                &state,
+                "outsider",
+                &org_request(CLOUD_MAX_ORGANIZATIONS_PER_USER)
+            )
+            .await,
+            Err(AppError::ValidationError(_))
+        ));
+        cleanup_database(&path);
+
+        let (state, path) = test_state_for(false).await;
+        for index in 0..=CLOUD_MAX_ORGANIZATIONS_PER_USER {
+            create_organization(&state, "outsider", &org_request(index))
+                .await
+                .unwrap();
+        }
+        cleanup_database(&path);
+    }
 
     #[tokio::test]
     async fn base_role_changes_follow_the_access_rules() {
