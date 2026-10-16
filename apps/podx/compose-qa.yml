@@ -1,0 +1,56 @@
+# QA compose: pulls the published image from DockerHub.
+# The litepod API inside the container will self-update the `qa` tag every
+# LITEPOD_UPDATE_INTERVAL seconds via the podman socket mounted below.
+
+services:
+  app:
+    container_name: litepod-qa-api
+    image: ${LITEPOD_IMAGE_REPO}:${LITEPOD_IMAGE_TAG}
+    platform: linux/amd64
+    restart: unless-stopped
+    ports:
+      - "6001:6001"
+    # Runtime env lives in apps/.env on the QA server (written by
+    # scripts/install-staging.sh). podman-compose auto-loads it; the API
+    # binary also picks it up as process env inside the container.
+    env_file:
+      - ../.env
+    environment:
+      APP_ENV: qa
+      PORT: "6001"
+      UI_DIST_PATH: /app/ui
+      DATABASE_PATH: /var/lib/litepod/litepod.db
+      HASH_SECRET: ${HASH_SECRET:?set in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set in .env}
+      CADDY_URL: ${CADDY_URL:-http://host.containers.internal:2019}
+      CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://host.containers.internal:2019}
+      PODMAN_SOCKET: ${LITEPOD_PODMAN_SOCKET:?set by install-staging.sh or manually}
+      LITEPOD_DATA_DIR: /var/lib/litepod
+      LITEPOD_HOST_DATA_DIR: /var/lib/litepod
+      LITEPOD_DATA_VOLUME: litepod_data
+      LITEPOD_PODMAN_NETWORK: litepod_qa_default
+      LITEPOD_PUBLIC_IP: ${LITEPOD_PUBLIC_IP:?set in .env}
+      LITEPOD_PUBLIC_URL: ${PUBLIC_URL:?set in .env}
+      PUBLIC_URL: ${PUBLIC_URL:?set in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set in .env}
+      LITEPOD_IMAGE_REPO: ${LITEPOD_IMAGE_REPO:?set in api/.env}
+      LITEPOD_IMAGE_TAG: ${LITEPOD_IMAGE_TAG:-qa}
+      LITEPOD_UPDATE_INTERVAL: ${LITEPOD_UPDATE_INTERVAL:-3600}
+      RUST_LOG: ${RUST_LOG:-info}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
+      # An empty LOKI_URL deliberately keeps API JSON logs in stdout only.
+      LOKI_URL: ${LOKI_URL:-}
+      LOKI_SERVICE: ${LOKI_SERVICE:-litepod-qa}
+    volumes:
+      - ${LITEPOD_PODMAN_SOCKET_PATH:?set in .env}:${LITEPOD_PODMAN_SOCKET_PATH}
+      - litepod_data:/var/lib/litepod
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /proc/1/ns/net && wget -qO- http://127.0.0.1:6001/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  litepod_data:
+    name: litepod_data

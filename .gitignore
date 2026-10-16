@@ -1,0 +1,34 @@
+/apps/.agents
+/apps/.claude
+
+
+/apps/.bun-tmp
+# Rust (api)
+api/target/
+api/data/
+
+# Node/Bun (ui)
+ui/node_modules/
+ui/.svelte-kit/
+ui/build/
+
+# Env (real values live outside this repo)
+.env
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+/apps/api/target
+/apps/api/data
+/apps/.superpowers
+/apps/podx/scripts/__pycache__
+apps/api/target/
+/releases
+/apps/api/applications
+/apps/api/.scannerwork
+/apps/ui/.scannerwork
+/apps/api/compose
+/.claude
+/.github
+/.agents

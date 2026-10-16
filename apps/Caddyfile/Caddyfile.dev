@@ -1,0 +1,12 @@
+{
+	admin 0.0.0.0:2019
+}
+
+# litepod.localhost itself is not routed here — set it via the app's Settings
+# page (Server Domain), same as prod/staging. That call hits the Caddy admin
+# API and injects the route live using CADDY_SERVER_UPSTREAM as the dial
+# target (see api/.env, api/src/handler/settings.rs).
+
+http://api.litepod.localhost {
+	reverse_proxy host.containers.internal:6001
+}

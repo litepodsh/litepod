@@ -1,0 +1,9 @@
+{
+	admin 0.0.0.0:2019
+}
+
+:80 {
+	# Container name, not the `app` service name - a deployed app's Compose file on
+	# this network could claim `app` as a DNS alias and hijack the dashboard.
+	reverse_proxy litepod-api:6001
+}

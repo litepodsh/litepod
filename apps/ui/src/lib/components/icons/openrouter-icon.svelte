@@ -1,0 +1,21 @@
+<script lang="ts">
+	let { class: className = 'size-3.5' }: { class?: string } = $props();
+</script>
+
+<!-- The source snippet pointed `clip-path` at a `<defs>` that came with it; the
+     clip was the full 512 box, so it is dropped rather than shipped broken. -->
+<svg
+	class={className}
+	viewBox="0 0 512 512"
+	fill="currentColor"
+	stroke="currentColor"
+	aria-hidden="true">
+	<path
+		d="M3 248.945C18 248.945 76 236 106 219C136 202 136 202 198 158C276.497 102.293 332 120.945 423 120.945"
+		stroke-width="90" />
+	<path d="M511 121.5L357.25 210.268L357.25 32.7324L511 121.5Z" />
+	<path
+		d="M0 249C15 249 73 261.945 103 278.945C133 295.945 133 295.945 195 339.945C273.497 395.652 329 377 420 377"
+		stroke-width="90" />
+	<path d="M508 376.445L354.25 287.678L354.25 465.213L508 376.445Z" />
+</svg>

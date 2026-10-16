@@ -1,0 +1,28 @@
+pub mod basic_auth;
+pub mod boot;
+pub mod caddy_admin;
+pub mod certificates;
+pub mod compose;
+pub mod compose_standalone;
+pub mod deploy_hook;
+pub mod dns_validation;
+pub mod domains;
+pub mod git;
+pub mod history;
+
+pub mod image;
+pub mod log_buffer;
+pub mod log_filter;
+pub mod managed_volumes;
+pub mod manual_routes;
+pub mod network_observability;
+pub mod operations;
+pub mod queue;
+pub mod replicas;
+pub mod resource_networks;
+pub mod rollout;
+pub mod runtime_endpoints;
+pub mod source;
+pub mod static_deploy;
+
+pub use operations::*;

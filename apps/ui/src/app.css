@@ -1,0 +1,404 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn-svelte/tailwind.css';
+@import '@fontsource-variable/geist';
+
+@font-face {
+	font-family: 'Commit Mono';
+	src: url('/fonts/CommitMono-Regular.woff2') format('woff2');
+	font-display: swap;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+	--lp-bg: #f4f0e9;
+	--lp-surface: #fffdf8;
+	--lp-raised: #fffdf8;
+	--lp-deep: #ebe7df;
+	--lp-ink: #1a2520;
+	--lp-muted: #53635b;
+	--lp-accent: #d84b2a;
+	--lp-accent-ink: #fffaf3;
+	/* Status ramp. Warn is a cool brass, deliberately darker and less saturated
+     than the oxide accent so a pending dot never reads as a primary action. */
+	--lp-ok: #2f6b4f;
+	--lp-warn: #8a6410;
+	--lp-info: #2b5f6b;
+	/* Accessible oxide for small mono labels; the accent itself fails AA at 12px. */
+	--lp-label-ink: #a9381e;
+	/* Fleet globe. The map is painted from these rather than shipped as a photo,
+     so the earth belongs to the same palette as the rest of the interface. */
+	--lp-earth-atmosphere: #a89f8c;
+	/* How hard the sunrise line burns. Light needs a whisper, dark can take a glow. */
+	--lp-earth-terminator: 0.2;
+	/* Soft-relief pair: a top light and a bottom shade, as if one lamp sat above
+     the page. Deliberately not neumorphism - matching a control to its own
+     background is what pushes neumorphism under AA, so surfaces keep their
+     fill and contrast and only gain an edge. */
+	--lp-bevel: rgb(255 255 255 / 0.85);
+	--lp-emboss: rgb(26 37 32 / 0.07);
+	--lp-shadow: #1a2520;
+	--lp-shadow-strength: 1;
+	--lp-ease: cubic-bezier(0.32, 0.72, 0, 1);
+	/* Shared by the page header and a fixed sidebar's top band so their hairlines line up. */
+	--app-header-height: 3.5rem;
+	--background: var(--lp-bg);
+	--foreground: var(--lp-ink);
+	--card: var(--lp-surface);
+	--card-foreground: var(--lp-ink);
+	--popover: var(--lp-surface);
+	--popover-foreground: var(--lp-ink);
+	--primary: var(--lp-accent);
+	--primary-foreground: var(--lp-accent-ink);
+	--secondary: var(--lp-deep);
+	--secondary-foreground: var(--lp-ink);
+	--muted: var(--lp-deep);
+	--muted-foreground: var(--lp-muted);
+	--accent: var(--lp-deep);
+	--accent-foreground: var(--lp-ink);
+	--destructive: oklch(0.577 0.245 27.325);
+	--success: var(--lp-ok);
+	--warning: var(--lp-warn);
+	--info: var(--lp-info);
+	--label-ink: var(--lp-label-ink);
+	--border: color-mix(in oklch, var(--lp-ink) 12%, transparent);
+	--input: var(--lp-surface);
+	--ring: var(--lp-accent);
+	--chart-1: var(--lp-accent);
+	--chart-2: var(--lp-ok);
+	--chart-3: var(--lp-info);
+	--chart-4: var(--lp-warn);
+	--chart-5: var(--lp-muted);
+	--radius: 0.875rem;
+	--sidebar: var(--lp-surface);
+	--sidebar-foreground: var(--lp-ink);
+	--sidebar-primary: var(--lp-accent);
+	--sidebar-primary-foreground: var(--lp-accent-ink);
+	--sidebar-accent: var(--lp-deep);
+	--sidebar-accent-foreground: var(--lp-ink);
+	--sidebar-border: color-mix(in oklch, var(--lp-ink) 12%, transparent);
+	--sidebar-ring: var(--lp-accent);
+}
+
+.dark {
+	--lp-bg: #101512;
+	--lp-surface: #17201a;
+	--lp-raised: #1c2620;
+	--lp-deep: #0c110e;
+	--lp-ink: #f2f0e9;
+	--lp-muted: #b7c0b8;
+	--lp-accent: #f06a48;
+	--lp-accent-ink: #20100b;
+	--lp-ok: #5fbf8f;
+	--lp-warn: #d9a441;
+	--lp-info: #6fb6c4;
+	/* On the dark canvas the accent already clears AA at small sizes. */
+	--lp-label-ink: #f06a48;
+	--lp-earth-atmosphere: #4d7a72;
+	--lp-earth-terminator: 0.42;
+	/* Dark reverses the lamp: the highlight is a whisper, the shade does the work. */
+	--lp-bevel: rgb(255 255 255 / 0.07);
+	--lp-emboss: rgb(0 0 0 / 0.4);
+	--lp-shadow: #05070b;
+	--lp-shadow-strength: 4;
+	--background: var(--lp-bg);
+	--foreground: var(--lp-ink);
+	--card: var(--lp-surface);
+	--card-foreground: var(--lp-ink);
+	--popover: var(--lp-surface);
+	--popover-foreground: var(--lp-ink);
+	--primary: var(--lp-accent);
+	--primary-foreground: var(--lp-accent-ink);
+	--secondary: var(--lp-deep);
+	--secondary-foreground: var(--lp-ink);
+	--muted: var(--lp-deep);
+	--muted-foreground: var(--lp-muted);
+	--accent: var(--lp-deep);
+	--accent-foreground: var(--lp-ink);
+	--destructive: oklch(0.704 0.191 22.216);
+	--success: var(--lp-ok);
+	--warning: var(--lp-warn);
+	--info: var(--lp-info);
+	--label-ink: var(--lp-label-ink);
+	--border: color-mix(in oklch, var(--lp-ink) 12%, transparent);
+	--input: var(--lp-surface);
+	--ring: var(--lp-accent);
+	--chart-1: var(--lp-accent);
+	--chart-2: var(--lp-ok);
+	--chart-3: var(--lp-info);
+	--chart-4: var(--lp-warn);
+	--chart-5: var(--lp-muted);
+	--sidebar: var(--lp-surface);
+	--sidebar-foreground: var(--lp-ink);
+	--sidebar-primary: var(--lp-accent);
+	--sidebar-primary-foreground: var(--lp-accent-ink);
+	--sidebar-accent: var(--lp-deep);
+	--sidebar-accent-foreground: var(--lp-ink);
+	--sidebar-border: color-mix(in oklch, var(--lp-ink) 12%, transparent);
+	--sidebar-ring: var(--lp-accent);
+}
+
+/* Cool palette (opt-in from Appearance). Same token names, different values;
+   every shadcn alias above already points at the --lp-* tokens. */
+:root[data-palette='cool'] {
+	--lp-bg: #f5f6f8;
+	--lp-surface: #ffffff;
+	--lp-raised: #ffffff;
+	--lp-deep: #eceef2;
+	--lp-ink: #0e1117;
+	--lp-muted: #555c69;
+	--lp-accent: #2a4dff;
+	--lp-accent-ink: #ffffff;
+	--lp-ok: #11824a;
+	--lp-warn: #a86400;
+	--lp-info: #1f6fa8;
+	--lp-label-ink: #2a4dff;
+	--lp-earth-atmosphere: #8fa2c8;
+	--lp-bevel: rgb(255 255 255 / 0.9);
+	--lp-emboss: rgb(16 22 40 / 0.07);
+	--lp-shadow: #101628;
+}
+:root.dark[data-palette='cool'] {
+	--lp-bg: #0b0c0f;
+	--lp-surface: #121419;
+	--lp-raised: #171a20;
+	--lp-deep: #0e1013;
+	--lp-ink: #eceef3;
+	--lp-muted: #a2a8b4;
+	--lp-accent: #7590ff;
+	--lp-accent-ink: #0b0c0f;
+	--lp-ok: #43c983;
+	--lp-warn: #f0a83a;
+	--lp-info: #6fb6c4;
+	--lp-label-ink: #7590ff;
+	--lp-earth-atmosphere: #4d6a9a;
+	--lp-bevel: rgb(255 255 255 / 0.07);
+	--lp-emboss: rgb(0 0 0 / 0.45);
+	--lp-shadow: #05070b;
+}
+
+@theme inline {
+	--font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'Commit Mono', monospace;
+	--animate-shimmer: shimmer 3s var(--lp-ease) infinite;
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar: var(--sidebar);
+	--color-chart-5: var(--chart-5);
+	--color-chart-4: var(--chart-4);
+	--color-chart-3: var(--chart-3);
+	--color-chart-2: var(--chart-2);
+	--color-chart-1: var(--chart-1);
+	--color-ring: var(--ring);
+	--color-input: var(--input);
+	--color-border: var(--border);
+	--color-destructive: var(--destructive);
+	--color-success: var(--success);
+	--color-warning: var(--warning);
+	--color-info: var(--info);
+	--color-label-ink: var(--label-ink);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-accent: var(--accent);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-muted: var(--muted);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-secondary: var(--secondary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-primary: var(--primary);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-popover: var(--popover);
+	--color-card-foreground: var(--card-foreground);
+	--color-card: var(--card);
+	--color-foreground: var(--foreground);
+	--color-background: var(--background);
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) * 1.4);
+	--radius-2xl: calc(var(--radius) * 1.8);
+	--radius-3xl: calc(var(--radius) * 2.2);
+	--radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Soft relief, one lamp overhead. Declared with `@utility` rather than as plain
+   classes so they land in Tailwind's utilities layer: unlayered CSS outranks
+   every layer, which would let these silently clobber `ring-*` and `shadow-*`
+   (both are box-shadow in v4) and kill focus rings.
+   Edge-only - no fill changes, so contrast is untouched. */
+@utility lp-raised {
+	box-shadow:
+		inset 1px 1px 0 var(--lp-bevel),
+		inset -1px -1px 0 var(--lp-emboss),
+		0 1px 1px
+			color-mix(in oklch, var(--lp-shadow) calc(5% * var(--lp-shadow-strength)), transparent);
+}
+
+/* A well the surface recedes into. Soft top shade only: a hard bottom bevel
+   traces the control's true box, which reads as a square drawn over whatever
+   rounded container it sits in. */
+@utility lp-inset {
+	box-shadow: inset 0 1px 2px
+		color-mix(in oklch, var(--lp-shadow) calc(8% * var(--lp-shadow-strength)), transparent);
+}
+
+/* A deeper well for inputs and segmented tracks: shade top-left, light bottom-right. */
+@utility lp-well {
+	box-shadow:
+		inset 1px 1px 2px
+			color-mix(in oklch, var(--lp-shadow) calc(8% * var(--lp-shadow-strength)), transparent),
+		inset -1px -1px 0 var(--lp-bevel);
+}
+
+/* Engraved separators: a dark hairline with a light line under it. */
+@utility lp-groove-b {
+	border-bottom: 1px solid var(--lp-emboss);
+	box-shadow: 0 1px 0 var(--lp-bevel);
+}
+@utility lp-groove-t {
+	border-top: 1px solid var(--lp-emboss);
+	box-shadow: inset 0 1px 0 var(--lp-bevel);
+}
+
+/* Room for card shadows inside a clipping parent. Any `overflow-hidden` (a
+   collapsible) or `overflow-y-auto` (a scroll region - the x axis is forced to
+   clip too) cuts the shadows of the cards it holds. Pad the inside, pull the
+   outside back, so surrounding layout is unchanged. Asymmetric on purpose: the
+   drop is offset downward, so it reaches further below than to the sides. Grow
+   an explicit `max-h` by 2.25rem where one is set. */
+@utility lp-shadow-room {
+	padding: 0.75rem 0.75rem 1.5rem;
+	margin: -0.75rem -0.75rem -1.5rem;
+}
+
+/* A card sitting off the page: canvas-tinted drop that survives next to a
+   12%-ink border, where a 5%-black `shadow-sm` is swallowed and reads as none.
+   Kept under 1.25rem of total reach on purpose - cards live in grids, and grids
+   live in scroll containers, which clip anything larger. Dialogs want a bigger
+   pool of shadow and set their own. */
+@utility lp-lifted {
+	box-shadow:
+		inset 0 1px 0 var(--lp-bevel),
+		inset 0 -1px 0 var(--lp-emboss),
+		0 1px 2px
+			color-mix(in oklch, var(--lp-shadow) calc(7% * var(--lp-shadow-strength)), transparent),
+		0 0.375rem 1rem
+			color-mix(in oklch, var(--lp-shadow) calc(9% * var(--lp-shadow-strength)), transparent);
+}
+
+/* The reference panel: diagonal bevel plus a short, soft drop. Cards use it
+   with a hairline border, so the edge reads even where the drop is clipped. */
+@utility lp-panel {
+	box-shadow:
+		inset 1px 1px 0 var(--lp-bevel),
+		inset -1px -1px 0 var(--lp-emboss),
+		0 1px 2px
+			color-mix(in oklch, var(--lp-shadow) calc(5% * var(--lp-shadow-strength)), transparent),
+		0 10px 28px -16px
+			color-mix(in oklch, var(--lp-shadow) calc(20% * var(--lp-shadow-strength)), transparent);
+}
+
+@keyframes shimmer {
+	0% {
+		background-position: 200% 0;
+	}
+	100% {
+		background-position: -200% 0;
+	}
+}
+
+.shimmer-bg {
+	background: linear-gradient(
+		90deg,
+		transparent 0%,
+		color-mix(in oklch, var(--primary) 35%, transparent) 50%,
+		transparent 100%
+	);
+	background-size: 200% 100%;
+	animation: var(--animate-shimmer);
+	overflow: hidden;
+}
+
+/* Monaco log-line decorations. Global because Monaco owns the DOM these land
+   on, and shared because the deployment-run viewer and the application logs tab
+   both apply them. Colours come from the status tokens, so dark mode needs no
+   override. */
+.deployment-log-error-text {
+	color: var(--destructive) !important;
+}
+.deployment-log-warning-text {
+	color: var(--warning) !important;
+}
+.deployment-log-success-text {
+	color: var(--success) !important;
+}
+.deployment-log-stage-text {
+	color: var(--info) !important;
+}
+
+/* The assistant's `focus_entity` tool marks the node it is pointing at. Global
+   because any page can be the target, and the ring has to survive whatever
+   background that page's row already has. */
+[data-assistant-focus] {
+	box-shadow:
+		0 0 0 2px var(--background),
+		0 0 0 4px color-mix(in oklch, var(--primary) 55%, transparent);
+	border-radius: calc(var(--radius) * 1.4);
+	transition: box-shadow 400ms var(--lp-ease);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
+	html {
+		@apply font-sans;
+	}
+}
+
+/* The console column: header, hero, tabs and page share it, so their edges line
+   up. The width toggle in the header removes the cap. */
+@utility shell-col {
+	width: 100%;
+	max-width: 1240px;
+	margin-inline: auto;
+	:root[data-layout='full'] & {
+		max-width: none;
+	}
+}
+
+/* Pages wrap themselves in `mx-auto max-w-*xl`; in full layout that cap must yield to the toggle. */
+:root[data-layout='full'] main.shell-col :where(.mx-auto.max-w-5xl, .mx-auto.max-w-6xl, .mx-auto.max-w-7xl) {
+	max-width: none;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation: none;
+	mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+	z-index: 1;
+}
+
+::view-transition-new(root) {
+	z-index: 2147483646;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 1ms !important;
+		transition-duration: 1ms !important;
+	}
+}

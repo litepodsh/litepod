@@ -1,0 +1,12 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "chrome",
+			"request": "launch",
+			"name": "Debug UI (Vite)",
+			"url": "http://127.0.0.1:6002",
+			"webRoot": "${workspaceFolder}/src"
+		}
+	]
+}

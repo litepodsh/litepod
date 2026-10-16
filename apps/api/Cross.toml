@@ -1,0 +1,35 @@
+# Pin a modern image for the aarch64 cross-build.
+#
+# `cross`'s default image for this target (cross 0.2.5) is `ubuntu:16.04`,
+# which ships GCC 5.4 as the aarch64-linux-gnu cross-compiler. GCC 5 doesn't
+# understand the ARMv8.2+/SVE `#pragma GCC target(...)` values that the
+# `simsimd` crate (pulled in transitively and unconditionally by
+# `turso_core`, see its Cargo.toml `cfg(not(any(target_family = "wasm",
+# all(target_os = "windows", target_arch = "aarch64"))))` dependency) uses
+# unconditionally in `simsimd.h` for its ARM denormal-flushing helper. Every
+# one of simsimd's own build.rs fallback attempts fails against GCC 5, so no
+# `libsimsimd.a` is ever produced and the final link fails with
+# `cannot find -lsimsimd`.
+#
+# Our runtime image is `debian:trixie-slim` (see Dockerfile), so there is no
+# glibc-compatibility reason to keep the old Ubuntu 16.04 toolchain — pin the
+# `main`-branch cross-rs image instead, which builds `FROM ubuntu:24.04` and
+# carries a current GCC.
+#
+# SAML (`--features saml`, see the `release-dockerhub` recipe) links the target's
+# xmlsec1 and runs bindgen on the build host, so the image needs the arm64
+# xmlsec1 dev package plus the host's libclang.
+[target.aarch64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
+pre-build = [
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
+    "apt-get update && apt-get install --assume-yes --no-install-recommends libxmlsec1-dev:$CROSS_DEB_ARCH libclang-dev",
+]
+
+# The image's default bindgen args (`--sysroot=/usr/aarch64-linux-gnu
+# -idirafter/usr/include`) miss Debian's multiarch header dir, where the arm64
+# `openssl/opensslconf.h` lives, so samael's bindgen fails. Same args plus it.
+[target.aarch64-unknown-linux-gnu.env]
+passthrough = [
+    "BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu=--sysroot=/usr/aarch64-linux-gnu -idirafter/usr/include/aarch64-linux-gnu -idirafter/usr/include",
+]

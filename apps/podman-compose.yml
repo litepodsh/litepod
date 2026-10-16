@@ -1,0 +1,32 @@
+
+
+services:
+  caddy:
+    image: caddy:${CADDY_IMAGE_TAG:-2.11.4}
+    container_name: litepod-caddy
+    command: ["caddy", "run", "--resume", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+      - "8443:443"
+      - "127.0.0.1:2019:2019"
+    volumes:
+      - ./Caddyfile/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:${DRAGONFLY_IMAGE_TAG:-v2.0.2}
+    container_name: litepod-dragonfly
+    restart: unless-stopped
+    environment:
+      DFLY_requirepass: ${DFLY_PASSWORD:-litepod-dev-dragonfly}
+    ports:
+      - "127.0.0.1:6379:6379"
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  default:
+    name: litepod-network

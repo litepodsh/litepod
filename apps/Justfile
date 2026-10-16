@@ -1,0 +1,834 @@
+# ─────────────────────────────────────────────
+# litepod V2 — just commands
+# ─────────────────────────────────────────────
+
+set shell := ["bash", "-cu"]
+
+# Show all available commands
+default:
+    @just --list
+
+# Run API only (no file watching)
+api:
+    cd "{{justfile_directory()}}/api" && env -u RUSTFLAGS cargo watch -w src -w migrations -w Cargo.toml -w .env -x run
+
+# Run API with file watching (rebuild on source change) and UI together
+watch:
+    just ui & just api-watch & wait
+
+# Run API only with file watching (rebuild on source change)
+api-watch:
+    cd "{{justfile_directory()}}/api" && env -u RUSTFLAGS cargo watch -q -c -w src -w migrations -w Cargo.toml -w .env -x run
+
+# Run UI only
+ui:
+    cd "{{justfile_directory()}}/ui" &&  bun install --frozen-lockfile 2>/dev/null || bun install
+    cd "{{justfile_directory()}}/ui" &&  bun dev
+
+# Type-check the Svelte UI.
+ui-check:
+    cd "{{justfile_directory()}}/ui" && bun run check
+
+# Canonically sort TOML i18n sections and keys.
+i18n-fmt:
+    cd "{{justfile_directory()}}/ui" && bun run i18n:fmt
+
+# Verify TOML i18n sections and keys are canonically sorted.
+i18n-check:
+    cd "{{justfile_directory()}}/ui" && bun run i18n:check
+
+# Run focused UI tests through the root workflow. Pass a Vitest filter as an argument.
+ui-test *args:
+    cd "{{justfile_directory()}}/ui" && bun run test -- {{args}}
+
+# Fast API compile check without producing a release artifact.
+compile:
+    cd "{{justfile_directory()}}/api" && env -u RUSTFLAGS cargo check
+
+# Build only the UI distributable.
+ui-build:
+    cd "{{justfile_directory()}}/ui" && bun run build
+
+# Produce both distributable artifacts. Kept at the repository root so CI and
+# operators have one deterministic verification command.
+build:
+    cd "{{justfile_directory()}}/api" && env -u RUSTFLAGS cargo build
+    cd "{{justfile_directory()}}/ui" && bun run build
+
+# Upload the Rust API analysis to a self-hosted SonarQube instance.
+# Reads SONAR_HOST_URL and SONAR_TOKEN from apps/.env; `key` matches the project.
+sonar key="litepod":
+    set -a; . "{{justfile_directory()}}/.env"; set +a; : "$${SONAR_HOST_URL:?add SONAR_HOST_URL to .env}" "$${SONAR_TOKEN:?add SONAR_TOKEN to .env}"; printf 'SONAR_HOST_URL=%s\nSONAR_TOKEN=<configured, %s characters>\n' "$${SONAR_HOST_URL}" "$${#SONAR_TOKEN}"; cd "{{justfile_directory()}}/api" && sonar-scanner -Dsonar.projectKey="{{key}}" -Dsonar.sources=src
+
+# Upload the Svelte UI analysis. Create the `litepod-ui` project in SonarQube first.
+sonar-ui key="litepod-ui":
+    set -a; . "{{justfile_directory()}}/.env"; set +a; : "$${SONAR_HOST_URL:?add SONAR_HOST_URL to .env}" "$${SONAR_TOKEN:?add SONAR_TOKEN to .env}"; printf 'SONAR_HOST_URL=%s\nSONAR_TOKEN=<configured, %s characters>\n' "$${SONAR_HOST_URL}" "$${#SONAR_TOKEN}"; cd "{{justfile_directory()}}/ui" && sonar-scanner -Dsonar.projectKey="{{key}}" -Dsonar.sources=src
+
+# Run API (no watch) and UI (bun dev) in parallel with proper cleanup
+dev:
+    just ui & just api & wait
+
+# Run UI and API in cloud mode without changing the local .env files.
+dev-cloud:
+    IS_CLOUD=true just ui & IS_CLOUD=true just api-watch & wait
+
+# Remove build artifacts (node_modules, .svelte-kit, target/). Pass data=true to
+# also wipe api/data (local Turso db + local app state) - irreversible, dev only.
+clean data="false":
+    @echo "Cleaning up..."
+    @rm -rf ui/node_modules ui/.svelte-kit api/target
+    @if [ "{{data}}" = "true" ]; then echo "Removing api/data (local db + app state)..."; rm -rf api/data; fi
+    @echo "Done."
+
+# Clean everything and run dev again
+reload: clean dev
+
+# ─────────────────────────────────────────────
+# Operator recovery subcommands (`litepod-api <cmd>`)
+#
+# The CLI runs inside the `litepod-api` container (or against the same
+# SQLite file with matching HASH_SECRET/ENCRYPTION_KEY). The `prod-*`
+# recipes assume the standard install (container_name=litepod-api); the
+# `dev-*` recipes run against the local api/data/litepod.db via
+# `cargo run` so an operator can rehearse the recovery path without
+# touching production.
+# ─────────────────────────────────────────────
+
+# Container name used by the prod recipes. Override on a custom install
+# with: `just ops-container name=my-litepod-api ops-list-sysadmins`.
+ops-container name="litepod-api":
+    @echo "{{name}}"
+
+# List every account that holds the global SysAdmin role.
+ops-list-sysadmins:
+    podman exec litepod-api litepod-api list-sysadmins
+
+# Reset a user's password interactively (prompts for the new password).
+ops-reset-password email="":
+    podman exec -it litepod-api litepod-api reset-password {{ if email != "" { "--email " + email } else { "" } }}
+
+# Reset a user's password and print a generated random one. Use this when
+# you don't have a TTY or want to feed the new password into a password
+# manager.
+ops-reset-password-generate email="":
+    podman exec litepod-api litepod-api reset-password {{ if email != "" { "--email " + email } else { "" } }} --generate
+
+# Clear a user's TOTP secret + recovery codes (the next login skips 2FA).
+ops-reset-2fa email="":
+    podman exec -it litepod-api litepod-api reset-2fa {{ if email != "" { "--email " + email } else { "" } }}
+
+# Change a user's login email (old + new both required).
+ops-change-email old="" new="":
+    podman exec -it litepod-api litepod-api change-email --email {{old}} --new-email {{new}}
+
+# Dev: run the CLI against the local api/data/litepod.db. Useful to
+# rehearse the recovery path against a non-prod database. The
+# subcommand + any flags are passed through after `--`.
+ops-dev *args:
+    cd "{{justfile_directory()}}/api" && env DATABASE_PATH=./data/litepod.db cargo run --quiet -- {{args}}
+
+# Build the Railpack builder image used by git deploys
+railpack-builder:
+    cd "{{justfile_directory()}}" && podman build -f Dockerfile.railpack-builder -t localhost/litepod-railpack-builder:rootless-v2 .
+
+# Start compose services
+compose-up:
+    podman compose -f podman-compose.yml up -d
+
+# Run compose actions (for example: just compose down)
+compose action="up":
+    if [[ "{{action}}" == "up" ]]; then podman compose -f podman-compose.yml up -d; elif [[ "{{action}}" == "down" ]]; then podman compose -f podman-compose.yml down; else echo "Usage: just compose [up|down]" >&2; exit 2; fi
+
+# Stop compose services
+compose-down:
+    podman compose -f podman-compose.yml down
+
+# Fix a dead/stale rootless podman API socket (compose says "connect: no such file or directory")
+podman-fix:
+    systemctl --user restart podman.socket
+    @sleep 1
+    @test -S /run/user/$(id -u)/podman/podman.sock && echo "podman socket OK: /run/user/$(id -u)/podman/podman.sock"
+    curl -s --unix-socket /run/user/$(id -u)/podman/podman.sock http://d/v1.40/_ping && echo " <- API ping"
+
+# Prune all unused podman volumes, images, containers, and networks
+podx-clean:
+    podman volume prune -f
+    podman image prune -a -f
+    podman system prune -a -f --volumes
+    podman builder prune -f
+
+# Kill processes on API (6001) and UI (6002) ports
+kill:
+    lsof -ti :6001 | xargs kill -9 2>/dev/null; lsof -ti :6002 | xargs kill -9 2>/dev/null; echo "Ports 6001 and 6002 freed"
+
+# ─────────────────────────────────────────────
+# podx — release + push to DockerHub
+# ─────────────────────────────────────────────
+
+# Load podx/.env into the current shell (errors if missing).
+_podx-load-env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -f podx/.env ]]; then
+        echo "podx/.env missing — copy from podx/.env.example" >&2
+        exit 1
+    fi
+    set -a; . podx/.env; set +a
+
+# Read VERSION from api/.env's LITEPOD_VERSION — the single source of truth,
+# also what the running binary reports on /api/v1/system/version. podx/.env
+# only holds DockerHub credentials + publishing config, not the version.
+_podx-version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -f api/.env ]]; then echo "api/.env missing" >&2; exit 1; fi
+    grep -E '^LITEPOD_VERSION=' api/.env | head -n1 | cut -d= -f2-
+
+# Sanity check before a release: .env present, logged into DockerHub, target arch.
+podx-lint *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -- {{ARGS}}
+    # Just passes its `--` separator through variadic recipe arguments.
+    [[ "$#" -eq 2 && "$1" == "--" ]] && shift
+    channel=stable
+    case "$#" in
+      0) ;;
+      1) [[ "$1" == "--alpha" ]] && channel=alpha || false ;;
+      *) false ;;
+    esac
+    if [[ ! -f podx/.env ]]; then echo "podx/.env missing" >&2; exit 1; fi
+    set -a; . podx/.env; set +a
+    DOCKERHUB_USER=litepod
+    DOCKERHUB_REPO=litepod
+    : "${DOCKERHUB_USER:?DOCKERHUB_USER required}"
+    : "${DOCKERHUB_REPO:?DOCKERHUB_REPO required}"
+    : "${S3_ENDPOINT:?S3_ENDPOINT required}"
+    : "${S3_BUCKET:?S3_BUCKET required}"
+    : "${S3_ACCESS_KEY:?S3_ACCESS_KEY required}"
+    : "${S3_SECRET_KEY:?S3_SECRET_KEY required}"
+    if [[ "$channel" == alpha ]]; then
+        VERSION="$(grep -E '^LITEPOD_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
+    else
+        VERSION="$(grep -E '^LITEPOD_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
+    fi
+    : "${VERSION:?missing version for ${channel}}"
+    bash podx/scripts/validate-release-tag.sh "${channel}" "${VERSION}"
+    login_user="$(podman login --get-login docker.io 2>/dev/null || true)"
+    if [[ "${login_user}" != "${DOCKERHUB_USER}" ]]; then
+        echo "not logged in as ${DOCKERHUB_USER} (current: ${login_user:-none})" >&2
+        exit 1
+    fi
+    if [[ "${TARGET_PLATFORM:-linux/amd64}" != "linux/amd64" ]]; then
+        echo "TARGET_PLATFORM must be linux/amd64 for Ubuntu x86_64" >&2
+        exit 1
+    fi
+    # BUILD_ARCH controls whether the release is a single-arch amd64 image
+    # (legacy, fast) or a multi-arch manifest list (amd64 native + arm64
+    # cross-compiled via `cross`). multiarch requires `just podx-setup-arm`
+    # to have installed `cross`, the aarch64 rustup target, and qemu binfmt
+    # on this host. `CROSS_CONTAINER_ENGINE=podman` is also mandatory so
+    # `cross` uses podman instead of docker.
+    case "${BUILD_ARCH:-amd64}" in
+      amd64) ;;
+      multiarch)
+        command -v cross >/dev/null 2>&1 || {
+          echo "cross missing on PATH; run 'just podx-setup-arm' to install it" >&2
+          exit 1
+        }
+        rustup target list --installed 2>/dev/null | grep -q '^aarch64-unknown-linux-gnu$' || {
+          echo "rustup target aarch64-unknown-linux-gnu missing; run 'just podx-setup-arm'" >&2
+          exit 1
+        }
+        grep -q '^CROSS_CONTAINER_ENGINE=podman$' podx/.env || {
+          echo "CROSS_CONTAINER_ENGINE=podman missing in podx/.env; run 'just podx-setup-arm'" >&2
+          exit 1
+        }
+        ;;
+      *)
+        echo "unsupported BUILD_ARCH: ${BUILD_ARCH:-<unset>} (expected amd64 or multiarch)" >&2
+        exit 1
+        ;;
+    esac
+    echo "ok: ${DOCKERHUB_USER}/${DOCKERHUB_REPO} @ ${VERSION} (${channel}) for ${BUILD_ARCH:-amd64}"
+
+# Bump stable image tags everywhere Litepod ships them.
+#   just bump litepod v0.1.72
+#   just bump dragonfly v2.0.1
+#   just bump caddy 2.11.5
+bump component version:
+    @just _bump stable {{component}} {{version}}
+
+# Alpha tags only live in api/.env; compose and installers always use stable.
+#   just bump-alpha litepod v0.1.30-alpha.1
+#   just bump-alpha dragonfly v2.0.1
+#   just bump-alpha caddy 2.11.5
+bump-alpha component version:
+    @just _bump alpha {{component}} {{version}}
+
+_bump channel component version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    channel='{{channel}}'
+    component='{{component}}'
+    version='{{version}}'
+
+    case "$component" in
+        litepod|litepd) env_key=LITEPOD_VERSION; fallback=FALLBACK_LITEPOD_IMAGE_TAG; compose_key=LITEPOD_IMAGE_TAG ;;
+        dfly|dragonfly) env_key=DFLY_VERSION; fallback=FALLBACK_DRAGONFLY_IMAGE_TAG; compose_key=DRAGONFLY_IMAGE_TAG ;;
+        caddy) env_key=CADDY_VERSION; fallback=FALLBACK_CADDY_IMAGE_TAG; compose_key=CADDY_IMAGE_TAG ;;
+        *) echo "unknown component: $component (use litepod|dragonfly|caddy)" >&2; exit 1 ;;
+    esac
+    if [ "$channel" = alpha ]; then env_key="${env_key}_ALPHA"; fi
+
+    if [ "$env_key" = LITEPOD_VERSION ] || [ "$env_key" = LITEPOD_VERSION_ALPHA ]; then
+        while [ "${version#v}" != "$version" ]; do version="${version#v}"; done
+        version="v${version}"
+    fi
+    [[ "$version" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+        echo "invalid image tag: $version" >&2
+        exit 1
+    }
+
+    grep -q "^${env_key}=" api/.env || { echo "missing ${env_key} in api/.env" >&2; exit 1; }
+    sed -i.bak -E "s|^${env_key}=.*|${env_key}=${version}|" api/.env
+    rm -f api/.env.bak
+    echo "api/.env: ${env_key} -> ${version}"
+
+    [ "$channel" = stable ] || exit 0
+    for file in podman-compose.yml podman-compose-staging.yml podman-compose-prod.yml; do
+        grep -q "${compose_key}:-" "$file" || continue
+        sed -i.bak -E "s|(${compose_key}:-)[^}]*|\\1${version}|g" "$file"
+        rm -f "${file}.bak"
+        echo "${file}: ${compose_key} -> ${version}"
+    done
+    for file in scripts/install.sh scripts/install-cloud.sh; do
+        sed -i.bak -E "s|^(readonly ${fallback}=)\"[^\"]*\"|\\1\"${version}\"|" "$file"
+        rm -f "${file}.bak"
+        echo "${file}: ${fallback} -> ${version}"
+    done
+    for file in scripts/test-install-channel.sh scripts/test-install-cloud.sh; do
+        sed -i.bak -E "s|^(assert_eq) [^[:space:]]+ (\"\\\$\\{${fallback}\\}\")|\\1 ${version} \\2|" "$file"
+        rm -f "${file}.bak"
+    done
+
+# Increment Litepod semver, then propagate that tag through compose/installers.
+podx-bump LEVEL="patch":
+    bash podx/scripts/bump-version.sh "{{LEVEL}}"
+    just bump litepod "$(sed -n 's/^LITEPOD_VERSION=//p' api/.env)"
+
+# One-time Ubuntu host prep for the arm64 cross-build. Idempotent: every
+# step is a check-then-install. Required before `BUILD_ARCH=multiarch`
+# releases — installs `cross` (cargo), the aarch64 rustup target, qemu
+# user-mode + binfmt, and writes CROSS_CONTAINER_ENGINE=podman +
+# BUILD_ARCH=multiarch into podx/.env. Pre-pulls the cross-rs image pinned
+# in api/Cross.toml, then ends with a real arm64 probe (a separate,
+# arm64-native image) to confirm the host can run podman
+# --platform=linux/arm64 containers.
+#
+# `cross` does need a container engine; we use podman (no Docker on this
+# box). The cross image for aarch64-gnu includes libgit2-dev and a full
+# cross toolchain so it builds the api crate (git2=non-vendored) cleanly.
+podx-setup-arm:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> checking prerequisites"
+    command -v podman >/dev/null 2>&1 || {
+      echo "podman missing; install podman first (>= 4.5 for 'manifest push --all')" >&2
+      exit 1
+    }
+    command -v cargo >/dev/null 2>&1 || {
+      echo "cargo missing; install rustup + cargo first" >&2
+      exit 1
+    }
+    command -v rustup >/dev/null 2>&1 || {
+      echo "rustup missing; install rustup first" >&2
+      exit 1
+    }
+    if ! command -v cross >/dev/null 2>&1; then
+      echo "==> installing cross (cargo install cross --locked; slow, several minutes)"
+      cargo install cross --locked
+    else
+      echo "==> cross present: $(cross --version)"
+    fi
+    if ! rustup target list --installed 2>/dev/null | grep -q '^aarch64-unknown-linux-gnu$'; then
+      echo "==> adding rustup target aarch64-unknown-linux-gnu"
+      rustup target add aarch64-unknown-linux-gnu
+    else
+      echo "==> rustup target aarch64-unknown-linux-gnu already installed"
+    fi
+    if ! command -v qemu-aarch64-static >/dev/null 2>&1; then
+      # `qemu-user-static` is a virtual package on Ubuntu; the explicit
+      # provider `qemu-user-binfmt` ships the qemu user-mode binaries AND
+      # the binfmt registration, so a separate `binfmt-support` install is
+      # unnecessary. Pick `qemu-user-binfmt` over the `-hwe` flavour unless
+      # this host is on an HWE kernel (HWE is for newer kernels; the
+      # non-HWE provider matches the default noble/jammy kernel).
+      echo "==> installing qemu-user-binfmt (qemu user-mode + binfmt; sudo required)"
+      sudo apt-get update
+      sudo apt-get install -y --no-install-recommends qemu-user-binfmt
+      sudo systemctl restart podman || true
+    else
+      echo "==> qemu-user-static present"
+    fi
+    if [[ ! -f podx/.env ]]; then
+      echo "podx/.env missing — copy from podx/.env.example first" >&2
+      exit 1
+    fi
+    grep -q '^CROSS_CONTAINER_ENGINE=podman$' podx/.env \
+      || printf '\n# arm64 cross-build (added by just podx-setup-arm)\nCROSS_CONTAINER_ENGINE=podman\nBUILD_ARCH=multiarch\n' >> podx/.env
+    # Pre-pull the cross-rs image pinned in api/Cross.toml so the first
+    # `cross build` doesn't stall on a multi-hundred-MB fetch. This image is
+    # a cross-*compiler*: it runs natively as amd64 (a gcc-aarch64-linux-gnu
+    # toolchain cross-compiles the aarch64 binary without executing any
+    # arm64 code itself), so it's pulled/run without --platform and can't be
+    # used for the emulation probe below — it has no arm64 variant.
+    cross_image="ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
+    echo "==> pulling ${cross_image}"
+    podman pull "${cross_image}"
+    echo "==> verifying arm64 execution on this amd64 host"
+    out="$(podman run --rm --platform=linux/arm64 docker.io/library/debian:trixie-slim uname -m)"
+    if [[ "${out}" != "aarch64" ]]; then
+      echo "arm64 probe failed: expected 'aarch64', got '${out}'" >&2
+      exit 1
+    fi
+    echo "==> done. multiarch release path is ready."
+    echo "    run: just release-dockerhub            # stable multiarch"
+    echo "    run: just release-dockerhub -- --alpha # alpha multiarch"
+    echo "    opt out: set BUILD_ARCH=amd64 in podx/.env"
+
+# Build linux/amd64 image, 2 tags, no push.
+podx-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a; . podx/.env; set +a
+    VERSION="$(just _podx-version)"
+    podman build --platform=linux/amd64 \
+        -f Dockerfile \
+        --build-arg VITE_API_URL="" \
+        --build-arg LITEPOD_VERSION="${VERSION}" \
+        --build-arg LITEPOD_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+        -t "docker.io/${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${VERSION}" \
+        -t "docker.io/${DOCKERHUB_USER}/${DOCKERHUB_REPO}:latest" \
+        .
+
+# Build + push the selected release channel from api/.env. Stable is the
+# default; Just requires `-- --alpha` to pass the alpha flag to a recipe.
+# Pass `-- --no-cache` only when a clean rebuild is required; normal releases
+# reuse Podman's local layer cache.
+#
+# On success the local per-arch images and the assembled manifest list are
+# removed (the artifact now lives on Docker Hub); a failed run keeps them so
+# the release can be retried.
+#
+# Honors BUILD_ARCH in podx/.env:
+#   amd64     -> single-arch image, fast (legacy default)
+#   multiarch -> OCI manifest list: amd64 native + arm64 cross-compiled by
+#                `cross` on this host (CROSS_CONTAINER_ENGINE=podman). The
+#                arm64 layer is built with --build-arg PREBUILT_API pointing
+#                at the cross output. Requires `just podx-setup-arm` first.
+release-dockerhub *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -- {{ARGS}}
+    # Just passes its `--` separator through variadic recipe arguments.
+    [[ "$#" -eq 2 && "$1" == "--" ]] && shift
+    channel=stable
+    no_cache=false
+    for arg in "$@"; do
+        case "$arg" in
+          --alpha)
+            [[ "$channel" == stable ]] || { echo "--alpha specified more than once" >&2; exit 2; }
+            channel=alpha
+            ;;
+          --no-cache)
+            [[ "$no_cache" == false ]] || { echo "--no-cache specified more than once" >&2; exit 2; }
+            no_cache=true
+            ;;
+          *)
+            echo "Usage: just release-dockerhub [-- --alpha] [--no-cache]" >&2
+            exit 2
+            ;;
+        esac
+    done
+    if [[ "$channel" == alpha ]]; then
+        VERSION="$(grep -E '^LITEPOD_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
+        CADDY_TAG="$(grep -E '^CADDY_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
+        moving_tag=alpha
+    else
+        VERSION="$(grep -E '^LITEPOD_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
+        CADDY_TAG="$(grep -E '^CADDY_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
+        moving_tag=latest
+    fi
+    : "${VERSION:?missing version for ${channel}}"
+    : "${CADDY_TAG:?missing CADDY pin for ${channel} in api/.env}"
+    if [[ "$channel" == alpha ]]; then
+        just podx-lint -- --alpha
+    else
+        just podx-lint
+    fi
+    set -a; . podx/.env; set +a
+    DOCKERHUB_USER=litepod
+    DOCKERHUB_REPO=litepod
+    for tag in "${CADDY_TAG}"; do
+        [[ "${tag}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ && "${tag}" != latest ]] || {
+            echo "invalid core service tag: ${tag}" >&2; exit 1;
+        }
+    done
+    build_arch="${BUILD_ARCH:-amd64}"
+    git_sha="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    common_build_args=(
+        --build-arg VITE_API_URL=""
+        --build-arg LITEPOD_VERSION="${VERSION}"
+        --build-arg LITEPOD_GIT_SHA="${git_sha}"
+    )
+
+    # Cross-build the arm64 binary on the host when multiarch. `cross` runs
+    # inside a podman container (CROSS_CONTAINER_ENGINE=podman) using the
+    # ghcr.io/cross-rs/aarch64-unknown-linux-gnu image, which ships
+    # libgit2-dev and a full cross toolchain — needed because api uses
+    # git2=non-vendored and links against the system libgit2.
+    if [[ "${build_arch}" == "multiarch" ]]; then
+        echo "==> cross-building arm64 binary (cross via podman)"
+        cross build --release \
+            --features saml \
+            --target aarch64-unknown-linux-gnu \
+            --manifest-path api/Cargo.toml \
+            --target-dir api/target
+    fi
+
+    # Build per-arch images into local storage. amd64 is always built;
+    # arm64 only when multiarch. We probe each individually (arm64 runs
+    # under qemu on this amd64 host — slow but correct) before assembling
+    # the OCI manifest list, so a probe failure never reaches the registry.
+    amd64_image="localhost/litepod-build-amd64:${VERSION}"
+    arm64_image="localhost/litepod-build-arm64:${VERSION}"
+    if [[ "${build_arch}" == "multiarch" ]]; then
+        images=("${amd64_image}" "${arm64_image}")
+        archs=(amd64 arm64)
+    else
+        images=("${amd64_image}")
+        archs=(amd64)
+    fi
+
+    build_cache_args=()
+    if [[ "${no_cache}" == true ]]; then
+        build_cache_args+=(--no-cache)
+        echo "==> building without Podman layer cache"
+    fi
+
+    echo "==> building amd64 image"
+    podman build "${build_cache_args[@]}" --platform=linux/amd64 \
+        -f Dockerfile \
+        "${common_build_args[@]}" \
+        --build-arg TARGETARCH=amd64 \
+        -t "${amd64_image}" \
+        .
+
+    if [[ "${build_arch}" == "multiarch" ]]; then
+        echo "==> building arm64 image (PREBUILT_API=api/target/aarch64-unknown-linux-gnu/release/litepod-api)"
+        podman build "${build_cache_args[@]}" --platform=linux/arm64 \
+            -f Dockerfile \
+            "${common_build_args[@]}" \
+            --build-arg TARGETARCH=arm64 \
+            --build-arg PREBUILT_API=api/target/aarch64-unknown-linux-gnu/release/litepod-api \
+            -t "${arm64_image}" \
+            .
+    fi
+
+    # OCI version label integrity gate. The runtime stage sets
+    # org.opencontainers.image.version from $LITEPOD_VERSION; a mismatch
+    # means the build context is wrong and the push would announce a
+    # version nothing else can reproduce.
+    inspect_version_label() {
+        podman image inspect "$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); d=d[0] if isinstance(d,list) else d; print(d.get("Labels",{}).get("org.opencontainers.image.version",""))' 2>/dev/null
+    }
+    for img in "${images[@]}"; do
+        built_version="$(inspect_version_label "${img}")"
+        if [[ "${built_version}" != "${VERSION}" ]]; then
+            echo "built image ${img} version mismatch: expected ${VERSION}, got ${built_version:-<missing>}" >&2
+            exit 1
+        fi
+    done
+
+    # Probe each arch: podman present, podman >= 4.7, podman-compose, CA
+    # bundle. The dpkg query is arch-independent (plain C) and avoids
+    # running podman itself, which segfaults under qemu on this amd64
+    # host when probing arm64.
+    for a in "${archs[@]}"; do
+        probe_image="${amd64_image}"
+        [[ "${a}" == "arm64" ]] && probe_image="${arm64_image}"
+        if ! podman run --rm --platform="linux/${a}" --entrypoint /bin/sh "${probe_image}" -c 'test -x /usr/bin/podman'; then
+            echo "built image (linux/${a}) has no /usr/bin/podman" >&2; exit 1
+        fi
+        if ! podman run --rm --platform="linux/${a}" --entrypoint /bin/sh "${probe_image}" -c 'dpkg --compare-versions "$(dpkg-query -W podman | cut -f2)" ge 4.7'; then
+            echo "built image (linux/${a}) podman is older than 4.7 and has no compose subcommand" >&2; exit 1
+        fi
+        if ! podman run --rm --platform="linux/${a}" --entrypoint /bin/sh "${probe_image}" -c 'test -x /usr/bin/podman-compose && dpkg-query -W podman-compose'; then
+            echo "built image (linux/${a}) has no podman-compose provider" >&2; exit 1
+        fi
+        if ! podman run --rm --platform="linux/${a}" --entrypoint /usr/bin/test "${probe_image}" -s /etc/ssl/certs/ca-certificates.crt; then
+            echo "built image (linux/${a}) has no system CA certificate bundle" >&2; exit 1
+        fi
+    done
+
+    # Assemble the manifest list locally, then push to DockerHub. The
+    # `--all` flag publishes every per-arch image, not just the host arch.
+    local_manifest="localhost/litepod-release:${VERSION}"
+    podman manifest rm "${local_manifest}" 2>/dev/null || true
+    podman manifest create "${local_manifest}"
+    for img in "${images[@]}"; do
+        podman manifest add "${local_manifest}" "containers-storage:${img}"
+    done
+
+    immutable_image="docker.io/${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${VERSION}"
+    moving_image="docker.io/${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${moving_tag}"
+    immutable_repository="${DOCKERHUB_USER}/${DOCKERHUB_REPO}"
+
+    # Resumable: never republish the immutable tag if the registry already
+    # resolves it — see podx/scripts/check-immutable-tag.sh.
+    immutable_state="$(IMAGE="${immutable_image}" REPOSITORY="${immutable_repository}" TAG="${VERSION}" \
+        bash podx/scripts/check-immutable-tag.sh)"
+    if [[ "${immutable_state}" == absent ]]; then
+        echo "==> pushing ${immutable_image} (${build_arch})"
+        podman manifest push --all "${local_manifest}" "${immutable_image}"
+    else
+        echo "immutable tag ${VERSION} already exists; reusing the remote release artifact"
+    fi
+    # Docker Hub can acknowledge a manifest push before its registry resolves
+    # the tag. Do not announce it until the registry itself confirms it.
+    IMAGE="${immutable_image}" REPOSITORY="${immutable_repository}" TAG="${VERSION}" \
+        bash podx/scripts/wait-for-immutable-tag.sh
+    # Moving tag (latest|alpha) always tracks the current release. The
+    # manifest list IS the tag — no pull/tag/push dance on a single image.
+    echo "==> pushing ${moving_image}"
+    podman manifest push --all "${local_manifest}" "${moving_image}"
+    S3_ENDPOINT="${S3_ENDPOINT}" S3_BUCKET="${S3_BUCKET}" \
+        S3_ACCESS_KEY="${S3_ACCESS_KEY}" S3_SECRET_KEY="${S3_SECRET_KEY}" \
+        bash podx/scripts/publish-install-scripts.sh
+    echo "released ${VERSION} (${channel}, ${build_arch}) → docker.io/${DOCKERHUB_USER}/${DOCKERHUB_REPO}"
+
+    # Reclaim disk: the release now lives on Docker Hub, so drop the local
+    # build outputs (per-arch images + assembled manifest list). Runs only
+    # after a successful push/publish; a failed run keeps them for retry.
+    echo "==> pruning local release images"
+    for img in "${images[@]}"; do
+        podman rmi "${img}" >/dev/null 2>&1 || echo "warning: could not remove ${img}" >&2
+    done
+    podman manifest rm "${local_manifest}" >/dev/null 2>&1 || true
+
+# Publish the selected channel to the release manifest. Stable mirrors the
+# manifest root; alpha updates only channels.alpha. Use `-- --alpha`.
+publish-version *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -- {{ARGS}}
+    # Just passes its `--` separator through variadic recipe arguments.
+    [[ "$#" -eq 2 && "$1" == "--" ]] && shift
+    channel=stable
+    case "$#" in
+      0) ;;
+      1) [[ "$1" == "--alpha" ]] && channel=alpha || false ;;
+      *) false ;;
+    esac
+    if [[ ! -f podx/.env ]]; then echo "podx/.env missing" >&2; exit 1; fi
+    set -a; . podx/.env; set +a
+    DOCKERHUB_USER=litepod
+    DOCKERHUB_REPO=litepod
+    : "${S3_ENDPOINT:?S3_ENDPOINT required in podx/.env}"
+    : "${S3_BUCKET:?S3_BUCKET required in podx/.env}"
+    : "${S3_ACCESS_KEY:?S3_ACCESS_KEY required in podx/.env}"
+    : "${S3_SECRET_KEY:?S3_SECRET_KEY required in podx/.env}"
+    if [[ "$channel" == alpha ]]; then
+        VERSION="$(grep -E '^LITEPOD_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
+        CADDY_TAG="$(grep -E '^CADDY_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
+        DRAGONFLY_TAG="$(grep -E '^DFLY_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
+    else
+        VERSION="$(grep -E '^LITEPOD_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
+        CADDY_TAG="$(grep -E '^CADDY_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
+        DRAGONFLY_TAG="$(grep -E '^DFLY_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
+    fi
+    : "${VERSION:?missing version for ${channel}}"
+    : "${CADDY_TAG:?missing CADDY pin for ${channel} in api/.env}"
+    : "${DRAGONFLY_TAG:=v1.39.0}"
+    bash podx/scripts/validate-release-tag.sh "${channel}" "${VERSION}"
+    for tag in "${CADDY_TAG}" "${DRAGONFLY_TAG}"; do
+        [[ "${tag}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ && "${tag}" != latest ]] || {
+            echo "invalid core service tag: ${tag}" >&2; exit 1;
+        }
+    done
+    podman manifest inspect "docker.io/library/caddy:${CADDY_TAG}" >/dev/null
+    podman manifest inspect "docker.dragonflydb.io/dragonflydb/dragonfly:${DRAGONFLY_TAG}" >/dev/null
+    URL="${S3_ENDPOINT}/${S3_BUCKET}/version.json"
+
+    # Never announce a version the registry does not have. Instances resolve
+    # the manifest straight to a pull, so publishing ahead of the push points
+    # every one of them at a tag that 404s. In the normal flow this is a no-op
+    # because `release-dockerhub` pushes before calling us.
+    tag_url="https://hub.docker.com/v2/repositories/${DOCKERHUB_USER}/${DOCKERHUB_REPO}/tags/${VERSION}"
+    if ! curl -fsS -o /dev/null "$tag_url"; then
+        echo "refusing to publish: ${VERSION} is not on docker.io/${DOCKERHUB_USER}/${DOCKERHUB_REPO}" >&2
+        echo "run 'just release-dockerhub' first, or fix the ${channel} version in api/.env" >&2
+        exit 1
+    fi
+
+    # Conditional GET/PUT retries preserve concurrent stable/alpha updates.
+    # Only a verified 404 is treated as the first, empty manifest.
+    VERSION="${VERSION}" CHANNEL="${channel}" CADDY_TAG="${CADDY_TAG}" DRAGONFLY_TAG="${DRAGONFLY_TAG}" URL="${URL}" \
+        S3_ACCESS_KEY="${S3_ACCESS_KEY}" S3_SECRET_KEY="${S3_SECRET_KEY}" \
+        bash podx/scripts/publish-version-manifest.sh
+
+# Resize the podman machine to a % of host memory (and optionally host CPUs), then (re)start it.
+# Usage: just podman-machine-resize        -> 50% memory, cpus untouched
+#        just podman-machine-resize 70     -> 70% memory
+#        just podman-machine-resize 70 75  -> 70% memory, 75% cpus
+podman-machine-resize memory_pct="50" cpu_pct="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    machine="${PODMAN_MACHINE_NAME:-podman-machine-default}"
+    total_mem_mb=$(( $(sysctl -n hw.memsize) / 1024 / 1024 ))
+    mem_mb=$(( total_mem_mb * {{memory_pct}} / 100 ))
+    args=(--memory "$mem_mb")
+    if [[ -n "{{cpu_pct}}" ]]; then
+        total_cpus=$(sysctl -n hw.ncpu)
+        cpus=$(( total_cpus * {{cpu_pct}} / 100 ))
+        (( cpus < 1 )) && cpus=1
+        args+=(--cpus "$cpus")
+    fi
+    echo "Resizing $machine -> ${args[*]}"
+    podman machine stop "$machine" 2>/dev/null || true
+    podman machine set "$machine" "${args[@]}"
+    podman machine start "$machine"
+
+# Run the API test suite. Optional filter, e.g. `just api-test updater`.
+api-test FILTER="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd api && cargo test {{FILTER}}
+
+# SSO tests with SAML (cargo feature `saml`). Needs native libxml2 + xmlsec1:
+# Debian `libxmlsec1-dev pkg-config`; macOS `brew install libxmlsec1 libxslt pkgconf`.
+# On macOS the Homebrew pkg-config paths must come first: the SDK ships its own
+# older libxml2, and linking both into one binary segfaults inside xmlsec.
+api-test-saml FILTER="sso":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PKG_CONFIG_PATH="/opt/homebrew/opt/libxml2/lib/pkgconfig:/opt/homebrew/opt/libxslt/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+    cd api && cargo test --features saml {{FILTER}}
+
+# Run the bash installer unit tests (mocked, no real package manager or podman calls).
+test-install-scripts:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash scripts/test-install-channel.sh
+    bash scripts/test-install-cloud.sh
+    bash scripts/test-uninstall.sh
+    bash scripts/test-distro.sh
+
+# Podman-container smoke test of the local installer's package-resolution
+# path for one distro family. Usage: just test-install-packages fedora
+test-install-packages distro="debian":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args=(--rm -v "$PWD/scripts:/scripts:ro")
+    entrypoint_cmd='bash /scripts/test/smoke-install-packages.sh'
+    case "{{distro}}" in
+        debian) image=docker.io/library/debian:bookworm-slim ;;
+        fedora) image=docker.io/library/fedora:latest ;;
+        arch)
+            # No official arm64 archlinux image exists, so this always runs
+            # under amd64 emulation on Apple Silicon/arm64 hosts. Recent
+            # pacman's download sandbox is incompatible with QEMU user-mode
+            # emulation ("switching to sandbox user 'alpm' failed"), so
+            # disable it for this throwaway test container only. This is
+            # purely a dev-machine emulation workaround: it does not apply
+            # to setup.rs's real remote provisioning, which always targets a
+            # server's own native architecture.
+            image=docker.io/library/archlinux:latest
+            args+=(--platform linux/amd64)
+            entrypoint_cmd='echo DisableSandbox >> /etc/pacman.conf && '"${entrypoint_cmd}"
+            ;;
+        *)
+            echo "Usage: just test-install-packages [debian|fedora|arch]" >&2
+            exit 2
+            ;;
+    esac
+    podman run "${args[@]}" "$image" bash -c "${entrypoint_cmd}"
+
+# Audit the committed Rust dependency graph (install cargo-audit once first).
+api-audit:
+    cd "{{justfile_directory()}}/api" && cargo audit
+
+# Audit all UI dependencies, including build tools; high/critical findings fail.
+ui-audit:
+    cd "{{justfile_directory()}}/ui" && bun audit --audit-level=high
+
+# Format Rust sources after API changes.
+api-fmt:
+    cd "{{justfile_directory()}}/api" && cargo fmt
+
+# Format UI sources with oxfmt.
+ui-fmt:
+    cd "{{justfile_directory()}}/ui" && bun run fmt
+
+# Format all code: API (cargo fmt) and UI (oxfmt).
+fmt: api-fmt ui-fmt
+
+# Generate a disposable 30-day self-signed certificate for Settings → Certificates.
+# Usage: just self-signed-cert test.example.com
+self-signed-cert domain:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    domain='{{domain}}'
+    if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || [[ "$domain" == *..* ]]; then
+        echo "Invalid DNS name" >&2
+        exit 2
+    fi
+    umask 077
+    output=$(mktemp -d "${TMPDIR:-/tmp}/litepod-cert.XXXXXX")
+    cleanup() {
+        rm -f -- "$output/cert.pem" "$output/key.pem"
+        rmdir -- "$output"
+    }
+    trap cleanup EXIT
+    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 30 \
+        -keyout "$output/key.pem" -out "$output/cert.pem" \
+        -subj "/CN=$domain" -addext "subjectAltName=DNS:$domain" \
+        -addext "basicConstraints=critical,CA:FALSE" \
+        >/dev/null 2>&1
+    printf '\n=== Certificate PEM: copy into Certificate chain ===\n'
+    cat "$output/cert.pem"
+    printf '\n=== Private key PEM: copy into Private key ===\n'
+    cat "$output/key.pem"
+    printf '\nPaste each complete BEGIN/END block into Settings → Certificates.\n'
+
+# Fill request analytics locally: send `count` requests per app domain (or only `host`)
+# through the dev Caddy on :8080, with a mix of paths (some 404s). Needs `just compose`
+# and `just api` running. Rows show up on Analytics after the next one-minute flush.
+analytics count="1000" host="" concurrency="16":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    db="{{justfile_directory()}}/api/data/litepod.db"
+    if [ -n "{{host}}" ]; then
+        hosts="{{host}}"
+    else
+        hosts=$(sqlite3 -readonly "$db" "SELECT DISTINCT lower(host) FROM application_domains")
+    fi
+    if [ -z "$hosts" ]; then
+        echo "No app domains found: add a domain to an app, or pass host=<domain>." >&2
+        exit 1
+    fi
+    paths=(/ / / / /api/items "/api/items?page=2" /login /static/app.js /favicon.ico /does-not-exist /api/health)
+    echo "Sending {{count}} requests to each of: $(echo $hosts | tr '\n' ' ')via http://localhost:8080"
+    for _ in $(seq 1 {{count}}); do
+        for h in $hosts; do echo "$h ${paths[RANDOM % ${#paths[@]}]}"; done
+    done | xargs -P {{concurrency}} -n 2 sh -c 'curl -s -o /dev/null -m 10 -H "Host: $0" "http://localhost:8080$1" || true'
+    echo "Done. Wait about a minute for the flush, then open Analytics (organization or app tab)."
+
+# Install the Rust audit CLI into the standard Cargo tools directory.
+api-audit-install:
+    cargo install cargo-audit --version 0.22.2 --locked
+
+# Apply compatible dependency security fixes; review the lockfile diff afterward.
+ui-audit-fix:
+    cd "{{justfile_directory()}}/ui" && bun audit fix --ignore-scripts

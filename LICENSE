@@ -1,3 +1,15 @@
+Copyright (c) 2026-present Sebastian Garzon Coronado.
+
+Portions of this software are licensed as follows:
+
+- All content in any directory named `ee/` (for example `apps/api/src/ee/` and
+  `apps/ui/src/lib/ee/`) is licensed under the Litepod Enterprise License in
+  `LICENSE_EE.md`.
+- All third-party components keep their original licenses.
+- Everything else is licensed under the Apache License 2.0 below.
+
+---
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/

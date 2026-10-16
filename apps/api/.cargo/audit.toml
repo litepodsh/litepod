@@ -1,0 +1,16 @@
+# cargo-audit exceptions. Policy: every
+# entry names one advisory, explains why it is not reachable, and has a review date.
+# No blanket ignores.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 — `rsa` 0.9 "Marvin attack": non-constant-time *private-key*
+    # operations (decryption/signing) can leak the key through timing. No patched
+    # version exists. Reachability: the only remaining path is `openidconnect`, which
+    # uses `rsa` to *verify* IdP ID-token signatures with the IdP's public key; we
+    # never load an RSA private key through it. Our one RSA private-key operation
+    # (the GitHub App JWT) signs through `jsonwebtoken` with the `aws_lc_rs` backend
+    # (constant time), not this crate. The OIDC routes do not exist on cloud.
+    # Review by 2027-01-07, or as soon as `rsa` 0.10 ships and `openidconnect` adopts it.
+    "RUSTSEC-2023-0071",
+]
