@@ -1,0 +1,140 @@
+name: release
+
+# Runs `just release-dockerhub` (multiarch: amd64 native + arm64 via `cross`,
+# probed under qemu) on a GitHub runner instead of the Linux release server.
+#
+# Triggers:
+#   - push a tag vX.Y.Z           -> stable channel (:vX.Y.Z + :latest)
+#   - push a tag vX.Y.Z-alpha.N   -> alpha channel  (:vX.Y.Z-alpha.N + :alpha)
+#   - manual dispatch with a version (same rules). `dry_run` (default on)
+#     builds, probes and assembles the manifest but pushes nothing.
+#
+# The runner is always fresh, so every run is the equivalent of `-- --no-cache`.
+# api/.env and podx/.env are generated here from the tag, the pins in
+# scripts/install.sh, and the DOCKERHUB_TOKEN secret.
+#
+# version.json and the install scripts are published from the website
+# (litepod.sh), not here.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image tag: vX.Y.Z (stable) or vX.Y.Z-alpha.N (alpha)"
+        required: true
+      dry_run:
+        description: "Test the release: build + probe everything, push nothing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Resolve version and channel
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+            version="${INPUT_VERSION}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          if [[ "${version}" == *-alpha.* ]]; then channel=alpha; else channel=stable; fi
+          bash podx/scripts/validate-release-tag.sh "${channel}" "${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just,cross
+
+      - name: Register qemu binfmt (arm64 image build + probe)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Write api/.env and podx/.env
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CHANNEL: ${{ steps.version.outputs.channel }}
+        run: |
+          caddy="$(sed -n 's/^readonly FALLBACK_CADDY_IMAGE_TAG="\(.*\)"/\1/p' scripts/install.sh)"
+          : "${caddy:?caddy pin missing in scripts/install.sh}"
+          suffix=""
+          [[ "${CHANNEL}" == alpha ]] && suffix=_ALPHA
+          {
+            echo "LITEPOD_VERSION${suffix}=${VERSION}"
+            echo "CADDY_VERSION${suffix}=${caddy}"
+          } > api/.env
+          {
+            echo "DOCKERHUB_USER=litepod"
+            echo "DOCKERHUB_REPO=litepod"
+            echo "TARGET_PLATFORM=linux/amd64"
+            echo "CROSS_CONTAINER_ENGINE=podman"
+            echo "BUILD_ARCH=multiarch"
+          } > podx/.env
+
+      - name: podman login docker.io
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          : "${DOCKERHUB_TOKEN:?secret DOCKERHUB_TOKEN is not set}"
+          printf '%s' "${DOCKERHUB_TOKEN}" | podman login docker.io -u litepod --password-stdin
+
+      - name: just release-dockerhub
+        env:
+          CHANNEL: ${{ steps.version.outputs.channel }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          args=()
+          [[ "${CHANNEL}" == alpha ]] && args+=(--alpha)
+          [[ "${DRY_RUN}" == true ]] && args+=(--dry-run)
+          if (( ${#args[@]} )); then
+            just release-dockerhub -- "${args[@]}"
+          else
+            just release-dockerhub
+          fi
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CHANNEL: ${{ steps.version.outputs.channel }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          {
+            if [[ "${DRY_RUN}" == true ]]; then
+              echo "### Dry run OK: ${VERSION} (${CHANNEL}, multiarch), nothing pushed"
+            else
+              echo "### Released ${VERSION} (${CHANNEL}, multiarch)"
+              echo "- image: \`docker.io/litepod/litepod:${VERSION}\`"
+            fi
+            echo "- sha: ${GITHUB_SHA::7}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove credentials
+        if: always()
+        run: podman logout docker.io || true
