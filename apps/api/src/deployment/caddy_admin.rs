@@ -28,7 +28,7 @@ pub fn adapt_inherited_sockets(
     server: &mut serde_json::Map<String, serde_json::Value>,
     https: bool,
 ) {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     let Some(listen) = server.get_mut("listen").and_then(Value::as_array_mut) else {
         return;
     };

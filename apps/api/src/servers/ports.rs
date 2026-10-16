@@ -36,8 +36,9 @@ pub struct ServerPortDto {
 pub async fn list_for_server(
     state: &SharedState,
     server_id: &str,
+    organization_id: &str,
 ) -> Result<Vec<ServerPortDto>, AppError> {
-    let applications = repository::assigned_applications(state, server_id).await?;
+    let applications = repository::assigned_applications(state, server_id, organization_id).await?;
     let mut ports = Vec::new();
 
     for application in &applications {

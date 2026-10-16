@@ -110,6 +110,25 @@ pub struct RequireProject<P>(pub ProjectScope, pub PhantomData<P>);
 pub struct RequireEnv<P>(pub EnvScope, pub PhantomData<P>);
 pub struct RequireApp<P>(pub AppScope, pub PhantomData<P>);
 
+/// Read-only `/servers/local/...` routes a self-hosted non-SysAdmin may still
+/// reach: the server card, the caller's own applications and ports on it, and
+/// host-level metrics. Each handler filters to the caller's organization or
+/// returns host-wide numbers only; nothing here can reach a container, volume
+/// or Caddy route. Deny by default: a new local route stays SysAdmin-only until
+/// it is listed here.
+fn shared_local_read(parts: &Parts) -> bool {
+    const SUFFIXES: [&str; 4] = [
+        "/servers/local",
+        "/servers/local/applications",
+        "/servers/local/ports",
+        "/servers/local/podman/metrics/history",
+    ];
+    parts.method == axum::http::Method::GET
+        && SUFFIXES
+            .iter()
+            .any(|suffix| parts.uri.path().ends_with(suffix))
+}
+
 /// Membership + permission set. Never checks a permission itself.
 async fn base(parts: &mut Parts, state: &SharedState) -> Result<OrgScope, AppError> {
     // `auth_middleware` puts this here. Absent means the route was wired outside
@@ -122,12 +141,16 @@ async fn base(parts: &mut Parts, state: &SharedState) -> Result<OrgScope, AppErr
     let organization_id = path_param(parts, "organization_id").await?;
     // Not a member → 403 NotOrganizationMember, before anything else.
     let role_id = organization_role(state, &organization_id, &user).await?;
-    // On cloud the `local` server is the control plane's own host: every
-    // `/servers/{server_id}/...` route is a 404 for it unless the caller is the
-    // SysAdmin (database role plus `CLOUD_SYSADMIN_USER_ID` when set).
-    if state.is_cloud
-        && !user.is_sysadmin
+    // The `local` server is the control plane's own host on cloud, and on
+    // self-hosted it is shared by every organization (`organization_id IS NULL`):
+    // its console, exec, volume, Caddy and maintenance routes act on the whole
+    // host, across tenants. Every `/servers/{server_id}/...` route is a 404 for it
+    // unless the caller is the SysAdmin (database role plus
+    // `CLOUD_SYSADMIN_USER_ID` when set). Self-hosted keeps the few read-only
+    // routes the UI needs to show apps placed on it — see `shared_local_read`.
+    if !user.is_sysadmin
         && path_param(parts, "server_id").await.ok().as_deref() == Some("local")
+        && (state.is_cloud || !shared_local_read(parts))
     {
         return Err(AppError::ResourceNotFound);
     }

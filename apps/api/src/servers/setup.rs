@@ -1387,32 +1387,32 @@ mod tests {
 
     #[test]
     fn swap_is_recommended_only_without_swap_on_small_hosts() {
-    use super::{ServerFacts, swap_recommended, swap_total_bytes};
-    assert_eq!(swap_total_bytes("SwapTotal:       0 kB\n"), Some(0));
-    assert_eq!(swap_total_bytes("SwapTotal:    4096 kB\n"), Some(4_194_304));
-    let gib = 1024 * 1024 * 1024;
-    let facts = |memory, swap| ServerFacts {
-        memory_bytes: Some(memory),
-        swap_bytes: swap,
-        ..Default::default()
-    };
-    assert!(swap_recommended(&facts(16 * gib, Some(0))));
-    assert!(!swap_recommended(&facts(16 * gib + 1, Some(0))));
-    assert!(!swap_recommended(&facts(4 * gib, Some(gib))));
-    assert!(!swap_recommended(&facts(4 * gib, None)));
-}
+        use super::{ServerFacts, swap_recommended, swap_total_bytes};
+        assert_eq!(swap_total_bytes("SwapTotal:       0 kB\n"), Some(0));
+        assert_eq!(swap_total_bytes("SwapTotal:    4096 kB\n"), Some(4_194_304));
+        let gib = 1024 * 1024 * 1024;
+        let facts = |memory, swap| ServerFacts {
+            memory_bytes: Some(memory),
+            swap_bytes: swap,
+            ..Default::default()
+        };
+        assert!(swap_recommended(&facts(16 * gib, Some(0))));
+        assert!(!swap_recommended(&facts(16 * gib + 1, Some(0))));
+        assert!(!swap_recommended(&facts(4 * gib, Some(gib))));
+        assert!(!swap_recommended(&facts(4 * gib, None)));
+    }
 
-#[test]
-fn create_swap_script_parses() {
-    let status = std::process::Command::new("sh")
-        .args(["-n", "-c", super::CREATE_SWAP])
-        .status()
-        .unwrap();
-    assert!(status.success());
-}
+    #[test]
+    fn create_swap_script_parses() {
+        let status = std::process::Command::new("sh")
+            .args(["-n", "-c", super::CREATE_SWAP])
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
 
-#[test]
-fn memory_is_read_from_free_or_meminfo() {
+    #[test]
+    fn memory_is_read_from_free_or_meminfo() {
         let free =
             "               total        used\nMem:      8221581312  2147483648\nSwap:     0  0\n";
         assert_eq!(memory_bytes(free), Some(8_221_581_312));

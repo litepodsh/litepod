@@ -270,7 +270,10 @@ mod tests {
         let (state, path) = crate::testing::test_state().await;
         let app = Router::new()
             .route("/api/v1/organizations/{org}/mcp", post(|| async { "ok" }))
-            .route("/api/v1/organizations/{org}/projects", post(|| async { "ok" }))
+            .route(
+                "/api/v1/organizations/{org}/projects",
+                post(|| async { "ok" }),
+            )
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
                 origin_guard,

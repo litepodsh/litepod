@@ -68,9 +68,16 @@ mod tests {
     #[test]
     fn what_mcp_runs_directly_is_a_subset_of_the_allowlist() {
         for action in MCP_DIRECT {
-            assert!(action_allowed(action), "{action} must also be an allowed action");
+            assert!(
+                action_allowed(action),
+                "{action} must also be an allowed action"
+            );
         }
-        assert_eq!(MCP_DIRECT, &["start", "stop"], "widening this is a security decision");
+        assert_eq!(
+            MCP_DIRECT,
+            &["start", "stop"],
+            "widening this is a security decision"
+        );
         assert!(!mcp_direct("redeploy"));
         assert!(!mcp_direct("delete_project"));
     }

@@ -120,8 +120,14 @@ const ACTION_HELP: &[(&str, &str)] = &[
         "`delete_environment_variable` (needs `name`, optionally `scope`)",
     ),
     ("redeploy", "`redeploy` (nothing else)"),
-    ("start", "`start` (nothing else; starts a stopped application)"),
-    ("stop", "`stop` (nothing else; stops the application's containers)"),
+    (
+        "start",
+        "`start` (nothing else; starts a stopped application)",
+    ),
+    (
+        "stop",
+        "`stop` (nothing else; stops the application's containers)",
+    ),
     (
         "set_compose_file",
         "`set_compose_file` (needs the complete new `compose`; send the whole file, never a fragment)",

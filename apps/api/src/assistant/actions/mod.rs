@@ -28,8 +28,8 @@ pub use types::{
 pub use propose::{
     propose_add_domain, propose_compose_file, propose_create_application, propose_create_project,
     propose_delete_domain, propose_delete_environment_variable, propose_delete_project,
-    propose_environment_variable, propose_lifecycle, propose_redeploy, propose_source, propose_update_application,
-    propose_update_domain, propose_update_project,
+    propose_environment_variable, propose_lifecycle, propose_redeploy, propose_source,
+    propose_update_application, propose_update_domain, propose_update_project,
 };
 
 pub use types::{START_APPLICATION, STOP_APPLICATION};

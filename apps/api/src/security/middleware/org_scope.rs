@@ -362,6 +362,60 @@ mod tests {
         );
     }
 
+    /// On self-hosted the `local` server is shared by every organization, so its
+    /// host-wide routes (console, exec, volumes, Caddy, maintenance) are
+    /// SysAdmin-only too. Only the read-only allowlist stays open to members.
+    #[tokio::test]
+    async fn self_hosted_local_server_host_routes_are_sysadmin_only() {
+        let status = |route: &'static str, user: AuthUser, server_id: &'static str| async move {
+            let (state, path) = crate::testing::test_state_for(false).await;
+            let router = probe(
+                state,
+                user,
+                &format!("/api/v1/organizations/{{organization_id}}/servers/{{server_id}}{route}"),
+                org_probe,
+            );
+            let response = router
+                .oneshot(get_request(&format!(
+                    "/api/v1/organizations/organization-a/servers/{server_id}{route}"
+                )))
+                .await
+                .unwrap();
+            cleanup_database(&path);
+            response.status()
+        };
+        for route in [
+            "/podman/overview",
+            "/podman/resources/containers",
+            "/podman/volume/data/workspace",
+            "/caddy/config",
+            "/terminal-sessions",
+        ] {
+            assert_eq!(
+                status(route, auth_user("viewer"), "local").await,
+                StatusCode::NOT_FOUND,
+                "{route}"
+            );
+            assert_eq!(
+                status(route, sysadmin_user("outsider"), "local").await,
+                StatusCode::OK,
+                "{route}"
+            );
+            assert_eq!(
+                status(route, auth_user("viewer"), "ssh-a").await,
+                StatusCode::OK,
+                "{route}"
+            );
+        }
+        for route in ["", "/applications", "/ports", "/podman/metrics/history"] {
+            assert_eq!(
+                status(route, auth_user("viewer"), "local").await,
+                StatusCode::OK,
+                "{route}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn an_application_from_another_organization_is_not_found() {
         // The whole shape of the seven critical bugs: a real role in the

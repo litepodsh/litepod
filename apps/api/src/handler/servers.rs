@@ -317,22 +317,26 @@ pub async fn assigned_applications_handler(
     repository::get_for_server_route(&state, &server_id, &organization_id)
         .await?
         .ok_or(AppError::ResourceNotFound)?;
-    Ok(ok(repository::assigned_applications(&state, &server_id)
-        .await?
-        .into_iter()
-        .map(|application| ServerAssignedApplicationDto {
-            id: application.id,
-            name: application.name,
-            environment_id: application.environment_id,
-            environment_name: application.environment_name,
-            project_id: application.project_id,
-            project_name: application.project_name,
-            deploy_type: application.deploy_type,
-            template_kind: application.template_kind,
-            icon_url: application.icon_url,
-            catalog_icon_url: application.catalog_icon_url,
-        })
-        .collect::<Vec<_>>()))
+    Ok(ok(repository::assigned_applications(
+        &state,
+        &server_id,
+        &organization_id,
+    )
+    .await?
+    .into_iter()
+    .map(|application| ServerAssignedApplicationDto {
+        id: application.id,
+        name: application.name,
+        environment_id: application.environment_id,
+        environment_name: application.environment_name,
+        project_id: application.project_id,
+        project_name: application.project_name,
+        deploy_type: application.deploy_type,
+        template_kind: application.template_kind,
+        icon_url: application.icon_url,
+        catalog_icon_url: application.catalog_icon_url,
+    })
+    .collect::<Vec<_>>()))
 }
 
 /// Every host port an application on this server publishes, from every source
@@ -350,7 +354,9 @@ pub async fn ports_handler(
         .await?
         .ok_or(AppError::ResourceNotFound)?;
     Ok(ok(crate::servers::ports::list_for_server(
-        &state, &server_id,
+        &state,
+        &server_id,
+        &organization_id,
     )
     .await?))
 }

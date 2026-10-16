@@ -14,6 +14,7 @@ mod cqrs;
 mod database_backup;
 mod deployment;
 mod dtos;
+mod ee;
 mod git;
 mod handler;
 mod health_checks;
@@ -29,7 +30,6 @@ mod router;
 mod scheduled_tasks;
 mod security;
 mod servers;
-mod ee;
 mod state;
 mod templates;
 #[cfg(test)]

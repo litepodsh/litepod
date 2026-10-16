@@ -361,12 +361,21 @@ pub async fn propose_lifecycle(
         Some(reason) => format!("{effect} {}. {reason}", target.application_name),
         None => format!("{effect} {}.", target.application_name),
     };
-    store_action(state, conversation_id, actor, target, tool, "{}", title, summary)
-        .await
-        .map(|action| ActionDto {
-            added: None,
-            ..action
-        })
+    store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        tool,
+        "{}",
+        title,
+        summary,
+    )
+    .await
+    .map(|action| ActionDto {
+        added: None,
+        ..action
+    })
 }
 
 /// Stores a replacement compose file without writing it.

@@ -255,10 +255,24 @@ impl Rollout {
                     {
                         return Err("Two routed services use the same container port; the current endpoint model cannot safely promote them".into());
                     }
-                } else if !with_wait_progress(state, port, LISTEN_BUDGET, wait_listening("127.0.0.1", published)).await? {
+                } else if !with_wait_progress(
+                    state,
+                    port,
+                    LISTEN_BUDGET,
+                    wait_listening("127.0.0.1", published),
+                )
+                .await?
+                {
                     warn_not_listening(state, port).await;
                 }
-            } else if !with_wait_progress(state, port, LISTEN_BUDGET, wait_listening(container, port)).await? {
+            } else if !with_wait_progress(
+                state,
+                port,
+                LISTEN_BUDGET,
+                wait_listening(container, port),
+            )
+            .await?
+            {
                 warn_not_listening(state, port).await;
             }
         }

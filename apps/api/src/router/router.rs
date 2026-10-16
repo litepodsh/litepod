@@ -26,6 +26,7 @@ use crate::security::middleware::request_context::request_context_middleware;
 use crate::security::middleware::sentry_transaction::sentry_transaction_middleware;
 use crate::state::state::SharedState;
 use crate::{
+    ee::handler::sso,
     handler::{
         access, account, application_network_probe, application_network_stats,
         application_networks, assistant, auth, backup, billing, caddy_console, catalog_templates,
@@ -34,7 +35,6 @@ use crate::{
         permissions, personal_access_tokens, podman_console, projects, runtime, scheduled_tasks,
         server_groups, servers, sessions, settings, system, templates, users, webhooks,
     },
-    ee::handler::sso,
     podman::terminal,
 };
 

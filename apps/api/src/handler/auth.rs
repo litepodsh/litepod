@@ -557,8 +557,12 @@ async fn idp_logout_url(
         return None;
     }
     let public = crate::handler::settings::public_base_url(state).await;
-    crate::ee::sso::oidc::end_session_url(&connection, origin.id_token_encrypted.as_deref(), &public)
-        .await
+    crate::ee::sso::oidc::end_session_url(
+        &connection,
+        origin.id_token_encrypted.as_deref(),
+        &public,
+    )
+    .await
 }
 
 #[utoipa::path(

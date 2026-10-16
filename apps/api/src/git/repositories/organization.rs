@@ -344,15 +344,26 @@ mod mcp_toggle_tests {
     async fn mcp_is_off_until_someone_turns_it_on() {
         let (state, path) = crate::testing::test_state().await;
 
-        let before = get_organization_by_id(&state, "organization-a").await.unwrap();
-        assert!(!before.mcp_enabled, "an organization must not start with MCP on");
+        let before = get_organization_by_id(&state, "organization-a")
+            .await
+            .unwrap();
+        assert!(
+            !before.mcp_enabled,
+            "an organization must not start with MCP on"
+        );
 
-        set_mcp_enabled(&state, "organization-a", true).await.unwrap();
-        let after = get_organization_by_id(&state, "organization-a").await.unwrap();
+        set_mcp_enabled(&state, "organization-a", true)
+            .await
+            .unwrap();
+        let after = get_organization_by_id(&state, "organization-a")
+            .await
+            .unwrap();
         assert!(after.mcp_enabled);
 
         // Only the organization asked about changes.
-        let other = get_organization_by_id(&state, "organization-b").await.unwrap();
+        let other = get_organization_by_id(&state, "organization-b")
+            .await
+            .unwrap();
         assert!(!other.mcp_enabled);
 
         crate::testing::cleanup_database(&path);

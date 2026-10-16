@@ -765,9 +765,13 @@ pub struct AssignedApplication {
 
 /// The applications that keep a server from being removed, named the way the user sees them so
 /// the removal dialog can say exactly what has to be moved first.
+/// Applications of `organization_id` placed on `server_id`. Scoped because the
+/// self-hosted `local` server is shared: without it, every organization would
+/// see the others' applications on it.
 pub async fn assigned_applications(
     state: &SharedState,
     server_id: &str,
+    organization_id: &str,
 ) -> Result<Vec<AssignedApplication>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(
@@ -776,10 +780,11 @@ pub async fn assigned_applications(
          FROM applications a
          INNER JOIN environments e ON e.id = a.environment_id
          INNER JOIN projects p ON p.id = e.project_id
-         WHERE a.server_id = ?1
+         WHERE a.server_id = ?1 AND p.organization_id = ?2
          ORDER BY p.name ASC, e.name ASC, a.name ASC",
     )
     .bind(server_id)
+    .bind(organization_id)
     .fetch_all(&conn)
     .await
     .map_err(|error| AppError::DatabaseError(error.to_string()))?;
