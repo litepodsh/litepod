@@ -118,17 +118,7 @@ Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy p
 
 There are two ways to run Litepod. Pick the one that fits how much you want to operate yourself.
 
-### Option 1 — Litepod Cloud (recommended)
-
-**Your server. Our control plane.**
-
-Don't want to install, update and back up the control plane yourself? Use [Litepod Cloud](https://app.litepod.sh/register?utm_source=github&utm_medium=readme&utm_campaign=cloud). Register, connect a server you already pay for with one command, and deploy your first app in minutes.
-
-- Managed control plane, updates and backups
-- Your server, your data, your bill
-- Move back to self-hosting whenever you want
-
-### Option 2 — Self-host
+### Option 1 — Self-host
 
 Install Litepod on any Linux server (Debian, Ubuntu, Fedora or Arch). The installer sets up Podman, generates every secret and starts the stack. It works as root or rootless:
 
@@ -139,6 +129,16 @@ curl -fsSL https://litepod.sh/install.sh | bash
 Then open the panel, create your account and set your domain under **Settings → Server Domain**.
 
 See the [installation docs](https://docs.litepod.sh) for update channels, backups, remote servers and resource sizing.
+
+### Option 2 — Litepod Cloud
+
+**Your server. Our control plane.**
+
+Don't want to install, update and back up the control plane yourself? Use [Litepod Cloud](https://app.litepod.sh/register?utm_source=github&utm_medium=readme&utm_campaign=cloud). Register, connect a server you already pay for with one command, and deploy your first app in minutes.
+
+- Managed control plane, updates and backups
+- Your server, your data, your bill
+- Move back to self-hosting whenever you want
 
 ## Try it first
 

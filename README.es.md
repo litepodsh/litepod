@@ -118,17 +118,7 @@ La mayoría de los PaaS autoalojados son una capa fina sobre Docker o una plataf
 
 Hay dos formas de usar Litepod. Elige según cuánto quieras operar tú mismo.
 
-### Opción 1 — Litepod Cloud (recomendada)
-
-**Tu servidor. Nuestro control plane.**
-
-¿No quieres instalar, actualizar y respaldar el control plane por tu cuenta? Usa [Litepod Cloud](https://app.litepod.sh/register?utm_source=github&utm_medium=readme&utm_campaign=cloud). Regístrate, conecta con un comando un servidor que ya pagas y despliega tu primera app en minutos.
-
-- Control plane gestionado, actualizaciones y backups
-- Tu servidor, tus datos, tu factura
-- Vuelve a autoalojar cuando quieras
-
-### Opción 2 — Autoalojado
+### Opción 1 — Autoalojado
 
 Instala Litepod en cualquier servidor Linux (Debian, Ubuntu, Fedora o Arch). El instalador configura Podman, genera todos los secretos y arranca el stack. Funciona como root o rootless:
 
@@ -139,6 +129,16 @@ curl -fsSL https://litepod.sh/install.sh | bash
 Después abre el panel, crea tu cuenta y configura tu dominio en **Settings → Server Domain**.
 
 Consulta la [documentación de instalación](https://docs.litepod.sh) para canales de actualización, backups, servidores remotos y dimensionamiento de recursos.
+
+### Opción 2 — Litepod Cloud
+
+**Tu servidor. Nuestro control plane.**
+
+¿No quieres instalar, actualizar y respaldar el control plane por tu cuenta? Usa [Litepod Cloud](https://app.litepod.sh/register?utm_source=github&utm_medium=readme&utm_campaign=cloud). Regístrate, conecta con un comando un servidor que ya pagas y despliega tu primera app en minutos.
+
+- Control plane gestionado, actualizaciones y backups
+- Tu servidor, tus datos, tu factura
+- Vuelve a autoalojar cuando quieras
 
 ## Pruébalo primero
 
