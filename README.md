@@ -1,7 +1,7 @@
 <div align="center">
 
 <a href="https://litepod.sh">
-  <img src=".github/assets/litepod.svg" alt="Litepod" width="88" height="88">
+  <img src="assets/litepod.svg" alt="Litepod" width="88" height="88">
 </a>
 
 # Litepod
@@ -16,8 +16,8 @@ Deploy applications, databases and services to servers you own, with a clean pan
 **English** · [Español](README.es.md)
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/home-dark.webp">
-  <img src=".github/assets/screenshots/home-light.webp" alt="Litepod home: projects, containers and recent activity at a glance">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/home-dark.webp">
+  <img src="assets/screenshots/home-light.webp" alt="Litepod home: projects, containers and recent activity at a glance">
 </picture>
 
 </div>
@@ -51,15 +51,15 @@ Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy p
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/overview-dark.webp">
-        <img src=".github/assets/screenshots/overview-light.webp" alt="Overview">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/overview-dark.webp">
+        <img src="assets/screenshots/overview-light.webp" alt="Overview">
       </picture>
       <p align="center"><b>Overview</b> — status, deploy URL and compose in one view</p>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/deployments-dark.webp">
-        <img src=".github/assets/screenshots/deployments-light.webp" alt="Deployments">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/deployments-dark.webp">
+        <img src="assets/screenshots/deployments-light.webp" alt="Deployments">
       </picture>
       <p align="center"><b>Deployments</b> — every build with its live log</p>
     </td>
@@ -67,15 +67,15 @@ Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy p
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/analytics-dark.webp">
-        <img src=".github/assets/screenshots/analytics-light.webp" alt="Analytics">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/analytics-dark.webp">
+        <img src="assets/screenshots/analytics-light.webp" alt="Analytics">
       </picture>
       <p align="center"><b>Analytics</b> — requests, errors and latency through the proxy</p>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/metrics-dark.webp">
-        <img src=".github/assets/screenshots/metrics-light.webp" alt="Metrics">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/metrics-dark.webp">
+        <img src="assets/screenshots/metrics-light.webp" alt="Metrics">
       </picture>
       <p align="center"><b>Metrics</b> — CPU and memory per application</p>
     </td>
@@ -83,15 +83,15 @@ Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy p
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/terminal-dark.webp">
-        <img src=".github/assets/screenshots/terminal-light.webp" alt="Terminal">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/terminal-dark.webp">
+        <img src="assets/screenshots/terminal-light.webp" alt="Terminal">
       </picture>
       <p align="center"><b>Terminal</b> — a shell inside any container</p>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/volumes-dark.webp">
-        <img src=".github/assets/screenshots/volumes-light.webp" alt="Volumes">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/volumes-dark.webp">
+        <img src="assets/screenshots/volumes-light.webp" alt="Volumes">
       </picture>
       <p align="center"><b>Volumes</b> — persistent storage and live mounts</p>
     </td>
@@ -99,15 +99,15 @@ Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy p
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/fleet-dark.webp">
-        <img src=".github/assets/screenshots/fleet-light.webp" alt="Fleet">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/fleet-dark.webp">
+        <img src="assets/screenshots/fleet-light.webp" alt="Fleet">
       </picture>
       <p align="center"><b>Fleet</b> — every server on one globe</p>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/templates-dark.webp">
-        <img src=".github/assets/screenshots/templates-light.webp" alt="Templates">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/templates-dark.webp">
+        <img src="assets/screenshots/templates-light.webp" alt="Templates">
       </picture>
       <p align="center"><b>Templates</b> — start from a known stack</p>
     </td>

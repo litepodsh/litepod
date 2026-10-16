@@ -32,6 +32,4 @@ apps/api/target/
 /apps/ui/.scannerwork
 /apps/api/compose
 /.claude
-/.github/*
-!/.github/workflows/
 /.agents

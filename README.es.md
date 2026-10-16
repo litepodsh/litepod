@@ -1,7 +1,7 @@
 <div align="center">
 
 <a href="https://litepod.sh">
-  <img src=".github/assets/litepod.svg" alt="Litepod" width="88" height="88">
+  <img src="assets/litepod.svg" alt="Litepod" width="88" height="88">
 </a>
 
 # Litepod
@@ -16,8 +16,8 @@ Despliega aplicaciones, bases de datos y servicios en servidores que son tuyos, 
 [English](README.md) · **Español**
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/home-dark.webp">
-  <img src=".github/assets/screenshots/home-light.webp" alt="Inicio de Litepod: proyectos, contenedores y actividad reciente de un vistazo">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/home-dark.webp">
+  <img src="assets/screenshots/home-light.webp" alt="Inicio de Litepod: proyectos, contenedores y actividad reciente de un vistazo">
 </picture>
 
 </div>
@@ -51,15 +51,15 @@ La mayoría de los PaaS autoalojados son una capa fina sobre Docker o una plataf
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/overview-dark.webp">
-        <img src=".github/assets/screenshots/overview-light.webp" alt="Resumen">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/overview-dark.webp">
+        <img src="assets/screenshots/overview-light.webp" alt="Resumen">
       </picture>
       <p align="center"><b>Resumen</b> — estado, URL de despliegue y compose en una vista</p>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/deployments-dark.webp">
-        <img src=".github/assets/screenshots/deployments-light.webp" alt="Despliegues">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/deployments-dark.webp">
+        <img src="assets/screenshots/deployments-light.webp" alt="Despliegues">
       </picture>
       <p align="center"><b>Despliegues</b> — cada build con su log en vivo</p>
     </td>
@@ -67,15 +67,15 @@ La mayoría de los PaaS autoalojados son una capa fina sobre Docker o una plataf
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/analytics-dark.webp">
-        <img src=".github/assets/screenshots/analytics-light.webp" alt="Analíticas">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/analytics-dark.webp">
+        <img src="assets/screenshots/analytics-light.webp" alt="Analíticas">
       </picture>
       <p align="center"><b>Analíticas</b> — peticiones, errores y latencia a través del proxy</p>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/metrics-dark.webp">
-        <img src=".github/assets/screenshots/metrics-light.webp" alt="Métricas">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/metrics-dark.webp">
+        <img src="assets/screenshots/metrics-light.webp" alt="Métricas">
       </picture>
       <p align="center"><b>Métricas</b> — CPU y memoria por aplicación</p>
     </td>
@@ -83,15 +83,15 @@ La mayoría de los PaaS autoalojados son una capa fina sobre Docker o una plataf
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/terminal-dark.webp">
-        <img src=".github/assets/screenshots/terminal-light.webp" alt="Terminal">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/terminal-dark.webp">
+        <img src="assets/screenshots/terminal-light.webp" alt="Terminal">
       </picture>
       <p align="center"><b>Terminal</b> — una shell dentro de cualquier contenedor</p>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/volumes-dark.webp">
-        <img src=".github/assets/screenshots/volumes-light.webp" alt="Volúmenes">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/volumes-dark.webp">
+        <img src="assets/screenshots/volumes-light.webp" alt="Volúmenes">
       </picture>
       <p align="center"><b>Volúmenes</b> — almacenamiento persistente y montajes en vivo</p>
     </td>
@@ -99,15 +99,15 @@ La mayoría de los PaaS autoalojados son una capa fina sobre Docker o una plataf
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/fleet-dark.webp">
-        <img src=".github/assets/screenshots/fleet-light.webp" alt="Flota">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/fleet-dark.webp">
+        <img src="assets/screenshots/fleet-light.webp" alt="Flota">
       </picture>
       <p align="center"><b>Flota</b> — todos tus servidores en un globo</p>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/templates-dark.webp">
-        <img src=".github/assets/screenshots/templates-light.webp" alt="Plantillas">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/templates-dark.webp">
+        <img src="assets/screenshots/templates-light.webp" alt="Plantillas">
       </picture>
       <p align="center"><b>Plantillas</b> — empieza desde un stack conocido</p>
     </td>
