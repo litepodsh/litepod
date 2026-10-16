@@ -39,7 +39,7 @@ Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy p
 - **Databases** — provision databases alongside your apps, with persistent volumes.
 - **Automatic HTTPS** — custom domains with TLS certificates issued and renewed by Caddy.
 - **Multi-server fleet** — connect remote Debian, Ubuntu, Fedora or Arch servers over key-only SSH. Use a public edge, a private relay, or keep services private.
-- **Observability** — request analytics, errors and latency through the proxy, plus CPU and memory per application.
+- **Observability** — request analytics, errors and latency through the proxy, plus CPU and memory per application. Analytics and metrics are stored in an embedded [DuckDB](https://duckdb.org) database _(beta)_.
 - **Web terminal** — open a shell inside any container from the browser.
 - **Volumes** — inspect and edit persistent storage and live mounts.
 - **Backups** — scheduled backups to any S3-compatible bucket.
@@ -150,7 +150,7 @@ The code lives in [`apps/`](apps):
 
 | Path | Stack |
 |------|-------|
-| [`apps/api`](apps/api) | Rust, axum, sqlx + SQLite, podman-api |
+| [`apps/api`](apps/api) | Rust, axum, sqlx + SQLite, DuckDB (analytics and metrics, beta), podman-api |
 | [`apps/ui`](apps/ui) | SvelteKit, Svelte 5, Tailwind CSS 4, shadcn-svelte |
 
 Local setup, Podman machine sizing and staging deploys are documented in [`apps/README.md`](apps/README.md) and [`apps/INSTALLING.md`](apps/INSTALLING.md).

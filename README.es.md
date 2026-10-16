@@ -39,7 +39,7 @@ La mayoría de los PaaS autoalojados son una capa fina sobre Docker o una plataf
 - **Bases de datos** — crea bases de datos junto a tus apps, con volúmenes persistentes.
 - **HTTPS automático** — dominios propios con certificados TLS emitidos y renovados por Caddy.
 - **Flota de servidores** — conecta servidores Debian, Ubuntu, Fedora o Arch por SSH solo con llave. Usa un edge público, un relay privado o mantén los servicios privados.
-- **Observabilidad** — analíticas de peticiones, errores y latencia a través del proxy, más CPU y memoria por aplicación.
+- **Observabilidad** — analíticas de peticiones, errores y latencia a través del proxy, más CPU y memoria por aplicación. Las analíticas y métricas se guardan en una base [DuckDB](https://duckdb.org) embebida _(beta)_.
 - **Terminal web** — abre una shell dentro de cualquier contenedor desde el navegador.
 - **Volúmenes** — inspecciona y edita almacenamiento persistente y montajes en vivo.
 - **Backups** — copias programadas a cualquier bucket compatible con S3.
@@ -150,7 +150,7 @@ El código está en [`apps/`](apps):
 
 | Ruta | Stack |
 |------|-------|
-| [`apps/api`](apps/api) | Rust, axum, sqlx + SQLite, podman-api |
+| [`apps/api`](apps/api) | Rust, axum, sqlx + SQLite, DuckDB (analíticas y métricas, beta), podman-api |
 | [`apps/ui`](apps/ui) | SvelteKit, Svelte 5, Tailwind CSS 4, shadcn-svelte |
 
 El entorno local, el dimensionamiento de la máquina Podman y los despliegues de staging están documentados en [`apps/README.md`](apps/README.md) y [`apps/INSTALLING.md`](apps/INSTALLING.md) (en inglés).
