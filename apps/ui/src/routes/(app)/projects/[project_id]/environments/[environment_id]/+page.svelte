@@ -1137,7 +1137,8 @@
 						</div>
 						{#if sparklines}
 							{@const requests = sparklines.applications[application.id] ?? []}
-							{@const hovered = hoveredRequests?.id === application.id ? hoveredRequests.index : null}
+							{@const hovered =
+								hoveredRequests?.id === application.id ? hoveredRequests.index : null}
 							<!-- relative: lift above the card's stretched link so the chart gets hover -->
 							<div class="relative flex flex-col gap-1.5 px-4 pb-3">
 								<CellChart

@@ -103,7 +103,9 @@
 
 <section class="space-y-3" aria-labelledby="groups-heading">
 	<div>
-		<h3 id="groups-heading" class="text-[15px] font-semibold">{t('organizations.access.groups')}</h3>
+		<h3 id="groups-heading" class="text-[15px] font-semibold">
+			{t('organizations.access.groups')}
+		</h3>
 		<p class="mt-1 text-sm text-muted-foreground">{t('organizations.access.groups_hint')}</p>
 	</div>
 

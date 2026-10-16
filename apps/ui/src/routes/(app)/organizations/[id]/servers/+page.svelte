@@ -377,7 +377,9 @@
 						class="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
 					<HouseIcon class="size-4 shrink-0 text-muted-foreground" />
 					<h2 class="text-sm font-semibold">
-						{t(isCloud ? 'organizations.servers.cloud_server' : 'organizations.servers.this_machine')}
+						{t(
+							isCloud ? 'organizations.servers.cloud_server' : 'organizations.servers.this_machine',
+						)}
 					</h2>
 					<Badge variant="secondary">{localServers.length}</Badge>
 					<span class="ml-auto hidden text-xs text-muted-foreground sm:inline"

@@ -1093,7 +1093,8 @@
 								placeholder={t('organizations.containers.search', { resource: active })}
 								class="mb-3" />
 							{#if filtered.length === 0}
-								<div class="rounded-2xl border border-dashed border-foreground/15 p-8 text-center text-sm text-muted-foreground">
+								<div
+									class="rounded-2xl border border-dashed border-foreground/15 p-8 text-center text-sm text-muted-foreground">
 									{t('organizations.containers.empty_resources', { resource: active })}
 								</div>
 							{:else}
@@ -1396,7 +1397,8 @@
 									{/if}
 								</div>
 							{:else}
-								<div class="rounded-2xl border border-dashed border-foreground/15 p-8 text-center text-sm text-muted-foreground">
+								<div
+									class="rounded-2xl border border-dashed border-foreground/15 p-8 text-center text-sm text-muted-foreground">
 									{t('organizations.containers.select_resource')}
 								</div>
 							{/if}
@@ -1487,7 +1489,8 @@
 					</div>
 				{:else if active === 'events'}
 					{#if events.length === 0}
-						<div class="rounded-2xl border border-dashed border-foreground/15 p-8 text-center text-sm text-muted-foreground">
+						<div
+							class="rounded-2xl border border-dashed border-foreground/15 p-8 text-center text-sm text-muted-foreground">
 							{t('organizations.containers.no_recent_events')}
 						</div>
 					{:else}

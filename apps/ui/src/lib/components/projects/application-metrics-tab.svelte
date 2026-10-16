@@ -109,7 +109,6 @@
 		);
 		return () => (cancelled = true);
 	});
-
 </script>
 
 {#snippet head(Icon: typeof CpuIcon, title: string, hint: string)}

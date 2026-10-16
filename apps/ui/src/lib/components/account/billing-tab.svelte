@@ -46,12 +46,16 @@
 		new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount) / 100);
 	const date = (value: number) => new Date(value).toLocaleDateString();
 	const unit = (value: string) =>
-		value === 'month' ? t('account.subscription.month_short') : t('account.subscription.year_short');
+		value === 'month'
+			? t('account.subscription.month_short')
+			: t('account.subscription.year_short');
 
 	const status = $derived(overview?.subscription.status ?? '');
 	const hasActiveSubscription = $derived(['active', 'trialing'].includes(status));
 	// Polar rejects slot changes once a cancel is scheduled.
-	const canceling = $derived(hasActiveSubscription && !!overview?.subscription.cancel_at_period_end);
+	const canceling = $derived(
+		hasActiveSubscription && !!overview?.subscription.cancel_at_period_end,
+	);
 	const tone = $derived<StatusTone>(
 		status === 'active'
 			? 'ok'
@@ -512,7 +516,8 @@
 				</AlertDialog.Description>
 			</AlertDialog.Header>
 			<AlertDialog.Footer>
-				<AlertDialog.Cancel disabled={quantityLoading}>{t('account.common.cancel')}</AlertDialog.Cancel>
+				<AlertDialog.Cancel disabled={quantityLoading}
+					>{t('account.common.cancel')}</AlertDialog.Cancel>
 				<DeleteConfirmControl
 					label={quantityDelta > 0
 						? t('account.subscription.buy_slots')

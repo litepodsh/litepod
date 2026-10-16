@@ -354,7 +354,9 @@
 		testRun = { output: '', target: null, done: null };
 		const run = testRun;
 		// the panel renders below the form, out of view in the scrolling dialog body
-		void tick().then(() => testPanelElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+		void tick().then(() =>
+			testPanelElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }),
+		);
 		try {
 			await streamScheduledTaskTest(
 				organizationId,

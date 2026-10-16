@@ -15,7 +15,9 @@
 		y2="98.431"
 		gradientTransform="matrix(1 0 0 -1 0 128)"
 		gradientUnits="userSpaceOnUse"
-		><stop offset="0" stop-color="#a9c8ff" /><stop offset="1" stop-color="#c7e6ff" /></linearGradient>
+		><stop offset="0" stop-color="#a9c8ff" /><stop
+			offset="1"
+			stop-color="#c7e6ff" /></linearGradient>
 	<path
 		fill={`url(#${p}a)`}
 		fill-rule="evenodd"

@@ -145,9 +145,7 @@
 		const cap = memCaps ? peak(memCaps) : host ? memoryFallback : null;
 		return Math.max(cap ?? 0, peak(grid.mem) ?? 0, 1) * (cap ? 1 : 1.08);
 	});
-	const diskMax = $derived(
-		grid ? Math.max(peak(grid.diskCap) ?? 0, peak(grid.disk) ?? 0, 1) : 1,
-	);
+	const diskMax = $derived(grid ? Math.max(peak(grid.diskCap) ?? 0, peak(grid.disk) ?? 0, 1) : 1);
 	const hasDisk = $derived(host && !!grid && grid.disk.some((v) => v !== null));
 
 	function bytesOf(value: number | null, cap: number | null): string {
@@ -155,7 +153,8 @@
 		if (!cap) return formatBytes(value);
 		return `${formatBytes(value)} / ${formatBytes(cap)} · ${Math.round((value / cap) * 100)}%`;
 	}
-	const cpuText = (v: number | null) => (v === null ? t('servers.card.no_data') : `${v.toFixed(1)}%`);
+	const cpuText = (v: number | null) =>
+		v === null ? t('servers.card.no_data') : `${v.toFixed(1)}%`;
 
 	const rangeItems = $derived(
 		HISTORY_RANGES.map((value) => ({ value, label: t(`common.metrics_history.range_${value}`) })),

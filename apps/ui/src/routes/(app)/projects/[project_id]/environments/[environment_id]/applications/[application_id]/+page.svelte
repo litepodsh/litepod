@@ -1195,7 +1195,8 @@
 		if (!current || activeDeploymentJobId !== jobId) return;
 		// Only move forward: a live event may have landed while this request ran.
 		const rank = (status: string | null) => ACTIVE_JOB_STATUSES.indexOf(status ?? '');
-		if (rank(current.status) > rank(activeDeploymentStatus)) activeDeploymentStatus = current.status;
+		if (rank(current.status) > rank(activeDeploymentStatus))
+			activeDeploymentStatus = current.status;
 	}
 
 	function startDeploymentEvents(job: DeploymentJobDto) {
@@ -1241,8 +1242,7 @@
 			} else if (action.type === 'resync') {
 				void loadDeploymentRun(job.run_id);
 				void syncDeploymentJobStatus(job.id).catch(() => {});
-			}
-			else if (action.type === 'terminal') {
+			} else if (action.type === 'terminal') {
 				activeDeploymentStatus = action.status;
 				void (async () => {
 					await Promise.all([
@@ -1266,9 +1266,7 @@
 
 	async function resumeLiveDeployment() {
 		const job = (await listDeploymentQueue(organizationId)).find(
-			(item) =>
-				item.application_id === applicationId &&
-				ACTIVE_JOB_STATUSES.includes(item.status),
+			(item) => item.application_id === applicationId && ACTIVE_JOB_STATUSES.includes(item.status),
 		);
 		if (!job) return;
 		await loadDeploymentRun(job.run_id);

@@ -376,7 +376,9 @@
 }
 
 /* Pages wrap themselves in `mx-auto max-w-*xl`; in full layout that cap must yield to the toggle. */
-:root[data-layout='full'] main.shell-col :where(.mx-auto.max-w-5xl, .mx-auto.max-w-6xl, .mx-auto.max-w-7xl) {
+:root[data-layout='full']
+	main.shell-col
+	:where(.mx-auto.max-w-5xl, .mx-auto.max-w-6xl, .mx-auto.max-w-7xl) {
 	max-width: none;
 }
 

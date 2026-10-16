@@ -123,9 +123,9 @@
 		<p class="mt-1 text-sm text-muted-foreground">{t('organizations.members.description')}</p>
 	</div>
 	{#if members.length === 0}
-		<div class="flex flex-col items-start gap-3 rounded-2xl border border-dashed border-foreground/15 bg-card p-5">
-			<div
-				class="flex size-9 items-center justify-center lp-raised rounded-xl border bg-muted">
+		<div
+			class="flex flex-col items-start gap-3 rounded-2xl border border-dashed border-foreground/15 bg-card p-5">
+			<div class="flex size-9 items-center justify-center lp-raised rounded-xl border bg-muted">
 				<UsersIcon class="size-4 text-muted-foreground" />
 			</div>
 			<div>
@@ -156,7 +156,8 @@
 						<span class="break-words text-sm text-muted-foreground">{member.email}</span>
 					</div>
 					{#if isSysadmin && member.user_id !== myUserId}
-						<label class="flex min-h-11 items-center gap-2 text-sm text-muted-foreground sm:min-h-9">
+						<label
+							class="flex min-h-11 items-center gap-2 text-sm text-muted-foreground sm:min-h-9">
 							<!-- The getter keeps the switch on the saved state until confirmed. -->
 							<Switch
 								bind:checked={() => !member.disabled, () => (toggling = member)}
@@ -266,7 +267,8 @@
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
-			<AlertDialog.Cancel disabled={togglingBusy}>{t('organizations.common.cancel')}</AlertDialog.Cancel>
+			<AlertDialog.Cancel disabled={togglingBusy}
+				>{t('organizations.common.cancel')}</AlertDialog.Cancel>
 			<Button
 				variant={toggling?.disabled ? 'default' : 'destructive'}
 				disabled={togglingBusy}

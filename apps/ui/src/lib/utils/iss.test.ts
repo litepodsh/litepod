@@ -12,7 +12,11 @@ it('rejects text without TLE lines', () => {
 it('propagates the ISS to a plausible low orbit', () => {
 	const satrec = parseTle(TLE)!;
 	// 2026-10-13, about the TLE epoch, then a day either side.
-	for (const ms of [Date.UTC(2026, 9, 13, 19, 43), Date.UTC(2026, 9, 14, 19), Date.UTC(2026, 9, 12)]) {
+	for (const ms of [
+		Date.UTC(2026, 9, 13, 19, 43),
+		Date.UTC(2026, 9, 14, 19),
+		Date.UTC(2026, 9, 12),
+	]) {
 		const state = issState(satrec, ms)!;
 		expect(state.altitudeKm).toBeGreaterThan(380);
 		expect(state.altitudeKm).toBeLessThan(450);

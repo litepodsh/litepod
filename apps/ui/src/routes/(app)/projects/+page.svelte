@@ -19,10 +19,7 @@
 	import ProjectFormDialog from '#lib/components/projects/project-form-dialog.svelte';
 	import DeleteResourceDialog from '#lib/components/projects/delete-resource-dialog.svelte';
 	import ProjectCard from '#lib/components/custom/projects/project-card.svelte';
-	import {
-		getRequestSparklines,
-		type Sparklines,
-	} from '#lib/clients/analytics-client.js';
+	import { getRequestSparklines, type Sparklines } from '#lib/clients/analytics-client.js';
 	import { resolveSelectedOrganization } from '#lib/utils/selected-organization.js';
 	import type { OrganizationApp } from '#lib/utils/organization-apps.js';
 	import { toast } from '#lib/utils/toast.js';

@@ -87,9 +87,8 @@ export async function getBillingInvoices(): Promise<BillingInvoice[]> {
 }
 
 export async function getBillingInvoicePdfUrl(orderId: string): Promise<string> {
-	return (
-		await api<{ url: string }>(`/api/v1/billing/invoices/${encodeURIComponent(orderId)}/pdf`)
-	).data!.url;
+	return (await api<{ url: string }>(`/api/v1/billing/invoices/${encodeURIComponent(orderId)}/pdf`))
+		.data!.url;
 }
 
 export async function getBillingPortalUrl(): Promise<string> {

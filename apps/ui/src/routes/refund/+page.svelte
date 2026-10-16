@@ -25,48 +25,52 @@
 			{t('legal.common.last_updated', { date: lastUpdated })}
 		</p>
 		{#if isCloud}
-		<div class="mt-10 space-y-10 text-sm leading-relaxed text-foreground">
-			<section>
-				<h2 class="text-lg font-semibold">{t('legal.terms.refund_policy')}</h2>
-				<p class="mt-3 text-muted-foreground">{t('legal.terms.refund_policy_description')}</p>
-			</section>
-			<section>
-				<h2 class="text-lg font-semibold">{t('legal.terms.refund_how')}</h2>
-				<p class="mt-3 text-muted-foreground">{t('legal.terms.refund_policy_how')}</p>
-			</section>
-			<section>
-				<h2 class="text-lg font-semibold">{t('legal.terms.refund_cancellations')}</h2>
-				<p class="mt-3 text-muted-foreground">{t('legal.terms.refund_policy_renewals')}</p>
-			</section>
-			<section>
-				<h2 class="text-lg font-semibold">{t('legal.terms.merchant_of_record')}</h2>
-				<p class="mt-3 text-muted-foreground">{t('legal.terms.merchant_of_record_description')}</p>
-			</section>
-			<section>
-				<h2 class="text-lg font-semibold">{t('legal.terms.complaints')}</h2>
-				<p class="mt-3 text-muted-foreground">{t('legal.terms.complaints_description')}</p>
-			</section>
-			<section>
-				<h2 class="text-lg font-semibold">{t('legal.terms.company_information')}</h2>
-				<p class="mt-3 text-muted-foreground">{t('legal.terms.company_information_description')}</p>
-			</section>
-			<section>
-				<h2 class="text-lg font-semibold">{t('legal.terms.contact')}</h2>
-				<p class="mt-3 text-muted-foreground">
-					{t('legal.terms.contact_description')}
-					<a href="mailto:info@litepod.sh" class="underline">info@litepod.sh</a>.
+			<div class="mt-10 space-y-10 text-sm leading-relaxed text-foreground">
+				<section>
+					<h2 class="text-lg font-semibold">{t('legal.terms.refund_policy')}</h2>
+					<p class="mt-3 text-muted-foreground">{t('legal.terms.refund_policy_description')}</p>
+				</section>
+				<section>
+					<h2 class="text-lg font-semibold">{t('legal.terms.refund_how')}</h2>
+					<p class="mt-3 text-muted-foreground">{t('legal.terms.refund_policy_how')}</p>
+				</section>
+				<section>
+					<h2 class="text-lg font-semibold">{t('legal.terms.refund_cancellations')}</h2>
+					<p class="mt-3 text-muted-foreground">{t('legal.terms.refund_policy_renewals')}</p>
+				</section>
+				<section>
+					<h2 class="text-lg font-semibold">{t('legal.terms.merchant_of_record')}</h2>
+					<p class="mt-3 text-muted-foreground">
+						{t('legal.terms.merchant_of_record_description')}
+					</p>
+				</section>
+				<section>
+					<h2 class="text-lg font-semibold">{t('legal.terms.complaints')}</h2>
+					<p class="mt-3 text-muted-foreground">{t('legal.terms.complaints_description')}</p>
+				</section>
+				<section>
+					<h2 class="text-lg font-semibold">{t('legal.terms.company_information')}</h2>
+					<p class="mt-3 text-muted-foreground">
+						{t('legal.terms.company_information_description')}
+					</p>
+				</section>
+				<section>
+					<h2 class="text-lg font-semibold">{t('legal.terms.contact')}</h2>
+					<p class="mt-3 text-muted-foreground">
+						{t('legal.terms.contact_description')}
+						<a href="mailto:info@litepod.sh" class="underline">info@litepod.sh</a>.
+					</p>
+				</section>
+				<p class="text-muted-foreground">
+					<a href="/terms" class="underline">{t('legal.common.terms_of_service')}</a> ·
+					<a href="/privacy" class="underline">{t('legal.common.privacy_policy')}</a>
 				</p>
-			</section>
-			<p class="text-muted-foreground">
-				<a href="/terms" class="underline">{t('legal.common.terms_of_service')}</a> ·
-				<a href="/privacy" class="underline">{t('legal.common.privacy_policy')}</a>
-			</p>
-		</div>
+			</div>
 		{:else}
-		<div class="mt-10 space-y-4 text-sm leading-relaxed text-foreground">
-			<h2 class="text-lg font-semibold">{t('legal.self_hosted.title')}</h2>
-			<p class="text-muted-foreground">{t('legal.self_hosted.refund_description')}</p>
-		</div>
+			<div class="mt-10 space-y-4 text-sm leading-relaxed text-foreground">
+				<h2 class="text-lg font-semibold">{t('legal.self_hosted.title')}</h2>
+				<p class="text-muted-foreground">{t('legal.self_hosted.refund_description')}</p>
+			</div>
 		{/if}
 	</div>
 </div>

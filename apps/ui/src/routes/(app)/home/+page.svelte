@@ -214,7 +214,11 @@
 				</KpiCard>
 			{/if}
 			{#if allowed('server.read')}
-				<ContainersKpi organizationId={organization.id} href={isSysadmin ? '/system?tab=containers' : `/organizations/${organization.id}/servers`} />
+				<ContainersKpi
+					organizationId={organization.id}
+					href={isSysadmin
+						? '/system?tab=containers'
+						: `/organizations/${organization.id}/servers`} />
 			{/if}
 			{#if appsLoading}
 				<Skeleton class="h-36 rounded-2xl" />

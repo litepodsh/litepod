@@ -145,8 +145,7 @@
 						<span
 							aria-current="page"
 							class:max-sm:sr-only={crumb.icon || crumb.iconSnippet}
-							class="block max-w-64 truncate px-2 text-sm font-medium"
-							>{crumb.label}</span>
+							class="block max-w-64 truncate px-2 text-sm font-medium">{crumb.label}</span>
 					{/if}
 				</div>
 			{/each}

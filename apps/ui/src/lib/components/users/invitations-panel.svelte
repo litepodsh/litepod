@@ -180,9 +180,9 @@
 			{/each}
 		</div>
 	{:else if invitations.length === 0}
-		<div class="flex flex-col items-start gap-3 rounded-2xl border border-dashed border-foreground/15 bg-card p-5">
-			<div
-				class="flex size-9 items-center justify-center lp-raised rounded-xl border bg-muted">
+		<div
+			class="flex flex-col items-start gap-3 rounded-2xl border border-dashed border-foreground/15 bg-card p-5">
+			<div class="flex size-9 items-center justify-center lp-raised rounded-xl border bg-muted">
 				<UserPlusIcon class="size-4 text-muted-foreground" />
 			</div>
 			<div>

@@ -547,7 +547,9 @@
 					<section class="flex flex-col gap-3">
 						<div class="flex flex-wrap items-center justify-between gap-2">
 							<div>
-								<h3 class="text-[15px] font-semibold">{t('organizations.caddy.application_routes')}</h3>
+								<h3 class="text-[15px] font-semibold">
+									{t('organizations.caddy.application_routes')}
+								</h3>
 								<p class="text-sm text-muted-foreground">
 									{t('organizations.caddy.app_routes_description')}
 								</p>

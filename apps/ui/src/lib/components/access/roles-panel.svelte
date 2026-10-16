@@ -101,7 +101,9 @@
 <section class="space-y-3" aria-labelledby="roles-heading">
 	<div class="flex flex-wrap items-start justify-between gap-3">
 		<div>
-			<h3 id="roles-heading" class="text-[15px] font-semibold">{t('organizations.access.roles')}</h3>
+			<h3 id="roles-heading" class="text-[15px] font-semibold">
+				{t('organizations.access.roles')}
+			</h3>
 			<p class="mt-1 text-sm text-muted-foreground">{t('organizations.access.roles_hint')}</p>
 		</div>
 		{#if canManage}

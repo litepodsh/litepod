@@ -213,10 +213,12 @@
 		else shellTabs.onSelect?.(tab.id);
 		await tick();
 		if (reduced()) return;
-		document.querySelector('main')?.animate(
-			{ transform: [`translateX(${dir * 48}px)`, 'none'], opacity: [0, 1] },
-			{ duration: 340, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' },
-		);
+		document
+			.querySelector('main')
+			?.animate(
+				{ transform: [`translateX(${dir * 48}px)`, 'none'], opacity: [0, 1] },
+				{ duration: 340, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' },
+			);
 	}
 
 	// Pointer listeners can't stop the page from panning; a non-passive touchmove can.

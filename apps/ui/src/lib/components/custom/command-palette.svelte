@@ -176,17 +176,37 @@
 		const base = `/organizations/${encodeURIComponent(organizationId)}`;
 		return [
 			{ title: t('menu.tabs.apps'), url: `${base}/apps`, icon: BoxesIcon },
-			{ title: t('menu.navigation.deployment_queue'), url: `${base}/deployment-queue`, icon: ListTodoIcon },
+			{
+				title: t('menu.navigation.deployment_queue'),
+				url: `${base}/deployment-queue`,
+				icon: ListTodoIcon,
+			},
 			{ title: t('menu.tabs.domains'), url: `${base}/domains`, icon: GlobeIcon },
 			{ title: t('menu.tabs.analytics'), url: `${base}/analytics`, icon: ChartColumnIcon },
 			{ title: t('menu.navigation.servers'), url: `${base}/servers`, icon: ServerIcon },
 			{ title: t('menu.navigation.server_groups'), url: `${base}/server-groups`, icon: BoxesIcon },
 			{ title: t('menu.navigation.map'), url: `${base}/topology`, icon: WaypointsIcon },
-			{ title: t('menu.navigation.scheduled_tasks'), url: `${base}/scheduled-tasks`, icon: CalendarClockIcon },
+			{
+				title: t('menu.navigation.scheduled_tasks'),
+				url: `${base}/scheduled-tasks`,
+				icon: CalendarClockIcon,
+			},
 			{ title: t('menu.navigation.organization'), url: base, icon: Building2Icon },
-			{ title: t('menu.navigation.audit_logs'), url: `${base}?tab=audit-logs`, icon: ScrollTextIcon },
-			{ title: t('menu.navigation.git_providers'), url: `${base}?tab=git-providers`, icon: GitBranchIcon },
-			{ title: t('menu.navigation.notifications'), url: `${base}?tab=notifications`, icon: BellIcon },
+			{
+				title: t('menu.navigation.audit_logs'),
+				url: `${base}?tab=audit-logs`,
+				icon: ScrollTextIcon,
+			},
+			{
+				title: t('menu.navigation.git_providers'),
+				url: `${base}?tab=git-providers`,
+				icon: GitBranchIcon,
+			},
+			{
+				title: t('menu.navigation.notifications'),
+				url: `${base}?tab=notifications`,
+				icon: BellIcon,
+			},
 		];
 	}
 

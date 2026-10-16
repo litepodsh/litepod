@@ -35,7 +35,9 @@ describe('getSystemServiceStatuses', () => {
 
 	it('passes each service uptime through, null when unknown', () => {
 		expect(getSystemServiceStatuses(systemVersion()).map((s) => s.uptimeSecs)).toEqual([
-			3_600, 86_400, null,
+			3_600,
+			86_400,
+			null,
 		]);
 	});
 });

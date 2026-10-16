@@ -124,7 +124,9 @@
 								<p class="font-mono text-[13px] font-medium break-all">{event.event_type}</p>
 								<p class="truncate font-mono text-xs text-muted-foreground">{event.event_id}</p>
 								{#if event.last_error}
-									<p class="mt-1 font-mono text-xs break-all text-destructive">{event.last_error}</p>
+									<p class="mt-1 font-mono text-xs break-all text-destructive">
+										{event.last_error}
+									</p>
 								{/if}
 							</div>
 							<div class="flex flex-col items-end gap-1">

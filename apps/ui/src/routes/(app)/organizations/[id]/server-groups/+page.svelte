@@ -116,8 +116,7 @@
 			{/each}
 		</div>
 	{:else if error}
-		<p
-			class="rounded-2xl border border-destructive/30 bg-card p-6 text-sm text-destructive">
+		<p class="rounded-2xl border border-destructive/30 bg-card p-6 text-sm text-destructive">
 			{error}
 		</p>
 	{:else if groups.length === 0}

@@ -362,7 +362,9 @@
 		<section class="space-y-3" aria-labelledby="sso-connections">
 			<div class="flex flex-wrap items-start justify-between gap-3">
 				<div>
-					<h3 id="sso-connections" class="text-[15px] font-semibold">{t('organizations.sso.connections')}</h3>
+					<h3 id="sso-connections" class="text-[15px] font-semibold">
+						{t('organizations.sso.connections')}
+					</h3>
 					<p class="mt-1 text-sm text-muted-foreground">
 						{t('organizations.sso.connections_hint')}
 					</p>
@@ -455,7 +457,9 @@
 		<!-- Enforcement -->
 		<section class="space-y-3" aria-labelledby="sso-enforce">
 			<div>
-				<h3 id="sso-enforce" class="text-[15px] font-semibold">{t('organizations.sso.enforcement')}</h3>
+				<h3 id="sso-enforce" class="text-[15px] font-semibold">
+					{t('organizations.sso.enforcement')}
+				</h3>
 				<p class="mt-1 text-sm text-muted-foreground">{t('organizations.sso.enforcement_hint')}</p>
 			</div>
 			<label class="flex items-center gap-2 text-sm">

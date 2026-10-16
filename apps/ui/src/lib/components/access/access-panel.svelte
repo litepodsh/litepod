@@ -130,7 +130,9 @@
 
 <section class="space-y-3" aria-labelledby="access-heading">
 	<div>
-		<h3 id="access-heading" class="text-[15px] font-semibold">{t('organizations.access.access')}</h3>
+		<h3 id="access-heading" class="text-[15px] font-semibold">
+			{t('organizations.access.access')}
+		</h3>
 		<p class="mt-1 text-sm text-muted-foreground">
 			{t(`organizations.access.access_hint_${scopeType}`)}
 		</p>

@@ -28,7 +28,7 @@ export function sublunarPoint(ms: number = Date.now()): [number, number, number]
 	const geocentric = GeoVector(Body.Moon, date, true);
 	// True equator of date, so Greenwich sidereal time turns it into a ground point.
 	const { ra, dec } = EquatorFromVector(RotateVector(Rotation_EQJ_EQD(date), geocentric));
-	const longitude = ((((ra - SiderealTime(date)) * 15) % 360) + 540) % 360 - 180;
+	const longitude = (((((ra - SiderealTime(date)) * 15) % 360) + 540) % 360) - 180;
 	return [longitude, dec, (geocentric.Length() * KM_PER_AU) / EARTH_RADIUS_KM];
 }
 

@@ -36,26 +36,26 @@
 			{t('legal.common.last_updated', { date: lastUpdated })}
 		</p>
 		{#if isCloud}
-		<div class="mt-10 space-y-10 text-sm leading-relaxed text-foreground">
-			{#each sections as section (section)}
-				<section>
-					<h2 class="text-lg font-semibold">{t(`legal.acceptable_use.${section}`)}</h2>
-					<p class="mt-3 text-muted-foreground">
-						{t(`legal.acceptable_use.${section}_description`)}
-					</p>
-				</section>
-			{/each}
-			<p class="text-muted-foreground">
-				<a href="/terms" class="underline">{t('legal.common.terms_of_service')}</a>
-				·
-				<a href="/privacy" class="underline">{t('legal.common.privacy_policy')}</a>
-			</p>
-		</div>
+			<div class="mt-10 space-y-10 text-sm leading-relaxed text-foreground">
+				{#each sections as section (section)}
+					<section>
+						<h2 class="text-lg font-semibold">{t(`legal.acceptable_use.${section}`)}</h2>
+						<p class="mt-3 text-muted-foreground">
+							{t(`legal.acceptable_use.${section}_description`)}
+						</p>
+					</section>
+				{/each}
+				<p class="text-muted-foreground">
+					<a href="/terms" class="underline">{t('legal.common.terms_of_service')}</a>
+					·
+					<a href="/privacy" class="underline">{t('legal.common.privacy_policy')}</a>
+				</p>
+			</div>
 		{:else}
-		<div class="mt-10 space-y-4 text-sm leading-relaxed text-foreground">
-			<h2 class="text-lg font-semibold">{t('legal.self_hosted.title')}</h2>
-			<p class="text-muted-foreground">{t('legal.self_hosted.acceptable_use_description')}</p>
-		</div>
+			<div class="mt-10 space-y-4 text-sm leading-relaxed text-foreground">
+				<h2 class="text-lg font-semibold">{t('legal.self_hosted.title')}</h2>
+				<p class="text-muted-foreground">{t('legal.self_hosted.acceptable_use_description')}</p>
+			</div>
 		{/if}
 	</div>
 </div>

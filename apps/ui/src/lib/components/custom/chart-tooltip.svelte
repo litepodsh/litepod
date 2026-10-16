@@ -43,9 +43,7 @@
 
 	let visible = $derived(column !== null && rect !== null);
 	// Percent along the host width where the hovered column sits.
-	let centerPx = $derived(
-		column === null || !rect ? 0 : ((column + 0.5) / cols) * rect.width,
-	);
+	let centerPx = $derived(column === null || !rect ? 0 : ((column + 0.5) / cols) * rect.width);
 	let edge = $state<'start' | 'middle' | 'end'>('middle');
 	$effect(() => {
 		if (!visible || !flipNearEdges) return;
@@ -78,7 +76,7 @@
 		style:position="fixed"
 		style:top="{top}px"
 		style:left="{left}px"
-		style:transform={transform}
+		style:transform
 		style:z-index="50"
 		style:visibility={visible ? 'visible' : 'hidden'}
 		aria-hidden={!visible}

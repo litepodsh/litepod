@@ -159,16 +159,19 @@
 		</div>
 		<ChartTooltip host={chartHost} column={hovered} cols={CHART_COLS}>
 			{#if hovered !== null}
-				<div class="flex items-center justify-between gap-3 font-mono text-[11.5px] text-muted-foreground">
+				<div
+					class="flex items-center justify-between gap-3 font-mono text-[11.5px] text-muted-foreground">
 					<span>{bucketTime?.(hovered)}</span>
 					<b class="font-medium text-foreground tabular-nums"
 						>{t('analytics.panel.requests_count', { count: requests[hovered] ?? 0 })}</b>
 				</div>
 				{#if hoveredApps.length}
-					<ul class="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1.5 text-[12.5px]">
+					<ul
+						class="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1.5 text-[12.5px]">
 						{#each hoveredApps as { application, count } (application.id)}
 							<li class="contents">
-								<span class="flex size-5 items-center justify-center overflow-hidden rounded bg-muted">
+								<span
+									class="flex size-5 items-center justify-center overflow-hidden rounded bg-muted">
 									<ApplicationIcon
 										templateKind={application.template_kind}
 										catalogIconUrl={application.catalog_icon_url}

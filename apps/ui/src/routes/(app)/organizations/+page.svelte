@@ -57,7 +57,9 @@
 				<Building2Icon class="size-5 text-muted-foreground" />
 			</div>
 			<h2 class="mt-4 font-medium">{t('organizations.list.empty')}</h2>
-			<p class="mt-1 max-w-sm text-sm text-muted-foreground">{t('organizations.list.empty_hint')}</p>
+			<p class="mt-1 max-w-sm text-sm text-muted-foreground">
+				{t('organizations.list.empty_hint')}
+			</p>
 			<Button class="mt-5" href="/organizations/add">
 				<PlusIcon class="size-4" />
 				{t('organizations.list.add')}

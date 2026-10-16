@@ -117,7 +117,11 @@
 		...(canManage
 			? [
 					{ value: 'assistant', label: t('organizations.detail.assistant'), icon: SparklesIcon },
-					{ value: 'audit-logs', label: t('organizations.detail.audit_logs'), icon: ScrollTextIcon },
+					{
+						value: 'audit-logs',
+						label: t('organizations.detail.audit_logs'),
+						icon: ScrollTextIcon,
+					},
 				]
 			: []),
 		{

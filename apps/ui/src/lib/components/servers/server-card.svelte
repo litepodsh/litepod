@@ -23,10 +23,7 @@
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import OsIcon from '#lib/components/os-icon.svelte';
 	import ServerSwapNotice from './server-swap-notice.svelte';
-	import {
-		getServerMetricsHistory,
-		totalSeries,
-	} from '#lib/clients/container-metrics-client.js';
+	import { getServerMetricsHistory, totalSeries } from '#lib/clients/container-metrics-client.js';
 	import { getSelectedOrganizationId } from '#lib/utils/selected-organization.js';
 	import { osLabel } from '#lib/utils/os-label.js';
 	import type { RuntimeStatus } from '#lib/clients/runtime-client.js';
@@ -211,7 +208,10 @@
 	const diskSeries = $derived(history ? slotted(history.disk) : { values: [], caps: [] });
 	const hasDisk = $derived(diskSeries.values.some((v) => v !== null));
 	const lastIndex = (values: (number | null)[]) =>
-		Math.max(0, values.findLastIndex((v) => v !== null));
+		Math.max(
+			0,
+			values.findLastIndex((v) => v !== null),
+		);
 	const peakOf = (values: (number | null)[]) =>
 		Math.max(0, ...values.filter((v): v is number => v !== null));
 	let hovered = $state<number | null>(null);

@@ -32,7 +32,8 @@
 	import { invalidateOnboarding } from '#lib/state/onboarding.svelte.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 
-	const chip = 'lp-raised inline-flex h-6 items-center rounded-md bg-muted px-2 text-xs font-normal';
+	const chip =
+		'lp-raised inline-flex h-6 items-center rounded-md bg-muted px-2 text-xs font-normal';
 	let avatarFailed = $state<Record<string, boolean>>({});
 
 	/** GitHub serves a user/org's avatar at a predictable URL — real photo

@@ -59,7 +59,11 @@
 				url: `${base}?tab=git-providers`,
 				icon: GitBranchIcon,
 			},
-			{ title: t('menu.navigation.notifications'), url: `${base}?tab=notifications`, icon: BellIcon },
+			{
+				title: t('menu.navigation.notifications'),
+				url: `${base}?tab=notifications`,
+				icon: BellIcon,
+			},
 			{
 				title: t('menu.navigation.audit_logs'),
 				url: `${base}?tab=audit-logs`,
@@ -84,7 +88,11 @@
 				: []),
 			{ title: t('menu.user_menu.settings'), url: '/settings', icon: SettingsIcon },
 			{ title: t('menu.navigation.system'), url: '/system', icon: ServerCogIcon },
-			{ title: t('menu.navigation.containers'), url: '/system?tab=containers', icon: ContainerIcon },
+			{
+				title: t('menu.navigation.containers'),
+				url: '/system?tab=containers',
+				icon: ContainerIcon,
+			},
 			{ title: t('menu.navigation.caddy'), url: '/system?tab=caddy', icon: NetworkIcon },
 			{
 				title: t('menu.user_menu.maintenance'),
@@ -108,18 +116,18 @@
 	</Avatar.Root>
 {/snippet}
 
-	{#snippet languages()}
-		<DropdownMenu.Item onclick={() => setLocale('en')}>
-			<LocaleFlag locale="en" european={i18n.europeanFlags} />
-			{t('menu.appearance.english')}
-			{#if i18n.locale === 'en'}<CheckIcon class="ms-auto" />{/if}
-		</DropdownMenu.Item>
-		<DropdownMenu.Item onclick={() => setLocale('es')}>
-			<LocaleFlag locale="es" european={i18n.europeanFlags} />
-			{t('menu.appearance.spanish')}
-			{#if i18n.locale === 'es'}<CheckIcon class="ms-auto" />{/if}
-		</DropdownMenu.Item>
-	{/snippet}
+{#snippet languages()}
+	<DropdownMenu.Item onclick={() => setLocale('en')}>
+		<LocaleFlag locale="en" european={i18n.europeanFlags} />
+		{t('menu.appearance.english')}
+		{#if i18n.locale === 'en'}<CheckIcon class="ms-auto" />{/if}
+	</DropdownMenu.Item>
+	<DropdownMenu.Item onclick={() => setLocale('es')}>
+		<LocaleFlag locale="es" european={i18n.europeanFlags} />
+		{t('menu.appearance.spanish')}
+		{#if i18n.locale === 'es'}<CheckIcon class="ms-auto" />{/if}
+	</DropdownMenu.Item>
+{/snippet}
 
 {#snippet group(label: string, items: Item[])}
 	{#if items.length}
@@ -216,8 +224,7 @@
 			onSelect={() => (appearanceOpen = !appearanceOpen)}>
 			<PaletteIcon />
 			{t('menu.appearance.title')}
-			<ChevronDownIcon
-				class={cn('ms-auto transition-transform', appearanceOpen && 'rotate-180')} />
+			<ChevronDownIcon class={cn('ms-auto transition-transform', appearanceOpen && 'rotate-180')} />
 		</DropdownMenu.Item>
 		{#if appearanceOpen}
 			<div class="px-1 pt-1 pb-1.5 sm:hidden">
