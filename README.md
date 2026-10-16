@@ -1,296 +1,168 @@
-# Apps
+<div align="center">
 
-Local development environment with Podman Compose.
+<a href="https://litepod.sh">
+  <img src=".github/assets/litepod.svg" alt="Litepod" width="88" height="88">
+</a>
 
-## Services
+# Litepod
 
-| Service | Port | Description |
-|---------|------|-------------|
-| SQLite (sqlx) | - | Local database file owned by API |
-| Caddy   | 80   | Reverse proxy (localhost) |
+**Host your apps. Keep control.**
 
-## Prerequisites
+Litepod is an open-source, self-hostable PaaS built on Podman — a lightweight alternative to Heroku, Vercel and Netlify.
+Deploy applications, databases and services to servers you own, with a clean panel instead of a black box.
 
-- [Podman](https://podman.io/) installed
-- `podman-compose` installed
+[Website](https://litepod.sh) · [Docs](https://docs.litepod.sh) · [Live demo](https://demo.litepod.sh) · [Templates](https://templates.litepod.sh) · [Litepod Cloud](https://app.litepod.sh/register?utm_source=github&utm_medium=readme&utm_campaign=cloud) · [Roadmap](ROADMAP.md)
 
-First time setting up Podman, or deploying to a new machine? See
-[INSTALLING.md](INSTALLING.md) — it covers Podman machine setup on macOS/Windows and
-the CPU/RAM sizing that concurrent Railpack builds need (undersized machines cause
-builds to stall or exhaust the available host resources).
+**English** · [Español](README.es.md)
 
-## Quick Start (local development)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/home-dark.webp">
+  <img src=".github/assets/screenshots/home-light.webp" alt="Litepod home: projects, containers and recent activity at a glance">
+</picture>
 
-Use this for everyday development on your machine:
+</div>
 
-```sh
-podman compose -f podman-compose.yml up -d
-```
+## Why Litepod
 
-### Local static deployments on macOS
+Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy platform that needs its own server just to run. Litepod sits in between:
 
-litepod runs locally on macOS while Podman runs inside its Linux machine, so static deployment
-artifacts must use a shared host directory rather than the staging named volume. Before
-starting `just api`, export these values from `apps/`:
+- **Podman, not Docker.** Daemonless and rootless by default. No privileged socket exposed to the internet.
+- **Tiny footprint.** A fresh install runs in about **63 MB of RAM** across three containers (measured with `podman stats`).
+- **Rust + SvelteKit.** An axum API on SQLite and a fast Svelte 5 panel. No Postgres or Redis required for the control plane.
+- **Your machine, your data.** Everything runs on infrastructure you control. No lock-in: export, move or self-host at any time.
 
-```sh
-export LITEPOD_DATA_DIR="$PWD/.litepod-data"
-export LITEPOD_HOST_DATA_DIR="$PWD/.litepod-data"
-export LITEPOD_DATA_VOLUME=""
-export PODMAN_SOCKET="unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
-```
+## Features
 
-`$PWD` is under `/Users`, which Podman Desktop's machine shares with macOS. litepod creates the
-directory on first upload. Staging uses the Compose-managed `litepod_data` named volume instead.
+- **Git deployments** — push to deploy from GitHub, with build logs streamed live. Builds with Railpack (zero-config), a `Dockerfile`, or Compose.
+- **Compose-native** — deploy multi-container stacks from a `compose.yml` as a single application.
+- **One-click templates** — start from a known stack, set the variables, and ship. Browse them at [templates.litepod.sh](https://templates.litepod.sh).
+- **Databases** — provision databases alongside your apps, with persistent volumes.
+- **Automatic HTTPS** — custom domains with TLS certificates issued and renewed by Caddy.
+- **Multi-server fleet** — connect remote Debian, Ubuntu, Fedora or Arch servers over key-only SSH. Use a public edge, a private relay, or keep services private.
+- **Observability** — request analytics, errors and latency through the proxy, plus CPU and memory per application.
+- **Web terminal** — open a shell inside any container from the browser.
+- **Volumes** — inspect and edit persistent storage and live mounts.
+- **Backups** — scheduled backups to any S3-compatible bucket.
+- **Teams** — organizations, members and roles.
 
-**Size the Podman machine before deploying anything through Railpack.** All Railpack builds
-share one BuildKit container; on a small machine, two concurrent builds can time out and crash
-it instead of queueing. See [Resource sizing](INSTALLING.md#resource-sizing) in INSTALLING.md —
-8 CPU / 8 GiB is the recommended default (`podman machine set --cpus 8 --memory 8192`, or via
-Podman Desktop → Settings → Resources).
+## Screenshots
 
-## Production Deploy (Linux only)
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/overview-dark.webp">
+        <img src=".github/assets/screenshots/overview-light.webp" alt="Overview">
+      </picture>
+      <p align="center"><b>Overview</b> — status, deploy URL and compose in one view</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/deployments-dark.webp">
+        <img src=".github/assets/screenshots/deployments-light.webp" alt="Deployments">
+      </picture>
+      <p align="center"><b>Deployments</b> — every build with its live log</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/analytics-dark.webp">
+        <img src=".github/assets/screenshots/analytics-light.webp" alt="Analytics">
+      </picture>
+      <p align="center"><b>Analytics</b> — requests, errors and latency through the proxy</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/metrics-dark.webp">
+        <img src=".github/assets/screenshots/metrics-light.webp" alt="Metrics">
+      </picture>
+      <p align="center"><b>Metrics</b> — CPU and memory per application</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/terminal-dark.webp">
+        <img src=".github/assets/screenshots/terminal-light.webp" alt="Terminal">
+      </picture>
+      <p align="center"><b>Terminal</b> — a shell inside any container</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/volumes-dark.webp">
+        <img src=".github/assets/screenshots/volumes-light.webp" alt="Volumes">
+      </picture>
+      <p align="center"><b>Volumes</b> — persistent storage and live mounts</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/fleet-dark.webp">
+        <img src=".github/assets/screenshots/fleet-light.webp" alt="Fleet">
+      </picture>
+      <p align="center"><b>Fleet</b> — every server on one globe</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshots/templates-dark.webp">
+        <img src=".github/assets/screenshots/templates-light.webp" alt="Templates">
+      </picture>
+      <p align="center"><b>Templates</b> — start from a known stack</p>
+    </td>
+  </tr>
+</table>
 
-One-liner, no clone needed — resolves the selected release channel to an immutable version tag,
-pulls that image, and starts Caddy + Dragonfly + the app via Podman Compose. One script, two flows:
+## Get started
 
-**Rootless (default, recommended).** SSH in as your normal user and run it with no
-`sudo` prefix — it sets up rootless Podman for yourself and only shells out to `sudo`
-internally for the few steps that need root (package install, enabling linger).
-Installs under `~/litepod`:
+There are two ways to run Litepod. Pick the one that fits how much you want to operate yourself.
 
-The installer enables a `litepod-stack.service` systemd user unit, so the full litepod
-stack starts automatically after a server reboot without requiring an SSH login for
-that user.
+### Option 1 — Litepod Cloud (recommended)
 
-```sh
-curl -fsSL https://rustfs.sebasgc.xyz/litepod/install.sh | bash
-```
+**Your server. Our control plane.**
 
-### Choose an update channel
+Don't want to install, update and back up the control plane yourself? Use [Litepod Cloud](https://app.litepod.sh/register?utm_source=github&utm_medium=readme&utm_campaign=cloud). Register, connect a server you already pay for with one command, and deploy your first app in minutes.
 
-Run the installer with no flag for the stable channel, or pass `--alpha` for the alpha
-channel:
+- Managed control plane, updates and backups
+- Your server, your data, your bill
+- Move back to self-hosting whenever you want
 
-```bash
-curl -fsSL https://rustfs.sebasgc.xyz/litepod/install.sh | bash
-curl -fsSL https://rustfs.sebasgc.xyz/litepod/install.sh | bash -s -- --alpha
-```
+### Option 2 — Self-host
 
-Changing channels reruns the installer and permanently deletes all litepod data: Podman volumes,
-the database, deployed applications, secrets, domains, and certificates. No backup is made, so
-make a backup before confirming the required cleanup.
-
-**Root (`sudo`/cloud-init).** Run it as root and it prompts to choose rootless
-(default — targets `$SUDO_USER`, or `LITEPOD_PODMAN_USER`) or rootful. Installs under
-`/opt/litepod`:
-
-```sh
-curl -fsSL https://rustfs.sebasgc.xyz/litepod/install.sh | sudo bash
-```
-
-Non-interactive root runs (no tty) default to rootless for `$SUDO_USER` too; skip the
-prompt explicitly with `LITEPOD_MODE=rootless` or `LITEPOD_MODE=rootful`:
-
-```sh
-curl -fsSL https://rustfs.sebasgc.xyz/litepod/install.sh | sudo LITEPOD_MODE=rootful bash
-```
-
-Same script, run locally instead of piped:
-
-```sh
-bash scripts/install.sh          # rootless, as yourself
-sudo bash scripts/install.sh     # prompts rootless/rootful
-```
-
-### Cloud edition (remote-only deployments)
-
-Install the cloud edition on a new Linux host when litepod must manage only remote
-servers. Its control plane still uses litepod's built-in version updater, but applications,
-databases, and templates can be created only after a remote server has been connected and
-reaches **Ready**.
-
-```sh
-curl -fsSL https://rustfs.sebasgc.xyz/litepod/install-cloud.sh | bash
-# or from a checkout
-bash scripts/install-cloud.sh
-```
-
-The cloud installer writes `IS_CLOUD=true` and refuses to run over a standard installation.
-Cloud and standard installations cannot be converted; install cloud on a new host instead.
-
-The matching published uninstaller is available at
-`https://rustfs.sebasgc.xyz/litepod/uninstall.sh`:
-
-```sh
-curl -fsSL https://rustfs.sebasgc.xyz/litepod/uninstall.sh | bash
-```
-
-It installs Podman/`podman-compose`/openssl if missing, generates `.env` with every
-secret auto-generated and the host's public IP auto-detected, resolves stable (or `--alpha`)
-from `https://rustfs.sebasgc.xyz/litepod/version.json`, pins the resulting immutable tag, and
-starts the stack. Override the repository with `LITEPOD_IMAGE_REPO` and use
-`LITEPOD_VERSION_MANIFEST_URL` for a compatible custom manifest; the production installer does
-not accept a floating `LITEPOD_IMAGE_TAG` override. After it's up, log in and set the real domain
-under Settings → Server Domain — the auto-detected IP is only a bootstrap fallback for GitHub
-App callbacks/webhooks until then.
-
-The installer also configures Docker Hub (`docker.io`) as Podman's default registry
-for unqualified image references. This applies to rootless and rootful deployments,
-remains in place when litepod self-updates, and lets Dockerfiles use references such as
-`FROM oven/bun:1`. Use fully qualified references for images hosted outside Docker Hub.
-
-To inspect the rootless boot unit as the installation user, run
-`systemctl --user status litepod-stack.service`. From root, use
-`sudo -u <user> env XDG_RUNTIME_DIR="/run/user/$(id -u <user>)" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u <user>)/bus" systemctl --user status litepod-stack.service`.
-
-## Staging / Server Deploy (Linux only)
-
-## Remote Podman servers
-
-litepod can deploy an application to a directly SSH-reachable Debian, Ubuntu,
-Fedora, or Arch Linux server. Register servers from **Servers** as a sysadmin; every new application
-then explicitly selects one Ready server. Connections are key-only and litepod
-never opens a Podman TCP socket or stores a plaintext private key.
-
-1. Use the generated Ed25519 public key from the registration dialog, or create
-   one yourself with `ssh-keygen -t ed25519 -f ~/.ssh/litepod_remote`.
-2. On the remote host, install the public key in the deployment user's
-   `~/.ssh/authorized_keys` (directory mode `700`, file mode `600`).
-3. Run Preflight, compare and explicitly confirm the shown ED25519 host-key
-   fingerprint, then run Setup. A changed fingerprint stops all SSH work until
-   it is reviewed and confirmed again.
-
-Rootless Podman under an unprivileged SSH user is the default. Setup enables
-linger and the user's Podman socket; its narrow passwordless-sudo work is
-limited to package installation (via `apt`, `dnf`, or `pacman`), subordinate-ID/linger setup,
-and, for a public edge, installation and reload of litepod's native-Caddy route
-helper. Setup also installs and verifies the `podman-compose` provider; a
-Compose deployment cannot start until `podman compose version` succeeds for
-the configured SSH user. Choose rootful only where the workload requires it.
-
-Traffic mode is selected when registering the server:
-
-- **Public edge:** DNS `A`/`AAAA` records point directly to the slave's public
-  IP/hostname. Open TCP 80 and 443 on that server. Its native Caddy owns TLS
-  and proxies only to the application loopback port; do not expose Podman app
-  ports.
-- **Private relay:** DNS remains pointed at litepod's central public IP. The
-  slave needs no inbound HTTP/S firewall rule; central Caddy reaches it through
-  a key-only SSH forward. This adds one encrypted hop and is best for LAN-only
-  servers, while public edge avoids central bandwidth and relay dependency.
-- **Private only:** public domains are intentionally unavailable.
-
-If a remote server becomes degraded, use Health check and then Repair from the
-Servers page. Repair is idempotent. On litepod restart, running public-edge
-routes and private SSH relays are rebuilt from persisted applications, domains,
-and endpoints. For a public-edge Caddy failure, run Repair; it validates the
-root-owned route fragments and reloads Caddy with rollback on invalid config.
-For a private relay failure, Health check the server and restart/redeploy the
-application if its loopback listener is absent; litepod recreates the forwarding
-process and central route automatically when it is healthy.
-
-> ⚠️ **The staging stack (`podman-compose-staging.yml`) is designed for Linux servers only.**
-> It mounts the selected host Podman API socket into the app container, which does **not** exist
-> on macOS or Windows. Running it on non-Linux platforms will result in a `502 Bad Gateway`
-> error from the app.
-
-From a cloned repository, run the installer as root:
+Install Litepod on any Linux server (Debian, Ubuntu, Fedora or Arch). The installer sets up Podman, generates every secret and starts the stack. It works as root or rootless:
 
 ```sh
-git clone <repository-url> litepod
-cd litepod/apps
-sudo bash scripts/install-staging.sh
+curl -fsSL https://litepod.sh/install.sh | bash
 ```
 
-The script prints detected host CPU/RAM and, on small hosts, recommends a `Max concurrent
-builds` value for Settings → Build Configuration (see
-[Resource sizing](INSTALLING.md#resource-sizing)). It then installs git/openssl/Podman/
-`podman-compose` when needed, enables a rootless Podman socket for the invoking sudo user,
-and creates `.env` from the safe template with every secret auto-generated (JWT signing
-key/token, hash secret, encryption key) and the host's public IP auto-detected — no manual
-edit needed on a normal run. It builds and starts the stack in that same run.
-The script reports the selected Podman mode and socket before deployment. To target a different
-rootless user, set `LITEPOD_PODMAN_USER`; when no user is selected, it falls back to rootful Podman:
+Then open the panel, create your account and set your domain under **Settings → Server Domain**.
 
-```sh
-sudo LITEPOD_PODMAN_USER=deploy bash scripts/install-staging.sh
-```
+See the [installation docs](https://docs.litepod.sh) for update channels, backups, remote servers and resource sizing.
 
-To remove the staging containers while keeping database data for a later reinstall:
+## Try it first
 
-```sh
-sudo bash scripts/uninstall-staging.sh
-```
+Open the [live demo](https://demo.litepod.sh) and sign in with any username and password. It is a static demo, so it never touches a real server.
 
-Pass `--purge-data` only when the Litepod data and Caddy named volumes should be permanently deleted.
+## Development
 
-After the stack is up, log in and set the real domain under Settings → Server Domain — the
-auto-detected IP in `.env` is only a bootstrap fallback for GitHub App callbacks/webhooks
-until a domain is configured there, which then takes over.
+The code lives in [`apps/`](apps):
 
-## Quick Start
+| Path | Stack |
+|------|-------|
+| [`apps/api`](apps/api) | Rust, axum, sqlx + SQLite, podman-api |
+| [`apps/ui`](apps/ui) | SvelteKit, Svelte 5, Tailwind CSS 4, shadcn-svelte |
 
-1. **Configure environment**
+Local setup, Podman machine sizing and staging deploys are documented in [`apps/README.md`](apps/README.md) and [`apps/INSTALLING.md`](apps/INSTALLING.md).
 
-   Edit `.env` and set application secrets. The embedded database file uses
-   `DATABASE_PATH` and needs no database JWT.
+## Security
 
-   ```env
-    DATABASE_PATH=./data/litepod.db
-   ```
+Found a vulnerability? Please follow [SECURITY.md](SECURITY.md) and do not open a public issue.
 
-2. **Start services**
+## License
 
-   ```sh
-   podman compose up -d
-   #or
-   podman compose -f podman-compose.yml up -d
-   ```
+Litepod is licensed under the [Apache License 2.0](LICENSE), except for code in directories named `ee/`, which is covered by the [Litepod Enterprise License](LICENSE_EE.md).
 
-3. **Verify**
-
-   ```sh
-   # Check running containers
-   podman compose ps
-
-    # Test API and embedded database
-    curl http://localhost:6001/health
-
-   # Test Caddy proxy
-   curl http://localhost/api/v1
-   ```
-
-4. **View logs**
-
-   ```sh
-   podman compose logs -f
-   ```
-
-5. **Stop services**
-
-   ```sh
-   podman compose down
-   ```
-
-## SQLite CLI
-
-Runtime image includes `sqlite3` for local inspection:
-
-```sh
-sqlite3 /var/lib/litepod/litepod.db
-```
-
-## Volumes
-
-Data persists across restarts in named volumes:
-
-- `litepod_data` — embedded database and Litepod data
-- `caddy_data` — TLS certificates
-- `caddy_config` — Caddy config cache
-
-Clear all data:
-
-```sh
-podman compose down -v
-```
+<div align="center">
+  <sub><a href="https://litepod.sh">litepod.sh</a></sub>
+</div>
