@@ -6,8 +6,10 @@ name: ci
 on:
   push:
     branches: [main]
+    paths: ["apps/**", ".github/workflows/ci.yml"]
   pull_request:
     branches: [main]
+    paths: ["apps/**", ".github/workflows/ci.yml"]
   workflow_dispatch:
 
 concurrency:
@@ -21,13 +23,13 @@ jobs:
   api:
     runs-on: ubuntu-24.04
     env:
-      # api/.cargo/config.toml sets rustc-wrapper = "sccache"; back it with
+      # apps/api/.cargo/config.toml sets rustc-wrapper = "sccache"; back it with
       # the GitHub Actions cache.
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: sccache
     defaults:
       run:
-        working-directory: api
+        working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
 
@@ -42,7 +44,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: api
+          workspaces: apps/api
 
       - name: cargo build
         run: cargo build --locked --features saml
@@ -51,7 +53,7 @@ jobs:
     runs-on: ubuntu-24.04
     defaults:
       run:
-        working-directory: ui
+        working-directory: apps/ui
     steps:
       - uses: actions/checkout@v4
 
@@ -69,6 +71,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: podman build (linux/amd64)
+        working-directory: apps
         run: |
           podman build --platform=linux/amd64 \
             -f Dockerfile \

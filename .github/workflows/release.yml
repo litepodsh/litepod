@@ -10,8 +10,8 @@ name: release
 #     builds, probes and assembles the manifest but pushes nothing.
 #
 # The runner is always fresh, so every run is the equivalent of `-- --no-cache`.
-# api/.env and podx/.env are generated here from the tag, the pins in
-# scripts/install.sh, and the DOCKERHUB_TOKEN secret.
+# apps/api/.env and apps/podx/.env are generated here from the tag, the pins in
+# apps/scripts/install.sh, and the DOCKERHUB_TOKEN secret.
 #
 # version.json and the install scripts are published from the website
 # (litepod.sh), not here.
@@ -36,6 +36,11 @@ concurrency:
 
 permissions:
   contents: read
+
+# The project (Justfile, Dockerfile, api/, ui/, podx/) lives in apps/.
+defaults:
+  run:
+    working-directory: apps
 
 jobs:
   release:
