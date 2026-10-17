@@ -287,7 +287,6 @@ _release-tag channel component:
         echo "tag ${tag} already exists on origin" >&2; exit 1
     fi
     branch="$(git rev-parse --abbrev-ref HEAD)"
-    [[ "${branch}" == main ]] || echo "warning: tagging from ${branch}, not main" >&2
 
     if [[ '{{channel}}' == stable ]]; then
         files=(podman-compose.yml podman-compose-staging.yml podman-compose-prod.yml
@@ -299,6 +298,20 @@ _release-tag channel component:
             echo "no pinned files changed; tagging HEAD"
         fi
     fi
+
+    # Stable releases are tagged on main: off main, print the steps instead of tagging here.
+    if [[ '{{channel}}' == stable && "${branch}" != main ]]; then
+        echo
+        echo "bumped on ${branch}, not main. After merging the PR ${branch} -> main, copy:"
+        echo
+        echo "  git switch main && git pull"
+        echo "  git tag -a ${tag} -m \"litepod ${tag}\""
+        echo "  git push origin ${tag}"
+        echo
+        echo "pushing tag ${tag} starts .github/workflows/release.yml (on: push tags v*.*.*)."
+        exit 0
+    fi
+    [[ "${branch}" == main ]] || echo "warning: tagging from ${branch}, not main" >&2
     git tag -a "${tag}" -m "litepod ${tag}"
     echo "tagged ${tag} at $(git rev-parse --short HEAD)"
 
