@@ -54,8 +54,20 @@ pub async fn run(pool: &sqlx::SqlitePool) {
 
 /// Every migration this binary ships, sorted by file name.
 pub fn files() -> Vec<std::path::PathBuf> {
-    let migrations_dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"));
-    let mut files: Vec<_> = std::fs::read_dir(migrations_dir)
+    // The compile-time path only exists where the binary was built (dev, tests,
+    // in-image compile); a prebuilt release binary finds them next to itself
+    // (/app/api -> /app/migrations in the image).
+    let mut migrations_dir =
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"));
+    if !migrations_dir.is_dir() {
+        if let Some(dir) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|p| p.join("migrations")))
+        {
+            migrations_dir = dir;
+        }
+    }
+    let mut files: Vec<_> = std::fs::read_dir(&migrations_dir)
         .expect("[migrations] failed to read migrations directory")
         .filter_map(|e| e.ok())
         .map(|e| e.path())

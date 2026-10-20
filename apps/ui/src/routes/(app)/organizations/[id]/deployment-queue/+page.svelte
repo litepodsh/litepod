@@ -332,6 +332,7 @@
 						<span
 							class="col-who flex min-w-0 items-center justify-end gap-2 text-[12.5px] whitespace-nowrap text-muted-foreground">
 							<time
+								class="shrink-0"
 								datetime={new Date(job.queued_at).toISOString()}
 								title={new Date(job.queued_at).toLocaleString()}
 								>{relativeTime(job.queued_at, Date.now(), i18n.locale)}</time>
@@ -403,7 +404,7 @@
 
 <style>
 	.dep-row {
-		grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr) minmax(0, 1.3fr) auto;
+		grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr) minmax(0, 1.3fr) minmax(0, 1.3fr);
 	}
 	@media (max-width: 860px) {
 		.dep-row {
