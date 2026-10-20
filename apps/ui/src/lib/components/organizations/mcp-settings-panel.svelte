@@ -8,6 +8,7 @@
 	import { Label } from '#lib/components/ui/label/index.js';
 	import SoftSwitch from '#lib/components/custom/soft-switch.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
+	import MonacoCodeBlock from '#lib/components/assistant/monaco-code-block.svelte';
 	import { API_URL } from '#lib/clients/base-client.js';
 	import { updateOrganization, type OrganizationDto } from '#lib/clients/organization-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -96,8 +97,8 @@
 			<div class="min-w-0">
 				<p class="text-sm font-medium">{t('organizations.mcp.snippet')}</p>
 				<p class="text-muted-foreground mt-0.5 text-xs">{t('organizations.mcp.snippet_hint')}</p>
-				<div class="lp-well relative mt-1.5 rounded-lg bg-muted/60 p-3 pr-10">
-					<code class="block font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{claudeCode}</code>
+				<div class="relative mt-1.5">
+					<MonacoCodeBlock value={claudeCode} language="shell" class="pr-10" />
 					<CopyButton
 						value={claudeCode}
 						label={null}
@@ -112,8 +113,8 @@
 			<div class="min-w-0">
 				<p class="text-sm font-medium">{t('organizations.mcp.desktop')}</p>
 				<p class="text-muted-foreground mt-0.5 text-xs">{t('organizations.mcp.desktop_hint')}</p>
-				<div class="lp-well relative mt-1.5 rounded-lg bg-muted/60 p-3 pr-10">
-					<code class="block font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{desktop}</code>
+				<div class="relative mt-1.5">
+					<MonacoCodeBlock value={desktop} language="json" class="pr-10" />
 					<CopyButton
 						value={desktop}
 						label={null}
