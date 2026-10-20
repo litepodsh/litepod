@@ -150,7 +150,7 @@ jobs:
           if [[ "${ARCH}" == arm64 ]]; then
             extra+=(--build-arg PREBUILT_API=api/target/aarch64-unknown-linux-gnu/release/litepod-api)
           else
-            extra+=(--build-arg API_PREBUILT=-prebuilt --build-arg PREBUILT_API=api/target/release/litepod-api)
+            extra+=(--build-arg AMD64_API=prebuilt --build-arg PREBUILT_API=api/target/release/litepod-api)
           fi
           podman build --platform="linux/${ARCH}" \
             -f Dockerfile \

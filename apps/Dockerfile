@@ -5,9 +5,10 @@
 # api-builder-<arch> stage the `api-builder` alias resolves to, so the arm64
 # path never instantiates the Rust toolchain stage at all.
 ARG TARGETARCH=amd64
-# Set to "-prebuilt" to COPY $PREBUILT_API on amd64 too instead of compiling
+# Set to "prebuilt" to COPY $PREBUILT_API on amd64 too instead of compiling
 # (the release workflow builds on the runner, where its cargo cache lives).
-ARG API_PREBUILT=""
+# One ARG per FROM: buildah skips the stage when two ARGs are concatenated.
+ARG AMD64_API=compile
 
 # ---- ui builder ----
 # Pinned to the build host's native platform: the output is plain JS/CSS,
@@ -35,7 +36,7 @@ RUN rm -f /ui/build/_app/immutable/workers/ts.worker-*.js* \
           /ui/build/_app/immutable/workers/html.worker-*.js*
 
 # ---- api builder: amd64 (compile natively) ----
-FROM docker.io/rust:1-slim-trixie AS api-builder-amd64
+FROM docker.io/rust:1-slim-trixie AS api-builder-compile
 # Cargo features baked into the release binary. `saml` needs xmlsec1 (bindgen
 # reads its headers, hence libclang); pass an empty value to build without it.
 ARG CARGO_FEATURES=saml
@@ -79,17 +80,16 @@ WORKDIR /app
 COPY ${PREBUILT_API} /app/api-binary
 COPY api/migrations/ ./migrations/
 
-# arm64 is always prebuilt; amd64 only when API_PREBUILT=-prebuilt.
-FROM api-builder-prebuilt AS api-builder-arm64
+# arm64 is always prebuilt; amd64 only when AMD64_API=prebuilt.
+FROM api-builder-${AMD64_API} AS api-builder-amd64
 WORKDIR /app
-FROM api-builder-prebuilt AS api-builder-amd64-prebuilt
+FROM api-builder-prebuilt AS api-builder-arm64
 WORKDIR /app
 
 # ---- api builder: arch selector ----
-# Resolves to api-builder-amd64, api-builder-amd64-prebuilt or
-# api-builder-arm64. An unsupported TARGETARCH fails here with "no such
-# stage", before anything is built.
-FROM api-builder-${TARGETARCH}${API_PREBUILT} AS api-builder
+# Resolves to api-builder-amd64 or api-builder-arm64. An unsupported
+# TARGETARCH fails here with "no such stage", before anything is built.
+FROM api-builder-${TARGETARCH} AS api-builder
 
 # ---- runtime ----
 # Trixie, not Bookworm: Bookworm ships Podman 4.3.1, which has no `compose`
