@@ -197,7 +197,6 @@ struct AuthorizeQuery {
     redirect_uri: Option<String>,
     code_challenge: Option<String>,
     code_challenge_method: Option<String>,
-    state: Option<String>,
     resource: Option<String>,
 }
 
