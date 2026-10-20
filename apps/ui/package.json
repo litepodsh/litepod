@@ -82,6 +82,11 @@
     "vitest": "^4.1.10",
     "zod": "^4.4.3"
   },
+  "overrides": {
+    "devalue": "^5.9.4",
+    "joi": "^17.13.8",
+    "source-map-js": "^1.2.2"
+  },
   "imports": {
     "#lib": "./src/lib/index.js",
     "#lib/*": "./src/lib/*"

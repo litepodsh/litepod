@@ -8,8 +8,7 @@
 ## Package manager
 - **Always use `bun`** in `ui/`. Never `npm install` / `npm run` / `yarn`.
   - `bun install`, `bun run dev`, `bun run build`, `bun run check`
-- If bun unavailable, fall back to `pnpm`, never npm/yarn.
-- `ui/package-lock.json` is stale - `bun.lock` is the source of truth. Don't regenerate package-lock.json.
+- Bun only. Never pnpm/npm/yarn, even as a fallback - `bun.lock` is the only lockfile.
 
 ## Running things
 Use the root `justfile` - don't call `bun`/`cargo`/`podman` directly for dev workflows.
