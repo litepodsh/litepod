@@ -69,7 +69,9 @@ fn hosted_redirect_uri(value: &str) -> bool {
         || HOSTED_REDIRECT_PREFIXES.iter().any(|prefix| {
             value.strip_prefix(prefix).is_some_and(|id| {
                 !id.is_empty()
-                    && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                    && id
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
             })
         })
 }
@@ -196,7 +198,7 @@ async fn register_handler(
         .take(MAX_CLIENT_NAME)
         .collect();
     let id = uuid::Uuid::now_v7().to_string();
-    let uris = serde_json::to_string(&request.redirect_uris).expect("strings serialize");
+    let uris = serde_json::to_string(&redirect_uris).expect("strings serialize");
     if let Err(error) = repo::create_client(&state, &id, &name, &uris).await {
         tracing::error!(%error, "oauth.register failed");
         return oauth_error(
@@ -210,7 +212,7 @@ async fn register_handler(
         Json(json!({
             "client_id": id,
             "client_name": name,
-            "redirect_uris": request.redirect_uris,
+            "redirect_uris": redirect_uris,
             "token_endpoint_auth_method": "none",
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
@@ -348,10 +350,15 @@ async fn read_consent_handler(
     )
     .await
     .ok_or(AppError::OrganizationNotFound)?;
-    let redirect_host = query
+    let redirect_url = query
         .redirect_uri
         .as_deref()
-        .and_then(|uri| Url::parse(uri).ok())
+        .and_then(|uri| Url::parse(uri).ok());
+    // Only hosted clients get `https`; their code lands in whichever account started the flow.
+    let remote = redirect_url
+        .as_ref()
+        .is_some_and(|url| url.scheme() == "https");
+    let redirect_host = redirect_url
         .map(|url| {
             url.host_str()
                 .map(str::to_owned)
@@ -362,6 +369,7 @@ async fn read_consent_handler(
         "client_name": client.name,
         "organization": { "id": organization.id, "name": organization.name },
         "redirect_host": redirect_host,
+        "remote": remote,
     }))
     .into_response())
 }
@@ -867,6 +875,9 @@ mod tests {
         assert_eq!(status, StatusCode::CREATED, "{client}");
         assert_eq!(client["client_name"], "MCP client");
         assert_eq!(client["token_endpoint_auth_method"], "none");
+        let kept = client["redirect_uris"].as_array().expect("list");
+        assert_eq!(kept.len(), 5, "vscode.dev is trimmed: {client}");
+        assert!(!kept.contains(&json!("https://vscode.dev/redirect")));
         cleanup_database(&path);
     }
 
@@ -881,6 +892,7 @@ mod tests {
             "https://chatgpt.com/connector/oauth/",
             "https://chatgpt.com/connector/oauth/a/../../evil",
             "https://chatgpt.com/connector/oauth/a?next=https://evil.test",
+            "https://vscode.dev/redirect",
             "http://evil.test/cb",
             "javascript:alert(1)",
             "https://ok.test/cb#frag",
@@ -1009,6 +1021,7 @@ mod tests {
         assert_eq!(shown["client_name"], "Claude Code");
         assert_eq!(shown["organization"]["id"], "organization-a");
         assert_eq!(shown["redirect_host"], "127.0.0.1");
+        assert_eq!(shown["remote"], false);
 
         let (status, body) = send_json(
             &app,
