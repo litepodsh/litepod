@@ -9,6 +9,8 @@ pub struct TokenRow {
     pub name: String,
     pub scopes: String,
     pub expires_at: Option<String>,
+    /// Set on an OAuth access token: it only works on this organization's MCP endpoint.
+    pub mcp_organization_id: Option<String>,
 }
 
 pub struct TokenListItem {
@@ -31,10 +33,11 @@ pub async fn create(
     token_prefix: &str,
     scopes: &str,
     expires_at: Option<&str>,
+    mcp_organization_id: Option<&str>,
 ) -> Result<(), String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     sqlx::query(
-        "INSERT INTO personal_access_tokens (id, user_id, name, token_prefix, token_digest, scopes, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO personal_access_tokens (id, user_id, name, token_prefix, token_digest, scopes, expires_at, mcp_organization_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )
     .bind(id)
     .bind(user_id)
@@ -43,6 +46,7 @@ pub async fn create(
     .bind(digest(token))
     .bind(scopes)
     .bind(expires_at)
+    .bind(mcp_organization_id)
     .execute(&conn)
     .await
     .map_err(|e| e.to_string())?;
@@ -83,7 +87,7 @@ pub async fn find_active_by_digest(
 ) -> Result<Option<TokenRow>, crate::dtos::response::AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let row = sqlx::query(
-        "SELECT id, user_id, name, scopes, expires_at FROM personal_access_tokens WHERE token_digest = ?1 AND revoked_at IS NULL",
+        "SELECT id, user_id, name, scopes, expires_at, mcp_organization_id FROM personal_access_tokens WHERE token_digest = ?1 AND revoked_at IS NULL",
     )
     .bind(digest(token))
     .fetch_optional(&conn)
@@ -96,6 +100,7 @@ pub async fn find_active_by_digest(
         name: row.try_get(2).unwrap(),
         scopes: row.try_get(3).unwrap(),
         expires_at: row.try_get(4).unwrap(),
+        mcp_organization_id: row.try_get(5).unwrap(),
     }))
 }
 
@@ -175,6 +180,7 @@ mod tests {
             "lp_1234567890",
             "[\"read\"]",
             None,
+            None,
         )
         .await
         .unwrap();
@@ -209,6 +215,7 @@ mod tests {
             &token,
             "lp_1234567890",
             "[\"read\"]",
+            None,
             None,
         )
         .await

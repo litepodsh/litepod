@@ -26,7 +26,7 @@ use crate::{
     state::state::SharedState,
 };
 
-async fn mcp_on(state: &SharedState, organization_id: &str) -> Result<(), AppError> {
+pub(crate) async fn mcp_on(state: &SharedState, organization_id: &str) -> Result<(), AppError> {
     // Off for the whole install: the route should look like it does not exist.
     if !server::instance_enabled() {
         return Err(AppError::ResourceNotFound);
