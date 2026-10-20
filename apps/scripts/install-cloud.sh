@@ -25,7 +25,7 @@
 #   curl -fsSL https://litepod.sh/install-cloud.sh | bash -s -- --alpha
 set -euo pipefail
 
-readonly FALLBACK_LITEPOD_IMAGE_TAG="v0.3.6"
+readonly FALLBACK_LITEPOD_IMAGE_TAG="v0.3.7"
 readonly FALLBACK_CADDY_IMAGE_TAG="2.11.4"
 readonly FALLBACK_DRAGONFLY_IMAGE_TAG="v2.0.2"
 
