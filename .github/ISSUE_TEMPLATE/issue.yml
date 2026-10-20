@@ -1,0 +1,36 @@
+name: Bug or feature
+description: Report a bug or request a feature
+labels: []
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type
+      description: What is this about?
+      options:
+        - Bug report
+        - Feature request
+    validations:
+      required: true
+  - type: textarea
+    id: describe
+    attributes:
+      label: Describe it
+      description: |
+        Bug: what happens, what you expected, and steps to reproduce.
+        Feature: what you want and why it matters.
+      placeholder: "Describe the problem, not the solution."
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: |
+        Litepod version, how it's installed (self-hosted rootless/root, Cloud),
+        screenshots, logs — anything that helps.
+      placeholder: |
+        - Version: v0.3.4
+        - Install: self-hosted rootless
+    validations:
+      required: false
