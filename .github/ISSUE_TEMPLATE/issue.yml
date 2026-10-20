@@ -1,0 +1,42 @@
+name: Bug or feature / Bug o funcionalidad
+description: Report a bug or request a feature — Reporta un bug o pide una funcionalidad
+labels: []
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type / Tipo
+      description: What is this about? / ¿De qué se trata?
+      options:
+        - Bug report / Reporte de bug
+        - Feature request / Petición de funcionalidad
+    validations:
+      required: true
+  - type: textarea
+    id: describe
+    attributes:
+      label: Describe it / Descríbelo
+      description: |
+        Bug: what happens, what you expected, and steps to reproduce.
+        Feature: what you want and why it matters.
+
+        Bug: qué ocurre, qué esperabas y pasos para reproducirlo.
+        Funcionalidad: qué quieres y por qué importa.
+      placeholder: "Describe the problem, not the solution. / Describe el problema, no la solución."
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / Contexto
+      description: |
+        Litepod version, how it's installed (self-hosted rootless/root, Cloud),
+        screenshots, logs — anything that helps.
+
+        Versión de Litepod, cómo está instalado (self-hosted rootless/root, Cloud),
+        capturas, logs — lo que ayude.
+      placeholder: |
+        - Version / Versión: v0.3.4
+        - Install / Instalación: self-hosted rootless
+    validations:
+      required: false

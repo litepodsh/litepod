@@ -24,6 +24,7 @@ pub mod invitations;
 pub mod maintenance;
 pub mod mcp;
 pub mod notifications;
+pub mod oauth;
 pub mod onboarding;
 pub mod organizations;
 pub mod permissions;

@@ -2,6 +2,7 @@ pub mod account;
 pub mod audit_log;
 pub mod db;
 pub mod invitation;
+pub mod oauth;
 pub mod organization;
 pub mod organization_member;
 pub mod personal_access_token;

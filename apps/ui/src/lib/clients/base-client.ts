@@ -31,7 +31,8 @@ async function handleResponse<T>(res: Response): Promise<ApiResponse<T>> {
 		window.location.pathname !== '/reset-password'
 	) {
 		if (window.location.pathname !== '/login') {
-			window.location.assign('/login');
+			const next = `${window.location.pathname}${window.location.search}`;
+			window.location.assign(`/login?next=${encodeURIComponent(next)}`);
 		}
 		throw new Error('Session expired. Please log in again.');
 	}

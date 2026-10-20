@@ -31,9 +31,10 @@ use crate::{
         access, account, application_network_probe, application_network_stats,
         application_networks, assistant, auth, backup, billing, caddy_console, catalog_templates,
         compose, containers, dashboard, database_backup, debug, deployments, git_providers,
-        github_app, icons, invitations, maintenance, mcp, notifications, onboarding, organizations,
-        permissions, personal_access_tokens, podman_console, projects, runtime, scheduled_tasks,
-        server_groups, servers, sessions, settings, system, templates, users, webhooks,
+        github_app, icons, invitations, maintenance, mcp, notifications, oauth, onboarding,
+        organizations, permissions, personal_access_tokens, podman_console, projects, runtime,
+        scheduled_tasks, server_groups, servers, sessions, settings, system, templates, users,
+        webhooks,
     },
     podman::terminal,
 };
@@ -289,6 +290,8 @@ pub fn create_router(state: SharedState) -> Router {
             post(auth::password_reset_confirm_handler),
         )
         .merge(login_route)
+        // OAuth for the MCP endpoint: public, and throttled like the rest of auth.
+        .merge(oauth::routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_rate_limit_middleware,
@@ -1177,6 +1180,7 @@ pub fn create_router(state: SharedState) -> Router {
             post(system::post_apply_update_handler),
         )
         .merge(terminal::routes())
+        .merge(oauth::session_routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -1229,6 +1233,10 @@ pub fn create_router(state: SharedState) -> Router {
         ))
         .merge(api_routes)
         .fallback(ui_fallback)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            oauth::mcp_challenge,
+        ))
         .layer(middleware::from_fn_with_state(state.clone(), origin_guard))
         .layer(middleware::from_fn(sentry_transaction_middleware))
         .layer(prometheus_layer)
@@ -1433,7 +1441,7 @@ pub(crate) async fn ui_fallback(req: Request<Body>) -> impl IntoResponse {
         .oneshot(req)
         .await
         .expect("ServeDir is infallible");
-    if res.status() == StatusCode::NOT_FOUND {
+    let mut res = if res.status() == StatusCode::NOT_FOUND {
         if is_static_asset_path(&path) {
             StatusCode::NOT_FOUND.into_response()
         } else {
@@ -1449,7 +1457,19 @@ pub(crate) async fn ui_fallback(req: Request<Body>) -> impl IntoResponse {
             );
         }
         res
-    }
+    };
+    // No page is ever framed: a hidden iframe over /oauth/consent would turn
+    // a click on someone else's site into an approval.
+    let headers = res.headers_mut();
+    headers.insert(
+        header::X_FRAME_OPTIONS,
+        header::HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        header::HeaderValue::from_static("frame-ancestors 'none'"),
+    );
+    res
 }
 
 fn build_cors_origins() -> AllowOrigin {
@@ -1585,6 +1605,27 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// Every UI page refuses to be framed, so no other site can lay an
+    /// invisible `/oauth/consent` over a button of its own.
+    #[tokio::test]
+    async fn ui_responses_cannot_be_framed() {
+        for uri in ["/oauth/consent", "/"] {
+            let response = ui_fallback(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .into_response();
+            assert_eq!(
+                response.headers()[axum::http::header::X_FRAME_OPTIONS],
+                "DENY",
+                "{uri}"
+            );
+            assert_eq!(
+                response.headers()[axum::http::header::CONTENT_SECURITY_POLICY],
+                "frame-ancestors 'none'",
+                "{uri}"
+            );
+        }
     }
 
     /// `/docs` renders the full OpenAPI spec — every route, parameter and body
