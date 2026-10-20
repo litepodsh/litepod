@@ -29,7 +29,7 @@ services:
       DFLY_requirepass: ${DFLY_PASSWORD:?Set DFLY_PASSWORD in apps/.env}
 
   app:
-    image: ${LITEPOD_IMAGE_REPO:-docker.io/litepod/litepod}:${LITEPOD_IMAGE_TAG:-v0.3.8}
+    image: ${LITEPOD_IMAGE_REPO:-docker.io/litepod/litepod}:${LITEPOD_IMAGE_TAG:-v0.3.9}
     container_name: litepod-api
     environment:
       APP_ENV: production
@@ -61,7 +61,7 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL in apps/.env}
       CORS_ORIGINS: ${PUBLIC_URL:?Set PUBLIC_URL in apps/.env}
       LITEPOD_IMAGE_REPO: ${LITEPOD_IMAGE_REPO:-docker.io/litepod/litepod}
-      LITEPOD_IMAGE_TAG: ${LITEPOD_IMAGE_TAG:-v0.3.8}
+      LITEPOD_IMAGE_TAG: ${LITEPOD_IMAGE_TAG:-v0.3.9}
       LITEPOD_UPDATE_CHANNEL: ${LITEPOD_UPDATE_CHANNEL:-stable}
       LITEPOD_VERSION_MANIFEST_URL: ${LITEPOD_VERSION_MANIFEST_URL:-https://litepod.sh/version.json}
       LITEPOD_UPDATE_INTERVAL: ${LITEPOD_UPDATE_INTERVAL:-3600}
