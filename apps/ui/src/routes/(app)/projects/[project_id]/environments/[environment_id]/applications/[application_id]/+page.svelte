@@ -424,7 +424,8 @@
 		if (navigation.shallow) return;
 		if (navigation.type !== 'popstate') return;
 		activeTab = tabFromUrl(page.url);
-		void loadDeferredTab(activeTab);
+		if (activeTab === 'domains') void enterDomainsTab();
+		else void loadDeferredTab(activeTab);
 	});
 
 	async function refreshRuntimeStatus(deployType = source?.deploy_type) {
@@ -656,6 +657,19 @@
 		}
 	}
 
+	// Entering the domains tab is silent: the page-level load already populated
+	// `domains` from the deployment, and the deferred loader is the only thing
+	// that fetches the rest (ssh server + compose routes) on top of it. A flash
+	// of skeleton just to swap those bits in is worse than briefly stale data.
+	async function enterDomainsTab() {
+		if (!environment || !organizationId || loading) return;
+		try {
+			await deferredTabs.load('domains');
+		} catch (caught) {
+			toast.error(caught instanceof Error ? caught.message : 'Could not load domains');
+		}
+	}
+
 	function selectTab(value: string) {
 		activeTab = value;
 		const url = new URL(page.url.href);
@@ -665,7 +679,8 @@
 
 		goto(url, { shallow: true, replace: true, state: page.state });
 
-		if (isDeferredTab(value)) void loadDeferredTab(value);
+		if (value === 'domains') void enterDomainsTab();
+		else if (isDeferredTab(value)) void loadDeferredTab(value);
 		else void refreshTab(value);
 	}
 
@@ -912,7 +927,8 @@
 		} finally {
 			if (gen === generation) {
 				loading = false;
-				void loadDeferredTab(activeTab);
+				if (activeTab === 'domains') void enterDomainsTab();
+				else void loadDeferredTab(activeTab);
 				if (activeTab === 'advanced') void refreshTab(activeTab);
 			}
 		}
