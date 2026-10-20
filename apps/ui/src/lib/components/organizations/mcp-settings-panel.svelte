@@ -8,6 +8,7 @@
 	import { Label } from '#lib/components/ui/label/index.js';
 	import SoftSwitch from '#lib/components/custom/soft-switch.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
+	import MonacoCodeBlock from '#lib/components/assistant/monaco-code-block.svelte';
 	import { API_URL } from '#lib/clients/base-client.js';
 	import { updateOrganization, type OrganizationDto } from '#lib/clients/organization-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -75,10 +76,14 @@
 			</div>
 			<div class="min-w-0">
 				<p class="text-sm font-medium">{t('organizations.mcp.snippet')}</p>
-				<CopyButton
-					value={snippet}
-					revealOnHover={false}
-					class="mt-1 font-mono text-xs break-all" />
+				<div class="relative mt-1.5">
+					<MonacoCodeBlock value={snippet} language="shell" class="pr-10" />
+					<CopyButton
+						value={snippet}
+						label={null}
+						revealOnHover={false}
+						class="absolute top-1.5 right-1.5 size-7 justify-center rounded-md text-muted-foreground hover:bg-card hover:text-foreground" />
+				</div>
 			</div>
 			<p class="text-muted-foreground text-sm">
 				{t('organizations.mcp.token_hint')}

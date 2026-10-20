@@ -32,10 +32,82 @@
 	const LINE_HEIGHT = 18;
 	const PADDING = 16; // top + bottom
 
+	function readCssVar(name: string): string {
+		return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+	}
+
+	/** Hex (`#rrggbb`) to `rgba()`, so token colors can be faded with an alpha. */
+	function withAlpha(hex: string, alpha: number): string {
+		const match = /^#?([0-9a-f]{6})$/i.exec(hex);
+		if (!match) return hex;
+		const value = Number.parseInt(match[1], 16);
+		const r = (value >> 16) & 0xff;
+		const g = (value >> 8) & 0xff;
+		const b = value & 0xff;
+		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+	}
+
+	function currentThemeName(): string {
+		return document.documentElement.classList.contains('dark') ? 'lp-dark' : 'lp-light';
+	}
+
+	// Monaco themes are static hex, so they are rebuilt from the live `--lp-*`
+	// tokens: the editor then follows light/dark and the warm/cool palette alike.
 	function applyTheme() {
-		monacoApi?.editor.setTheme(
-			document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs',
-		);
+		const monaco = monacoApi;
+		if (!monaco) return;
+		const name = currentThemeName();
+		const dark = name === 'lp-dark';
+		const background = readCssVar('--lp-bg');
+		const surface = readCssVar('--lp-surface');
+		const ink = readCssVar('--lp-ink');
+		const muted = readCssVar('--lp-muted');
+		const accent = readCssVar('--lp-accent');
+		const ok = readCssVar('--lp-ok');
+		const warn = readCssVar('--lp-warn');
+		const info = readCssVar('--lp-info');
+
+		monaco.editor.defineTheme(name, {
+			base: dark ? 'vs-dark' : 'vs',
+			inherit: true,
+			rules: [
+				{ token: 'comment', foreground: muted },
+				{ token: 'string', foreground: ok },
+				{ token: 'string.escape', foreground: accent },
+				{ token: 'number', foreground: warn },
+				{ token: 'constant', foreground: warn },
+				{ token: 'keyword', foreground: info },
+				{ token: 'type', foreground: info },
+				{ token: 'identifier', foreground: ink },
+				{ token: 'variable', foreground: accent },
+				{ token: 'variable.predefined', foreground: accent },
+				{ token: 'delimiter', foreground: muted },
+				{ token: 'tag', foreground: accent },
+				{ token: 'attribute.name', foreground: ink },
+				{ token: 'attribute.value', foreground: ok },
+				{ token: 'regexp', foreground: ok },
+			],
+			colors: {
+				'editor.background': background,
+				'editor.foreground': ink,
+				'editorLineNumber.foreground': withAlpha(muted, 0.6),
+				'editorLineNumber.activeForeground': ink,
+				'editorCursor.foreground': accent,
+				'editor.selectionBackground': withAlpha(accent, 0.16),
+				'editor.inactiveSelectionBackground': withAlpha(accent, 0.08),
+				'editor.lineHighlightBackground': '#00000000',
+				'editor.lineHighlightBorder': '#00000000',
+				'editorGutter.background': background,
+				'editorWidget.background': surface,
+				'editorWidget.border': withAlpha(ink, 0.12),
+				'editorHoverWidget.background': surface,
+				'editorHoverWidget.border': withAlpha(ink, 0.12),
+				'scrollbarSlider.background': withAlpha(muted, 0.3),
+				'scrollbarSlider.hoverBackground': withAlpha(muted, 0.5),
+				'scrollbarSlider.activeBackground': withAlpha(muted, 0.6),
+			},
+		});
+		monaco.editor.setTheme(name);
 	}
 
 	function fitToContent() {
@@ -53,6 +125,9 @@
 		const monaco = await loadMonaco();
 		monacoApi = monaco;
 		if (!host) return;
+		// Define the themed editor theme before create: an unknown theme name
+		// would silently fall back to `vs`.
+		applyTheme();
 		editor = monaco.editor.create(host, {
 			value,
 			language,
@@ -84,7 +159,7 @@
 				alwaysConsumeMouseWheel: false,
 			},
 			ariaLabel: `${language} code block`,
-			theme: document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs',
+			theme: currentThemeName(),
 		});
 
 		// Size to the current content (could already overflow when the cap kicks
@@ -95,7 +170,7 @@
 		themeObserver = new MutationObserver(applyTheme);
 		themeObserver.observe(document.documentElement, {
 			attributes: true,
-			attributeFilter: ['class'],
+			attributeFilter: ['class', 'data-palette'],
 		});
 	});
 

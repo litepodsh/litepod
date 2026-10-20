@@ -2,7 +2,7 @@ name: release
 
 # Multiarch release to Docker Hub, split into parallel jobs:
 #   prepare        -> resolve + validate version/channel/caddy pin
-#   build (amd64)  -> native image build + probe          } in parallel
+#   build (amd64)  -> native binary + image + probe        } in parallel
 #   build (arm64)  -> `cross` binary + qemu image + probe  }
 #   publish        -> load both images, assemble the manifest list, push
 # Mirrors `just release-dockerhub` (used on the Linux release server); keep the
@@ -14,7 +14,9 @@ name: release
 #   - manual dispatch with a version (same rules). `dry_run` (default on)
 #     builds, probes and assembles the manifest but pushes nothing.
 #
-# The runners are always fresh, so every run is the equivalent of `-- --no-cache`.
+# The runners are always fresh, so the Dockerfile's sccache mount is empty
+# every run. Both binaries are therefore built on the runner and COPYed in
+# (PREBUILT_API), with `api/target` persisted per arch by rust-cache.
 #
 # version.json and the install scripts are published from the website
 # (litepod.sh), not here.
@@ -98,9 +100,13 @@ jobs:
           df -h /
 
       - uses: dtolnay/rust-toolchain@stable
-        if: matrix.arch == 'arm64'
         with:
-          targets: aarch64-unknown-linux-gnu
+          targets: ${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-gnu' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/api
+          key: ${{ matrix.arch }}
 
       - uses: taiki-e/install-action@v2
         if: matrix.arch == 'arm64'
@@ -112,6 +118,16 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
+
+      - name: Install native deps (xmlsec1 for saml, libclang for bindgen)
+        if: matrix.arch == 'amd64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libxmlsec1-dev libclang-dev
+
+      - name: cargo build amd64 binary
+        if: matrix.arch == 'amd64'
+        run: cargo build --release --features saml --manifest-path api/Cargo.toml
 
       # Natively cross-compiled on the amd64 host; the Dockerfile's arm64
       # stage only copies it in (PREBUILT_API), so no Rust runs under qemu.
@@ -131,7 +147,11 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           extra=()
-          [[ "${ARCH}" == arm64 ]] && extra+=(--build-arg PREBUILT_API=api/target/aarch64-unknown-linux-gnu/release/litepod-api)
+          if [[ "${ARCH}" == arm64 ]]; then
+            extra+=(--build-arg PREBUILT_API=api/target/aarch64-unknown-linux-gnu/release/litepod-api)
+          else
+            extra+=(--build-arg API_PREBUILT=-prebuilt --build-arg PREBUILT_API=api/target/release/litepod-api)
+          fi
           podman build --platform="linux/${ARCH}" \
             -f Dockerfile \
             --build-arg VITE_API_URL="" \

@@ -5,6 +5,9 @@
 # api-builder-<arch> stage the `api-builder` alias resolves to, so the arm64
 # path never instantiates the Rust toolchain stage at all.
 ARG TARGETARCH=amd64
+# Set to "-prebuilt" to COPY $PREBUILT_API on amd64 too instead of compiling
+# (the release workflow builds on the runner, where its cargo cache lives).
+ARG API_PREBUILT=""
 
 # ---- ui builder ----
 # Pinned to the build host's native platform: the output is plain JS/CSS,
@@ -63,23 +66,30 @@ RUN --mount=type=cache,target=/sccache,id=sccache \
     touch src/main.rs && cargo build --release --features "${CARGO_FEATURES}" \
     && cp /app/target/release/litepod-api /app/api-binary
 
-# ---- api builder: arm64 (take the host's `cross` output) ----
+# ---- api builder: prebuilt (take the host's binary, e.g. `cross` output) ----
 # No Rust toolchain and no cargo here on purpose: this stage runs under qemu
 # on an amd64 host, so anything compiled here would be emulated. The binary
 # was already produced natively-cross by `cross build --target
 # aarch64-unknown-linux-gnu` (the `release-dockerhub` Justfile recipe drives
 # that). $PREBUILT_API is relative to the build context root; the
 # .containerignore has a matching un-ignore rule for it.
-FROM docker.io/library/debian:trixie-slim AS api-builder-arm64
+FROM docker.io/library/debian:trixie-slim AS api-builder-prebuilt
 ARG PREBUILT_API
 WORKDIR /app
 COPY ${PREBUILT_API} /app/api-binary
 COPY api/migrations/ ./migrations/
 
+# arm64 is always prebuilt; amd64 only when API_PREBUILT=-prebuilt.
+FROM api-builder-prebuilt AS api-builder-arm64
+WORKDIR /app
+FROM api-builder-prebuilt AS api-builder-amd64-prebuilt
+WORKDIR /app
+
 # ---- api builder: arch selector ----
-# Resolves to api-builder-amd64 or api-builder-arm64. An unsupported
-# TARGETARCH fails here with "no such stage", before anything is built.
-FROM api-builder-${TARGETARCH} AS api-builder
+# Resolves to api-builder-amd64, api-builder-amd64-prebuilt or
+# api-builder-arm64. An unsupported TARGETARCH fails here with "no such
+# stage", before anything is built.
+FROM api-builder-${TARGETARCH}${API_PREBUILT} AS api-builder
 
 # ---- runtime ----
 # Trixie, not Bookworm: Bookworm ships Podman 4.3.1, which has no `compose`

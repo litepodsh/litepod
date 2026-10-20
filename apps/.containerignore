@@ -4,9 +4,11 @@
 
 # Rust build artifacts
 api/target/
-# ...except the arm64 binary produced by `cross` on the host, which the
-# multiarch build COPYs in via --build-arg PREBUILT_API (see Dockerfile).
+# ...except the binaries built on the host (arm64 by `cross`, amd64 by the
+# release workflow), which the build COPYs in via --build-arg PREBUILT_API
+# (see Dockerfile).
 !api/target/aarch64-unknown-linux-gnu/release/litepod-api
+!api/target/release/litepod-api
 
 # Node/Bun artifacts
 ui/node_modules/
