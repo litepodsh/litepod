@@ -87,6 +87,10 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
 	'network.detached': 'Detached a resource from a network',
 	'github_app.manifest_started': 'Started GitHub App setup',
 	'github_app.install_started': 'Started GitHub App installation',
+	'assistant.action_proposed': 'Proposed a change',
+	'assistant.action_rejected': 'Rejected a proposed change',
+	'assistant.action_expired': 'A proposed change expired',
+	'assistant.action_failed': 'A proposed change failed',
 };
 
 export function formatAuditAction(action: string): string {

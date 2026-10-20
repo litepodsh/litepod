@@ -413,6 +413,7 @@ volumes = "Volumes"
 
 [detail]
 assistant = "Assistant"
+mcp = "MCP"
 audit_logs = "Audit logs"
 backup_storage = "Backup storage"
 delete = "Delete organization"

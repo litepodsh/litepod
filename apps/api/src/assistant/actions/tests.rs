@@ -250,6 +250,46 @@ async fn rejecting_leaves_the_application_alone() {
 }
 
 #[tokio::test]
+async fn a_proposal_is_audited_even_when_nobody_applies_it() {
+    let (state, path) = test_state().await;
+    sqlx::query("UPDATE organizations SET audit_logs_enabled = 1")
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+
+    let action = propose_environment_variable(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        arguments("LOG_LEVEL", "debug"),
+    )
+    .await
+    .unwrap();
+    reject(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    let logged: Vec<(String, String)> = sqlx::query_as(
+        "SELECT action, metadata FROM audit_logs WHERE organization_id = 'organization-a' AND action LIKE 'assistant.%' ORDER BY rowid",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    let actions: Vec<&str> = logged.iter().map(|(action, _)| action.as_str()).collect();
+    assert_eq!(
+        actions,
+        ["assistant.action_proposed", "assistant.action_rejected"]
+    );
+    assert!(logged[0].1.contains(&action.id));
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
 async fn an_action_from_another_organization_is_not_reachable() {
     let (state, path) = test_state().await;
     let theirs = target(&state, "organization-b").await;

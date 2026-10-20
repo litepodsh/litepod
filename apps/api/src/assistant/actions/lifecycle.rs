@@ -56,6 +56,23 @@ pub(super) async fn store_action(
     .await
     .map_err(|error| AppError::DatabaseError(error.to_string()))?;
 
+    audit(
+        state,
+        actor,
+        &Audited {
+            action_id: &id,
+            conversation_id,
+            organization_id: &target.organization_id,
+            project_id: &target.project_id,
+            application_id: &target.application_id,
+            tool,
+            title: &title,
+        },
+        "assistant.action_proposed",
+        None,
+    )
+    .await;
+
     Ok(ActionDto {
         id,
         tool: tool.to_owned(),
@@ -269,6 +286,7 @@ pub async fn confirm(
     if now_ms() > stored.expires_at {
         settle(state, actor, action_id, "expired", None).await?;
         super::upload::discard(state, action_id).await;
+        audit(state, actor, &stored.audited(), "assistant.action_expired", None).await;
         return Err(AppError::ValidationError(
             "This change expired. Ask again so the assistant can re-read the environment.".into(),
         ));
@@ -278,6 +296,7 @@ pub async fn confirm(
     if !crate::assistant::capabilities::action_allowed(exec_action(&stored.tool)) {
         let message = "The assistant is no longer allowed to make this change";
         settle(state, actor, action_id, "failed", Some(message)).await?;
+        audit(state, actor, &stored.audited(), "assistant.action_failed", Some(message)).await;
         return Err(AppError::ValidationError(message.into()));
     }
     // Each write tool applies itself; everything around it - the gate, the
@@ -311,6 +330,7 @@ pub async fn confirm(
         Err(error) => {
             let message = error.to_string();
             settle(state, actor, action_id, "failed", Some(&message)).await?;
+            audit(state, actor, &stored.audited(), "assistant.action_failed", Some(&message)).await;
             return Err(error);
         }
     };
@@ -320,40 +340,80 @@ pub async fn confirm(
 
     // An MCP proposal lives in its token's conversation (`mcp::session`), so the
     // title names the agent that asked; the person confirming is still the actor.
-    let proposed_via = mcp_agent(state, &stored.conversation_id).await;
+    audit(state, actor, &stored.audited(), applied.audit_action, None).await;
+
+    Ok(ActionDto {
+        removed: applied.removed,
+        ..dto(&stored, "applied", applied.added)
+    })
+}
+
+/// What an audit line about a proposal names, whether it was just stored or loaded back.
+pub(super) struct Audited<'a> {
+    pub(super) action_id: &'a str,
+    pub(super) conversation_id: &'a str,
+    pub(super) organization_id: &'a str,
+    pub(super) project_id: &'a str,
+    pub(super) application_id: &'a str,
+    pub(super) tool: &'a str,
+    pub(super) title: &'a str,
+}
+
+impl StoredAction {
+    pub(super) fn audited(&self) -> Audited<'_> {
+        Audited {
+            action_id: &self.id,
+            conversation_id: &self.conversation_id,
+            organization_id: &self.organization_id,
+            project_id: &self.project_id,
+            application_id: &self.application_id,
+            tool: &self.tool,
+            title: &self.title,
+        }
+    }
+}
+
+/// One audit line per step of a proposal: asked for, applied, turned down, run
+/// out, or failed on confirm. A proposal nobody confirms still leaves a trace,
+/// so an agent asking over MCP is visible even when nothing changed.
+///
+/// `failure` marks the line as a failed outcome and carries the reason.
+pub(super) async fn audit(
+    state: &SharedState,
+    actor: &AuthUser,
+    action: &Audited<'_>,
+    audit_action: &str,
+    failure: Option<&str>,
+) {
+    let proposed_via = mcp_agent(state, action.conversation_id).await;
     let metadata = serde_json::json!({
-        "action_id": action_id,
-        "tool": stored.tool,
+        "action_id": action.action_id,
+        "tool": action.tool,
         "source": if proposed_via.is_some() { "mcp" } else { "assistant" },
         "proposed_via": proposed_via,
     })
     .to_string();
     // A project-scoped action has no application to name, so the audit entry
     // points at the project instead of an empty id.
-    let (target_type, target_id) = if stored.application_id.is_empty() {
-        ("project", stored.project_id.as_str())
+    let (target_type, target_id) = if action.application_id.is_empty() {
+        ("project", action.project_id)
     } else {
-        ("application", stored.application_id.as_str())
+        ("application", action.application_id)
     };
     let _ = crate::git::repositories::audit_log::record(
         state,
-        &stored.organization_id,
+        action.organization_id,
         actor,
-        applied.audit_action,
+        audit_action,
         Some(target_type),
         Some(target_id),
-        Some(&stored.title),
+        Some(action.title),
         Some(&metadata),
         None,
-        None,
-        None,
+        failure.map(|_| crate::git::repositories::audit_log::AuditOutcome::Failure),
+        failure,
     )
     .await;
-
-    Ok(ActionDto {
-        removed: applied.removed,
-        ..dto(&stored, "applied", applied.added)
-    })
 }
 
 /// The token behind an MCP conversation, e.g. `MCP · Claude`; `None` for an in-app chat.

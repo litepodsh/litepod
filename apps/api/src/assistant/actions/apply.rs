@@ -813,6 +813,14 @@ pub async fn reject(
     }
     settle(state, actor, action_id, "rejected", None).await?;
     super::upload::discard(state, action_id).await;
+    super::lifecycle::audit(
+        state,
+        actor,
+        &stored.audited(),
+        "assistant.action_rejected",
+        None,
+    )
+    .await;
     note(
         state,
         &stored,

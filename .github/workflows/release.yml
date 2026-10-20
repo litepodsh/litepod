@@ -103,10 +103,20 @@ jobs:
         with:
           targets: ${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-gnu' || '' }}
 
+      # rust-cache's post step runs `cargo metadata` inside apps/api, which
+      # reads apps/api/.cargo/config.toml (rustc-wrapper = "sccache"). Without
+      # sccache on PATH that call fails, rust-cache wipes api/target and saves
+      # a near-empty cache that later runs hit as an exact match, so every
+      # release compiled from scratch.
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/api
           key: ${{ matrix.arch }}
+          # Bumped from the default v0 to skip the near-empty caches saved
+          # while the cargo metadata call above was failing.
+          prefix-key: v1-rust
 
       - uses: taiki-e/install-action@v2
         if: matrix.arch == 'arm64'

@@ -42,6 +42,7 @@
 	import BellIcon from '@lucide/svelte/icons/bell';
 	import DatabaseBackupIcon from '@lucide/svelte/icons/database-backup';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
+	import PlugIcon from '@lucide/svelte/icons/plug';
 	import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
 	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -56,6 +57,7 @@
 		'notifications',
 		'backup-storage',
 		'assistant',
+		'mcp',
 		'audit-logs',
 		'git-providers',
 	];
@@ -117,6 +119,7 @@
 		...(canManage
 			? [
 					{ value: 'assistant', label: t('organizations.detail.assistant'), icon: SparklesIcon },
+					{ value: 'mcp', label: t('organizations.detail.mcp'), icon: PlugIcon },
 					{
 						value: 'audit-logs',
 						label: t('organizations.detail.audit_logs'),
@@ -292,6 +295,7 @@
 					<BackupTargetsPanel {organizationId} />
 				{:else if visibleTab === 'assistant' && canManage}
 					<AssistantSettingsPanel {organizationId} bind:organization />
+				{:else if visibleTab === 'mcp' && canManage}
 					<McpSettingsPanel {organizationId} bind:organization />
 				{:else if visibleTab === 'audit-logs' && canManage}
 					<MetricsRetentionSetting {organizationId} />
