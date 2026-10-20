@@ -21,6 +21,8 @@ pub const RESOURCES: &[&str] = &[
     "servers",
     "git_providers",
     "compose",
+    "templates",
+    "template",
 ];
 
 /// The `exec` actions the assistant may propose.
@@ -40,6 +42,8 @@ pub const ACTIONS: &[&str] = &[
     "create_application",
     "update_project",
     "delete_project",
+    "deploy_static_site",
+    "create_from_template",
 ];
 
 pub fn resource_allowed(resource: &str) -> bool {

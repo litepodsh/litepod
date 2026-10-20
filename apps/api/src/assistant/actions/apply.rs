@@ -445,6 +445,358 @@ pub(super) async fn apply_lifecycle(
     })
 }
 
+/// Creates and deploys a proposed static site. Refused before anything is
+/// created when the agent has not uploaded yet; once something exists, a later
+/// failure removes what this confirm created, so a half-built site never stays.
+pub(super) async fn apply_static_site(
+    state: &SharedState,
+    actor: &AuthUser,
+    stored: &StoredAction,
+) -> Result<Applied, AppError> {
+    let site: StaticSite = serde_json::from_str(&stored.arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let Some((filename, bytes)) = super::upload::staged(state, &stored.id).await else {
+        return Err(AppError::ValidationError(
+            "The site has not been uploaded yet. The agent has to send it to the upload URL first."
+                .into(),
+        ));
+    };
+
+    let organization_id = &stored.organization_id;
+    let created_project = stored.project_id.is_empty();
+    let (project_id, environment_id) = ensure_project(state, stored, &site.project_name).await?;
+
+    let built = async {
+        let application = crate::cqrs::commands::project::create_application(
+            state,
+            organization_id,
+            &project_id,
+            &environment_id,
+            &crate::dtos::project::CreateApplicationRequest {
+                name: site.name.clone(),
+                description: None,
+                server_id: Some(site.server_id.clone()),
+                server_group_id: None,
+            },
+        )
+        .await?;
+        let finished = async {
+            let current = deployment::source::get(state, &application.id).await?;
+            deployment::source::save(
+                state,
+                &application.id,
+                crate::dtos::deployment::UpdateSourceRequest {
+                    deploy_type: "static".into(),
+                    build_method: current.build_method,
+                    git_provider_id: None,
+                    git_url: None,
+                    git_branch: None,
+                    auto_deploy: Some(false),
+                    watch_paths: None,
+                    dockerfile_path: None,
+                    compose_file_path: None,
+                    compose_public_service: None,
+                    container_port: None,
+                    railpack_project_path: Some(".".into()),
+                    railpack_start_command: None,
+                    build_cpu_cores: None,
+                    build_memory_mib: None,
+                    build_swap_mib: None,
+                    image_url: None,
+                    registry_username: None,
+                    registry_password: None,
+                    restart_policy: None,
+                },
+            )
+            .await?;
+            deployment::save_artifact(state, &application.id, filename, bytes).await?;
+            let url = match &site.host {
+                Some(host) => Some(
+                    deployment::domains::create(
+                        state,
+                        &application.id,
+                        crate::dtos::deployment::CreateDomainRequest {
+                            certificate: Default::default(),
+                            host: host.clone(),
+                            port: super::propose::STATIC_PORT,
+                            https: site.https,
+                            is_primary: Some(true),
+                            server_id: None,
+                        },
+                    )
+                    .await?
+                    .url,
+                ),
+                None => None,
+            };
+            deployment::enqueue_for_application(
+                state,
+                &application.id,
+                ASSISTANT_TRIGGER,
+                Some(&actor.user_id),
+            )
+            .await?;
+            Ok::<_, AppError>(url)
+        }
+        .await;
+        match finished {
+            Ok(url) => Ok((application, url)),
+            Err(error) => {
+                let _ = crate::cqrs::commands::project::delete_application(
+                    state,
+                    organization_id,
+                    &project_id,
+                    &environment_id,
+                    &application.id,
+                )
+                .await;
+                Err(error)
+            }
+        }
+    }
+    .await;
+
+    let (application, url) = match built {
+        Ok(built) => built,
+        Err(error) => {
+            if created_project {
+                let _ = crate::cqrs::commands::project::delete_project(
+                    state,
+                    organization_id,
+                    &project_id,
+                )
+                .await;
+            }
+            return Err(error);
+        }
+    };
+    super::upload::discard(state, &stored.id).await;
+
+    Ok(Applied {
+        audit_action: "application.created",
+        added: Some(match url {
+            Some(url) => format!("{} deploying, {url}", application.name),
+            None => format!("{} deploying ({})", application.name, application.id),
+        }),
+        removed: None,
+    })
+}
+
+/// The project and environment a create lands in: the stored ones, or a new
+/// project (with its production environment) when the card said it creates one.
+async fn ensure_project(
+    state: &SharedState,
+    stored: &StoredAction,
+    project_name: &str,
+) -> Result<(String, String), AppError> {
+    if !stored.project_id.is_empty() {
+        return Ok((stored.project_id.clone(), stored.environment_id.clone()));
+    }
+    let project = crate::cqrs::commands::project::create_project(
+        state,
+        &stored.organization_id,
+        &crate::dtos::project::CreateProjectRequest {
+            name: project_name.to_owned(),
+            description: None,
+        },
+    )
+    .await?;
+    let detail =
+        crate::cqrs::queries::project::get_project(state, &stored.organization_id, &project.id)
+            .await?;
+    let environment = detail
+        .environments
+        .iter()
+        .find(|environment| environment.is_production)
+        .or_else(|| detail.environments.first())
+        .ok_or(AppError::EnvironmentNotFound)?;
+    Ok((project.id, environment.id.clone()))
+}
+
+/// Creates an application from an internal or catalog template, then sets the
+/// user's values, adds the domain and deploys. Whatever this confirm created is
+/// removed again if a later step fails.
+pub(super) async fn apply_from_template(
+    state: &SharedState,
+    actor: &AuthUser,
+    stored: &StoredAction,
+) -> Result<Applied, AppError> {
+    let arguments: FromTemplate = serde_json::from_str(&stored.arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let organization_id = &stored.organization_id;
+    let created_project = stored.project_id.is_empty();
+    let (project_id, environment_id) =
+        ensure_project(state, stored, &arguments.project_name).await?;
+
+    let built = async {
+        let application_id =
+            create_from_template(state, organization_id, &project_id, &environment_id, &arguments)
+                .await?;
+        let finished = async {
+            if let Some(name) = arguments.name.as_ref().filter(|_| {
+                !INTERNAL_TEMPLATES.contains(&arguments.template.as_str())
+            }) {
+                crate::cqrs::commands::project::update_application(
+                    state,
+                    organization_id,
+                    &project_id,
+                    &environment_id,
+                    &application_id,
+                    &crate::dtos::project::UpdateApplicationRequest {
+                        name: Some(name.clone()),
+                        description: None,
+                        icon_url: None,
+                        server_id: None,
+                        server_group_id: None,
+                    },
+                )
+                .await?;
+            }
+            for (name, value) in &arguments.values {
+                deployment::set_environment_variable(state, &application_id, "runtime", name, value)
+                    .await?;
+            }
+            let url = match (&arguments.host, arguments.port) {
+                (Some(host), Some(port)) => Some(
+                    deployment::domains::create(
+                        state,
+                        &application_id,
+                        crate::dtos::deployment::CreateDomainRequest {
+                            certificate: Default::default(),
+                            host: host.clone(),
+                            port,
+                            https: arguments.https,
+                            is_primary: Some(true),
+                            server_id: None,
+                        },
+                    )
+                    .await?
+                    .url,
+                ),
+                _ => None,
+            };
+            deployment::enqueue_for_application(
+                state,
+                &application_id,
+                ASSISTANT_TRIGGER,
+                Some(&actor.user_id),
+            )
+            .await?;
+            Ok::<_, AppError>(url)
+        }
+        .await;
+        match finished {
+            Ok(url) => Ok((application_id, url)),
+            Err(error) => {
+                let _ = crate::cqrs::commands::project::delete_application(
+                    state,
+                    organization_id,
+                    &project_id,
+                    &environment_id,
+                    &application_id,
+                )
+                .await;
+                Err(error)
+            }
+        }
+    }
+    .await;
+
+    let (application_id, url) = match built {
+        Ok(built) => built,
+        Err(error) => {
+            if created_project {
+                let _ = crate::cqrs::commands::project::delete_project(
+                    state,
+                    organization_id,
+                    &project_id,
+                )
+                .await;
+            }
+            return Err(error);
+        }
+    };
+
+    Ok(Applied {
+        audit_action: "application.created",
+        added: Some(match url {
+            Some(url) => format!("{} deploying, {url}", arguments.template),
+            None => format!("{} deploying ({application_id})", arguments.template),
+        }),
+        removed: None,
+    })
+}
+
+/// The template's own create, as the UI calls it. Returns the application id.
+async fn create_from_template(
+    state: &SharedState,
+    organization_id: &str,
+    project_id: &str,
+    environment_id: &str,
+    arguments: &FromTemplate,
+) -> Result<String, AppError> {
+    use crate::templates::internal_templates::{
+        dragonflydb, keydb, mariadb, mongodb, postgres, sqlserver,
+    };
+
+    if !INTERNAL_TEMPLATES.contains(&arguments.template.as_str()) {
+        return crate::templates::catalog_templates::create_application(
+            state,
+            organization_id,
+            project_id,
+            environment_id,
+            &arguments.template,
+            &arguments.server_id,
+        )
+        .await
+        .map(|application| application.id);
+    }
+
+    let detail =
+        crate::cqrs::queries::project::get_project(state, organization_id, project_id).await?;
+    let environment_name = detail
+        .environments
+        .iter()
+        .find(|environment| environment.id == environment_id)
+        .map(|environment| environment.name.clone())
+        .ok_or(AppError::EnvironmentNotFound)?;
+    let project_name = detail.project.name;
+    let public_host = crate::handler::templates::public_host(state);
+    // Every database input shares these fields; the rest default, which is
+    // what the UI's dialog does when nobody changes them. `create` previews
+    // with this id, generating the passwords.
+    let input = serde_json::json!({
+        "application_name": arguments.name.clone().unwrap_or_else(|| arguments.template.clone()),
+        "server_id": arguments.server_id,
+        "template_instance_id": uuid::Uuid::now_v7().to_string(),
+    });
+    let parse = |error: serde_json::Error| AppError::InternalError(error.to_string());
+    macro_rules! create {
+        ($module:ident) => {
+            $module::create(
+                state,
+                organization_id,
+                project_id,
+                environment_id,
+                &project_name,
+                &environment_name,
+                &public_host,
+                serde_json::from_value(input).map_err(parse)?,
+            )
+            .await
+            .map(|created| created.application.id)
+        };
+    }
+    match arguments.template.as_str() {
+        "postgres" => create!(postgres),
+        "mariadb" => create!(mariadb),
+        "mongodb" => create!(mongodb),
+        "dragonflydb" => create!(dragonflydb),
+        "keydb" => create!(keydb),
+        _ => create!(sqlserver),
+    }
+}
+
 /// Records that the user said no, so the model is told and does not re-propose.
 pub async fn reject(
     state: &SharedState,
@@ -460,6 +812,7 @@ pub async fn reject(
         )));
     }
     settle(state, actor, action_id, "rejected", None).await?;
+    super::upload::discard(state, action_id).await;
     note(
         state,
         &stored,

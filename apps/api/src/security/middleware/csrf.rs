@@ -57,6 +57,9 @@ const ORIGIN_GUARD_EXEMPT_PREFIXES: &[&str] = &[
     "/api/v1/webhooks/polar",
     "/api/v1/webhooks/git/",
     "/deploy/",
+    // An MCP agent's `curl -T` of a static site; the one-time token in the path
+    // is the credential (`assistant::actions::upload`).
+    "/api/v1/assistant/uploads/",
     // Called server-to-server by the IdP's provisioning service (no Origin) and
     // authenticated by a bearer token, never a cookie, so there is nothing to forge.
     "/scim/v2/",

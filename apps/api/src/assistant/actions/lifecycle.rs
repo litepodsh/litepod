@@ -268,6 +268,7 @@ pub async fn confirm(
     }
     if now_ms() > stored.expires_at {
         settle(state, actor, action_id, "expired", None).await?;
+        super::upload::discard(state, action_id).await;
         return Err(AppError::ValidationError(
             "This change expired. Ask again so the assistant can re-read the environment.".into(),
         ));
@@ -296,6 +297,8 @@ pub async fn confirm(
         ADD_DOMAIN => apply_add_domain(state, &stored).await,
         UPDATE_DOMAIN => apply_update_domain(state, &stored).await,
         DELETE_DOMAIN => apply_delete_domain(state, &stored).await,
+        DEPLOY_STATIC_SITE => apply_static_site(state, actor, &stored).await,
+        CREATE_FROM_TEMPLATE => apply_from_template(state, actor, &stored).await,
         other => {
             return Err(AppError::ValidationError(format!(
                 "`{other}` is not a tool this build can apply"

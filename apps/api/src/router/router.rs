@@ -330,6 +330,13 @@ pub fn create_router(state: SharedState) -> Router {
         )
         // Keyless deploy hook: the token in the path is the credential.
         .route("/deploy/{token}", post(webhooks::deploy_hook_handler))
+        // Same idea for an MCP agent's static site, capped at 10 MiB.
+        .route(
+            "/api/v1/assistant/uploads/{action_id}/{token}",
+            axum::routing::put(webhooks::assistant_upload_handler)
+                .post(webhooks::assistant_upload_handler)
+                .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)),
+        )
         .with_state(state.clone());
 
     let debug_routes = debug::routes()

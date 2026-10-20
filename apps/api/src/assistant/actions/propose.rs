@@ -981,3 +981,245 @@ pub async fn propose_delete_domain(
         ..stored
     })
 }
+
+/// The port the static runtime (Caddy serving the upload) listens on.
+pub(super) const STATIC_PORT: i64 = 80;
+
+/// Stores a whole static site as one card: project (existing or new),
+/// application, upload, deploy and optional domain.
+///
+/// Returns the upload token alongside the card. It is shown once, to the
+/// proposer, and only its hash is stored.
+pub async fn propose_static_site(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    arguments: StaticSite,
+) -> Result<(ActionDto, String), AppError> {
+    let name = arguments.name.trim().to_owned();
+    if name.is_empty() {
+        return Err(AppError::ValidationError("The site needs a `name`".into()));
+    }
+    if name.chars().count() > 64 {
+        return Err(AppError::ValidationError(
+            "An application name is limited to 64 characters".into(),
+        ));
+    }
+    let project_name = project_name(Some(&arguments.project_name))?;
+    let host = arguments
+        .host
+        .as_deref()
+        .map(|host| host.trim().to_ascii_lowercase())
+        .filter(|host| !host.is_empty());
+    let https = host
+        .as_deref()
+        .map(|host| arguments.https.unwrap_or(!deployment::domains::is_local(host)));
+    if let (Some(host), Some(https)) = (&host, https) {
+        deployment::domains::validate(state, host, STATIC_PORT, https)?;
+    }
+
+    let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+    let new_project = target.project_id.is_empty();
+    let title = format!("Deploy the static site {name} in {project_name}");
+    let summary = arguments.reason.clone().unwrap_or_else(|| {
+        let mut steps = Vec::new();
+        if new_project {
+            steps.push(format!("creates the project {project_name}"));
+        }
+        steps.push(format!("creates the static application {name}"));
+        steps.push("deploys the uploaded site".into());
+        if let Some(host) = &host {
+            let scheme = if https == Some(true) { "https" } else { "http" };
+            steps.push(format!("serves it on {scheme}://{host}"));
+        }
+        let mut text = steps.join(", ");
+        text[..1].make_ascii_uppercase();
+        format!("{text}.")
+    });
+
+    let encoded = serde_json::to_string(&StaticSite {
+        project_name: project_name.clone(),
+        name: name.clone(),
+        host: host.clone(),
+        https,
+        upload_token_hash: super::upload::hash_token(&token),
+        ..arguments
+    })
+    .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let stored = store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        DEPLOY_STATIC_SITE,
+        &encoded,
+        title,
+        summary,
+    )
+    .await?;
+
+    Ok((
+        ActionDto {
+            added: Some(match &host {
+                Some(host) => format!("{project_name}/{name} on {host}"),
+                None => format!("{project_name}/{name}"),
+            }),
+            ..stored
+        },
+        token,
+    ))
+}
+
+/// Stores a whole application from a template as one card: project (existing
+/// or new), the template, the user's variable values, an optional domain, and
+/// a deploy.
+///
+/// Returns the catalog variables that are still empty after the values the
+/// user gave, so the agent can say what was left unset.
+pub async fn propose_from_template(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    arguments: FromTemplate,
+) -> Result<(ActionDto, Vec<String>), AppError> {
+    let template = arguments.template.trim().to_ascii_lowercase();
+    let project_name = project_name(Some(&arguments.project_name))?;
+    let name = arguments
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+    if name.as_ref().is_some_and(|name| name.chars().count() > 64) {
+        return Err(AppError::ValidationError(
+            "An application name is limited to 64 characters".into(),
+        ));
+    }
+    for (variable, value) in &arguments.values {
+        if !deployment::is_environment_name(variable) {
+            return Err(AppError::ValidationError(format!(
+                "`{variable}` is not a valid environment variable name"
+            )));
+        }
+        if value.len() > MAX_VALUE_BYTES {
+            return Err(AppError::ValidationError(format!(
+                "Environment values are limited to {MAX_VALUE_BYTES} bytes"
+            )));
+        }
+    }
+    let host = arguments
+        .host
+        .as_deref()
+        .map(|host| host.trim().to_ascii_lowercase())
+        .filter(|host| !host.is_empty());
+
+    let internal = INTERNAL_TEMPLATES.contains(&template.as_str());
+    let (label, port, unset) = if internal {
+        if !arguments.values.is_empty() || host.is_some() {
+            return Err(AppError::ValidationError(format!(
+                "`{template}` generates its own credentials and is reached over the private network: pass no `values` and no `host`"
+            )));
+        }
+        (template.clone(), None, Vec::new())
+    } else {
+        let decoded = crate::templates::catalog_templates::decode(
+            crate::templates::catalog_templates::CatalogClient::new()?
+                .get(&template)
+                .await?,
+        )?;
+        let known: Vec<(String, String)> =
+            deployment::parse_environment_content(&decoded.environment)?;
+        if let Some(stray) = arguments
+            .values
+            .keys()
+            .find(|variable| !known.iter().any(|(name, _)| name == *variable))
+        {
+            return Err(AppError::ValidationError(format!(
+                "`{template}` has no variable `{stray}`; read `get template` for the ones it takes"
+            )));
+        }
+        let unset = known
+            .iter()
+            .filter(|(name, value)| value.trim().is_empty() && !arguments.values.contains_key(name))
+            .map(|(name, _)| name.clone())
+            .collect();
+        let port = decoded
+            .template
+            .ports
+            .iter()
+            .find(|port| port.primary)
+            .or(decoded.template.ports.first())
+            .map(|port| i64::from(port.container));
+        if host.is_some() && port.is_none() {
+            return Err(AppError::ValidationError(format!(
+                "`{template}` publishes no port, so a domain has nothing to route to"
+            )));
+        }
+        (decoded.template.name.clone(), port, unset)
+    };
+    let https = host
+        .as_deref()
+        .map(|host| arguments.https.unwrap_or(!deployment::domains::is_local(host)));
+    if let (Some(host), Some(port), Some(https)) = (&host, port, https) {
+        deployment::domains::validate(state, host, port, https)?;
+    }
+
+    let shown = name.clone().unwrap_or_else(|| template.clone());
+    let title = format!("Deploy {label} as {shown} in {project_name}");
+    let summary = arguments.reason.clone().unwrap_or_else(|| {
+        let mut steps = Vec::new();
+        if target.project_id.is_empty() {
+            steps.push(format!("creates the project {project_name}"));
+        }
+        steps.push(format!("creates {shown} from the {label} template"));
+        if !arguments.values.is_empty() {
+            steps.push(format!("sets {} variables", arguments.values.len()));
+        }
+        if let Some(host) = &host {
+            let scheme = if https == Some(true) { "https" } else { "http" };
+            steps.push(format!("serves it on {scheme}://{host}"));
+        }
+        steps.push("deploys it".into());
+        let mut text = steps.join(", ");
+        text[..1].make_ascii_uppercase();
+        format!("{text}.")
+    });
+
+    let encoded = serde_json::to_string(&FromTemplate {
+        project_name: project_name.clone(),
+        template,
+        name,
+        host: host.clone(),
+        https,
+        port,
+        ..arguments.clone()
+    })
+    .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let stored = store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        CREATE_FROM_TEMPLATE,
+        &encoded,
+        title,
+        summary,
+    )
+    .await?;
+
+    // Names only: a value the user typed may be a secret.
+    let names: Vec<&str> = arguments.values.keys().map(String::as_str).collect();
+    Ok((
+        ActionDto {
+            added: Some(if names.is_empty() {
+                format!("{project_name}/{shown}")
+            } else {
+                format!("{project_name}/{shown}, sets {}", names.join(", "))
+            }),
+            ..stored
+        },
+        unset,
+    ))
+}

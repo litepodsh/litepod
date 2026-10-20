@@ -16,20 +16,24 @@ mod apply;
 mod lifecycle;
 mod propose;
 mod types;
+mod upload;
 
 #[cfg(test)]
 mod tests;
 
 pub use types::{
     ActionDto, ActionTarget, CreateApplication, DomainFields, ProjectFields, SetComposeFile,
-    SetEnvironmentVariable, SetSource, UpdateApplication,
+    SetEnvironmentVariable, SetSource, StaticSite, UpdateApplication,
 };
+
+pub use types::{FromTemplate, INTERNAL_TEMPLATES};
 
 pub use propose::{
     propose_add_domain, propose_compose_file, propose_create_application, propose_create_project,
     propose_delete_domain, propose_delete_environment_variable, propose_delete_project,
     propose_environment_variable, propose_lifecycle, propose_redeploy, propose_source,
-    propose_update_application, propose_update_domain, propose_update_project,
+    propose_from_template, propose_static_site, propose_update_application, propose_update_domain,
+    propose_update_project,
 };
 
 pub use types::{START_APPLICATION, STOP_APPLICATION};
@@ -37,3 +41,5 @@ pub use types::{START_APPLICATION, STOP_APPLICATION};
 pub use lifecycle::{confirm, list_for_conversation};
 
 pub use apply::reject;
+
+pub use upload::{stage_upload, upload_url};

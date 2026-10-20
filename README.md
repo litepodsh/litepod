@@ -45,6 +45,17 @@ Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy p
 - **Backups** — scheduled backups to any S3-compatible bucket.
 - **Teams** — organizations, members and roles.
 
+## MCP
+
+Connect your own agent (Claude, Cursor, …) to `/api/v1/organizations/{organization_id}/mcp`. It exposes two tools:
+
+- **`get`** reads. Every project and application in the organization with its status (`running`, `stopped`, `failed`, …) in one call, or one project; every domain in the organization, or one application's; plus environment variable names (never values), deployments and their logs, live containers and their logs, source, compose file, servers and Git providers; the internal database templates and the template catalog, and for one template its ports and the variables the user has to fill in.
+- **`exec`** changes. `start` and `stop` run immediately. Everything else is a proposal a person confirms in Litepod: set or delete environment variables, redeploy, edit the compose file or source, add, update or delete domains, create, rename or delete projects and applications (empty or Compose).
+  - **`deploy_static_site`** — one confirmation for a whole static site: project (existing or new), application, upload, deploy and an optional HTTPS domain. The agent gets a one-time `upload_url` and sends the site (up to 10 MB) with `curl -T site.zip <upload_url>`.
+  - **`create_from_template`** — one confirmation for a database (`postgres`, `mariadb`, `mongodb`, `dragonflydb`, `keydb`, `sqlserver`) or a catalog template such as `uptime-kuma`: project (existing or new), the variable values the user wrote, an optional domain, and the deploy.
+
+  After confirming, the agent reads `get applications` until the status is `running` and reports back.
+
 ## Screenshots
 
 <table>

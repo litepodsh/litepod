@@ -64,7 +64,11 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
         you can only read and change the current one)",
     ),
     ("projects", "`projects` (no other argument)"),
-    ("applications", "`applications` (needs `project`)"),
+    (
+        "applications",
+        "`applications` (with `status` and last error; pass `project` for one project, \
+        omit it for every application in the organization, e.g. to find the stopped or failed ones)",
+    ),
     (
         "environment",
         "`environment` (variable NAMES only, never values; needs `application`)",
@@ -93,7 +97,8 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
     ),
     (
         "domains",
-        "`domains` (the hosts an application is served on, with their ids; needs `application`)",
+        "`domains` (the hosts an application is served on, with their ids; pass `application` for one, \
+        omit it for every domain in the organization)",
     ),
     (
         "servers",
@@ -106,6 +111,18 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
     (
         "compose",
         "`compose` (the compose file; needs `application`, and only compose applications have one)",
+    ),
+    (
+        "templates",
+        "`templates` (what can be deployed from a template: the internal databases and the catalog; \
+        optionally `query` to search the catalog, e.g. `uptime`)",
+    ),
+    (
+        "template",
+        "`template` (one template's ports and variables; needs `template`. Each variable is \
+        `generated` (a secret Litepod creates), `default` (has a value) or `empty`, with the \
+        template's own comment as `hint`. Ask the user for every variable whose hint says it is \
+        required or must be replaced, and mention the empty ones, before `create_from_template`)",
     ),
 ];
 
@@ -170,6 +187,23 @@ const ACTION_HELP: &[(&str, &str)] = &[
         "`delete_project` (needs `project`; this destroys every application in it, so read \
         `get applications` first and say what goes with it)",
     ),
+    (
+        "create_from_template",
+        "`create_from_template` (one confirmation for the whole application: needs `template` - an \
+        internal database like `postgres` or a catalog id from `get templates` - and `project`, an \
+        existing one or a new one created with it; optionally `name`, `values` (the variables the \
+        user wrote, as an object), and `host` and `https` for a catalog template's domain. Read \
+        `get template` first and ask the user for what it needs. Once confirmed it deploys; read \
+        `get applications` until its `status` is `running` and tell the user)",
+    ),
+    (
+        "deploy_static_site",
+        "`deploy_static_site` (one confirmation for the whole site: needs `project` - an existing \
+        one, or a new one created with it - and `name`, optionally `host` and `https`. Returns an \
+        `upload_url`: send the site there with `curl -T site.zip <upload_url>` (a ZIP with \
+        index.html at its root, or one HTML file, up to 10 MB) before the person confirms. Once confirmed it \
+        deploys; read `get applications` until its `status` is `running` and tell the user)",
+    ),
 ];
 
 fn help_for(names: &[&str], help: &[(&str, &str)]) -> String {
@@ -220,6 +254,8 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                         "run": { "type": "string", "description": "Deployment run id. Omit for the latest run." },
                         "container": { "type": "string", "description": "One container name from `get containers`. Omit to read every container of the application." },
                         "level": { "type": "string", "enum": ["error", "warning", "info"], "description": "Only lines of this level. `error` is the fastest way to find why a deploy failed." },
+                        "template": { "type": "string", "description": "A template id from `get templates`." },
+                        "query": { "type": "string", "description": "Search text for `templates`." },
                         "scope": { "type": "string", "enum": ["runtime", "build"] }
                     },
                     "required": ["resource"],
@@ -247,8 +283,8 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                 description: format!(
                     "{opening}`action` picks what: {}. \
                     `application` is required for every action except `create_application`, `create_project`, \
-                    `update_project` and `delete_project`, which take `project` instead (`create_project` \
-                    takes neither). \
+                    `update_project`, `delete_project`, `deploy_static_site` and `create_from_template`, which take `project` instead \
+                    (`create_project` takes neither). \
                     Always pass `reason`: it is the one line the user reads before deciding.",
                     help_for(capabilities::ACTIONS, ACTION_HELP)
                 ),
@@ -275,6 +311,8 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                         "environment": { "type": "string", "description": "Environment name or id. Defaults to the project's production environment." },
                         "server": { "type": "string", "description": "Server name or id from `get servers`. Defaults to the only ready one." },
                         "domain": { "type": "string", "description": "A host, or a domain id from `get domains`." },
+                        "template": { "type": "string", "description": "A template id from `get templates`." },
+                        "values": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Variable values the user wrote, by name, for `create_from_template`." },
                         "host": { "type": "string", "description": "Hostname to serve the application on." },
                         "port": { "type": "integer", "description": "The port this host fronts." },
                         "https": { "type": "boolean" },
@@ -705,10 +743,8 @@ async fn get(
         },
 
         "applications" => {
-            let Some(project) = string_of(arguments, "project") else {
-                return ToolOutcome::failure("`project` is required for `applications`");
-            };
-            applications_in(state, organization_id, &project).await
+            applications_in(state, organization_id, string_of(arguments, "project").as_deref())
+                .await
         }
 
         "environment" => {
@@ -830,6 +866,19 @@ async fn get(
                 })),
                 Err(error) => ToolOutcome::failure(error.to_string()),
             }
+        }
+
+        "templates" => templates(string_of(arguments, "query")).await,
+
+        "template" => {
+            let Some(template) = string_of(arguments, "template") else {
+                return ToolOutcome::failure("`template` is required");
+            };
+            template_detail(&template).await
+        }
+
+        "domains" if string_of(arguments, "application").is_none() => {
+            all_domains(state, organization_id).await
         }
 
         "domains" => {
@@ -1207,6 +1256,15 @@ async fn project_action(
         );
     }
 
+    if action == "deploy_static_site" {
+        return Some(static_site(state, organization_id, conversation_id, actor, arguments, reason).await);
+    }
+    if action == "create_from_template" {
+        return Some(
+            from_template(state, organization_id, conversation_id, actor, arguments, reason).await,
+        );
+    }
+
     if !matches!(
         action,
         "update_project" | "delete_project" | "create_application"
@@ -1292,6 +1350,267 @@ async fn project_action(
             Err(error) => ToolOutcome::failure(error.to_string()),
         }
     })
+}
+
+/// Where a whole-application action lands: the named project when it exists
+/// (and its environment), or a new one created on confirm, which the card
+/// says. Plus the server, which is only asked about when there is a choice.
+async fn project_or_new(
+    state: &SharedState,
+    organization_id: &str,
+    arguments: &serde_json::Value,
+) -> Result<(ActionTarget, String, String), Box<ToolOutcome>> {
+    let Some(project) = string_of(arguments, "project") else {
+        return Err(Box::new(ToolOutcome::failure(
+            "`project` is required: an existing project or a new name",
+        )));
+    };
+    let mut target = match resolve_project(state, organization_id, &project).await {
+        Ok(mut target) => {
+            fill_environment(
+                state,
+                &mut target,
+                string_of(arguments, "environment").as_deref(),
+            )
+            .await
+            .map_err(|miss| Box::new(ToolOutcome::miss(miss.message, miss.candidates)))?;
+            target
+        }
+        // Only a name nobody uses is a new project; two matches is a question.
+        Err(miss) if miss.message.starts_with("No project") => {
+            ActionTarget::project(organization_id, "", "")
+        }
+        Err(miss) => return Err(Box::new(ToolOutcome::miss(miss.message, miss.candidates))),
+    };
+    target.project_name = project.clone();
+    let server_id = resolve_server(
+        state,
+        organization_id,
+        string_of(arguments, "server").as_deref(),
+    )
+    .await
+    .map_err(|miss| Box::new(ToolOutcome::miss(miss.message, miss.candidates)))?;
+    Ok((target, project, server_id))
+}
+
+async fn from_template(
+    state: &SharedState,
+    organization_id: &str,
+    conversation_id: &str,
+    actor: &AuthUser,
+    arguments: &serde_json::Value,
+    reason: Option<String>,
+) -> ToolOutcome {
+    let Some(template) = string_of(arguments, "template") else {
+        return ToolOutcome::failure("`template` is required; read `get templates`");
+    };
+    let (target, project, server_id) =
+        match project_or_new(state, organization_id, arguments).await {
+            Ok(found) => found,
+            Err(outcome) => return *outcome,
+        };
+    let values = arguments
+        .get("values")
+        .and_then(|values| values.as_object())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    match actions::propose_from_template(
+        state,
+        conversation_id,
+        actor,
+        &target,
+        actions::FromTemplate {
+            project_name: project,
+            template,
+            name: string_of(arguments, "name"),
+            server_id,
+            values,
+            host: string_of(arguments, "host"),
+            https: arguments.get("https").and_then(|value| value.as_bool()),
+            port: None,
+            reason,
+        },
+    )
+    .await
+    {
+        Ok((action, unset)) => {
+            let mut outcome = ToolOutcome::proposed(
+                action,
+                "Nothing is created yet. The user has to confirm this in Litepod; it deploys once confirmed.",
+            );
+            if !unset.is_empty() {
+                let mut result: serde_json::Value =
+                    serde_json::from_str(&outcome.result).unwrap_or_default();
+                result["left_empty"] = json!(unset);
+                outcome.result = result.to_string();
+            }
+            outcome
+        }
+        Err(error) => ToolOutcome::failure(error.to_string()),
+    }
+}
+
+/// Internal database templates, then the catalog (searched by `query`). A
+/// catalog that cannot be reached still leaves the databases to offer.
+async fn templates(query: Option<String>) -> ToolOutcome {
+    use crate::templates::catalog_templates::{CatalogClient, CatalogQuery};
+
+    let catalog = match CatalogClient::new() {
+        Ok(client) => client
+            .list(&CatalogQuery {
+                q: query,
+                category: None,
+                limit: Some(100),
+            })
+            .await
+            .map(|templates| {
+                templates
+                    .into_iter()
+                    .map(|template| json!({
+                        "id": template.id,
+                        "name": template.name,
+                        "description": template.description,
+                        "categories": template.categories,
+                    }))
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    };
+    let mut result = json!({ "internal": actions::INTERNAL_TEMPLATES });
+    match catalog {
+        Ok(catalog) => result["catalog"] = json!(catalog),
+        Err(error) => result["catalog_error"] = json!(error),
+    }
+    ToolOutcome::data(result)
+}
+
+async fn template_detail(template: &str) -> ToolOutcome {
+    let id = template.trim().to_ascii_lowercase();
+    if actions::INTERNAL_TEMPLATES.contains(&id.as_str()) {
+        return ToolOutcome::data(json!({
+            "id": id,
+            "kind": "internal",
+            "variables": [],
+            "note": "Credentials are generated; it is reached over the project's private network, so it takes no `values` and no `host`.",
+        }));
+    }
+    let decoded = match crate::templates::catalog_templates::CatalogClient::new() {
+        Ok(client) => match client.get(&id).await {
+            Ok(found) => crate::templates::catalog_templates::decode(found),
+            Err(error) => Err(error),
+        },
+        Err(error) => Err(error),
+    };
+    match decoded {
+        Ok(decoded) => ToolOutcome::data(json!({
+            "id": decoded.template.id,
+            "kind": "catalog",
+            "name": decoded.template.name,
+            "description": decoded.template.description,
+            "ports": decoded.template.ports.iter().map(|port| json!({
+                "container": port.container,
+                "description": port.description,
+                "primary": port.primary,
+            })).collect::<Vec<_>>(),
+            "requires_https": decoded.template.requires_https,
+            "variables": template_variables(&decoded.environment),
+        })),
+        Err(error) => ToolOutcome::failure(format!("No template `{template}`: {error}")),
+    }
+}
+
+/// A template `.env`, read as the model needs it: each variable's kind and the
+/// comment above it. A generated secret's marker is never shown as a value.
+fn template_variables(environment: &str) -> Vec<serde_json::Value> {
+    let mut hint: Vec<&str> = Vec::new();
+    let mut out = Vec::new();
+    for line in environment.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            hint.clear();
+            continue;
+        }
+        if let Some(comment) = trimmed.strip_prefix('#') {
+            hint.push(comment.trim());
+            continue;
+        }
+        let Some((name, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        let value = value.trim().trim_matches('"').trim_matches('\'');
+        let (kind, shown) = if value.contains("{{") {
+            ("generated", None)
+        } else if value.is_empty() {
+            ("empty", None)
+        } else {
+            ("default", Some(value))
+        };
+        out.push(json!({
+            "name": name.trim(),
+            "kind": kind,
+            "default": shown,
+            "hint": (!hint.is_empty()).then(|| hint.join(" ")),
+        }));
+        hint.clear();
+    }
+    out
+}
+
+/// `deploy_static_site`: the project is used when it exists and created on
+/// confirm when it does not, which the card says.
+async fn static_site(
+    state: &SharedState,
+    organization_id: &str,
+    conversation_id: &str,
+    actor: &AuthUser,
+    arguments: &serde_json::Value,
+    reason: Option<String>,
+) -> ToolOutcome {
+    let (target, project, server_id) =
+        match project_or_new(state, organization_id, arguments).await {
+            Ok(found) => found,
+            Err(outcome) => return *outcome,
+        };
+
+    match actions::propose_static_site(
+        state,
+        conversation_id,
+        actor,
+        &target,
+        actions::StaticSite {
+            project_name: project,
+            name: string_of(arguments, "name").unwrap_or_default(),
+            server_id,
+            host: string_of(arguments, "host"),
+            https: arguments.get("https").and_then(|value| value.as_bool()),
+            upload_token_hash: String::new(),
+            reason,
+        },
+    )
+    .await
+    {
+        Ok((action, token)) => {
+            let upload_url = actions::upload_url(state, &action.id, &token).await;
+            let mut outcome = ToolOutcome::proposed(
+                action,
+                "Nothing is created yet. Upload the site to `upload_url` now, then tell the user to confirm it in Litepod. The link only works while this proposal is pending.",
+            );
+            let mut result: serde_json::Value =
+                serde_json::from_str(&outcome.result).unwrap_or_default();
+            result["upload_url"] = json!(upload_url);
+            result["upload_command"] = json!(format!("curl -fsS -T site.zip '{upload_url}'"));
+            outcome.result = result.to_string();
+            outcome
+        }
+        Err(error) => ToolOutcome::failure(error.to_string()),
+    }
 }
 
 /// Finds a project by name or id. Same miss-with-candidates contract as
@@ -1433,43 +1752,125 @@ async fn resolve_server(
     }
 }
 
-async fn applications_in(state: &SharedState, organization_id: &str, project: &str) -> ToolOutcome {
-    let wanted = project.trim().to_ascii_lowercase();
+/// Applications of one project, or of the whole organization when `project`
+/// is absent, each with its last known status so "which ones are stopped" is
+/// one read instead of one per application.
+async fn applications_in(
+    state: &SharedState,
+    organization_id: &str,
+    project: Option<&str>,
+) -> ToolOutcome {
     let everything = match catalog(state, organization_id).await {
         Ok(everything) => everything,
         Err(error) => return ToolOutcome::failure(error),
     };
 
-    let matched: Vec<_> = everything
+    let matched: Vec<_> = match project {
+        None => everything.iter().collect(),
+        Some(project) => {
+            let wanted = project.trim().to_ascii_lowercase();
+            let matched: Vec<_> = everything
+                .iter()
+                .filter(|(summary, _)| {
+                    summary.name.to_ascii_lowercase() == wanted
+                        || summary.id.to_ascii_lowercase() == wanted
+                })
+                .collect();
+            if matched.is_empty() {
+                let names: Vec<String> = everything
+                    .iter()
+                    .map(|(summary, _)| summary.name.clone())
+                    .collect();
+                return ToolOutcome::miss(
+                    format!("No project called `{project}` in this organization."),
+                    rank(&wanted, names.iter().map(String::as_str)),
+                );
+            }
+            matched
+        }
+    };
+
+    let statuses = match statuses(state, organization_id).await {
+        Ok(statuses) => statuses,
+        Err(error) => return ToolOutcome::failure(error),
+    };
+
+    let applications: Vec<_> = matched
         .iter()
-        .filter(|(summary, _)| {
-            summary.name.to_ascii_lowercase() == wanted || summary.id.to_ascii_lowercase() == wanted
-        })
-        .collect();
-
-    if matched.is_empty() {
-        let names: Vec<String> = everything
-            .iter()
-            .map(|(summary, _)| summary.name.clone())
-            .collect();
-        return ToolOutcome::miss(
-            format!("No project called `{project}` in this organization."),
-            rank(&wanted, names.iter().map(String::as_str)),
-        );
-    }
-
-    ToolOutcome::data(json!({
-        "project": matched[0].0.name,
-        "applications": matched
-            .iter()
-            .map(|(_, app)| json!({
+        .map(|(summary, app)| {
+            let (status, error) = statuses
+                .get(&app.id)
+                .cloned()
+                .unwrap_or_else(|| ("not_deployed".into(), None));
+            json!({
                 "id": app.id,
                 "name": app.name,
+                "project": summary.name,
                 "environment": app.environment_name,
+                "status": status,
+                "error": error,
                 "origin": app.origin,
-            }))
-            .collect::<Vec<_>>()
-    }))
+            })
+        })
+        .collect();
+    match project {
+        Some(_) => ToolOutcome::data(json!({
+            "project": matched[0].0.name,
+            "applications": applications,
+        })),
+        None => ToolOutcome::data(json!({ "applications": applications })),
+    }
+}
+
+/// `application_id -> (status, last_error)` for every deployed application in
+/// the organization, in one query.
+async fn statuses(
+    state: &SharedState,
+    organization_id: &str,
+) -> Result<std::collections::HashMap<String, (String, Option<String>)>, String> {
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT d.application_id, d.status, d.last_error
+         FROM application_deployments d
+         JOIN applications a ON a.id = d.application_id
+         JOIN environments e ON e.id = a.environment_id
+         JOIN projects p ON p.id = e.project_id
+         WHERE p.organization_id = ?1",
+    )
+    .bind(organization_id)
+    .fetch_all(&crate::git::repositories::db::get_conn(state).await)
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, status, error)| (id, (status, error)))
+        .collect())
+}
+
+/// Every domain in the organization, each with the application it fronts.
+async fn all_domains(state: &SharedState, organization_id: &str) -> ToolOutcome {
+    let everything = match catalog(state, organization_id).await {
+        Ok(everything) => everything,
+        Err(error) => return ToolOutcome::failure(error),
+    };
+    let mut out = Vec::new();
+    for (summary, app) in &everything {
+        let domains = match deployment::domains::list(state, &app.id).await {
+            Ok(domains) => domains,
+            Err(error) => return ToolOutcome::failure(error.to_string()),
+        };
+        out.extend(domains.into_iter().map(|domain| {
+            json!({
+                "id": domain.id,
+                "host": domain.host,
+                "url": domain.url,
+                "application": app.name,
+                "project": summary.name,
+                "is_primary": domain.is_primary,
+                "route_health": domain.route_health,
+            })
+        }));
+    }
+    ToolOutcome::data(json!({ "domains": out }))
 }
 
 /// Live container state, asked of the runtime rather than of the database.
@@ -1938,6 +2339,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn without_a_project_every_application_comes_back_with_its_status() {
+        let (state, path) = crate::testing::test_state().await;
+        let (_, _, mine) = crate::testing::seed_application(&state, "organization-a").await;
+        crate::testing::seed_application(&state, "organization-b").await;
+        sqlx::query(
+            "INSERT INTO application_deployments (application_id, status, container_name, hostname, updated_at) \
+             VALUES (?1, 'stopped', 'c', 'h', 0)",
+        )
+        .bind(&mine)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        for resource in ["applications", "domains"] {
+            let outcome = run(
+                &state,
+                "organization-a",
+                "conversation",
+                &crate::testing::auth_user("editor"),
+                GET,
+                &json!({ "resource": resource }).to_string(),
+            )
+            .await;
+            assert!(!outcome.result.starts_with("{\"error\""), "{}", outcome.result);
+            assert!(
+                !outcome.result.contains("organization-b"),
+                "{}",
+                outcome.result
+            );
+            if resource == "applications" {
+                let value: serde_json::Value = serde_json::from_str(&outcome.result).unwrap();
+                assert_eq!(value["applications"][0]["id"], mine.as_str());
+                assert_eq!(value["applications"][0]["status"], "stopped");
+            }
+        }
+
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
     async fn another_organization_is_not_reachable_even_by_exact_id() {
         // Every read resolves against `catalog`, which is scoped to the caller's
         // organization. A foreign id therefore matches nothing rather than
@@ -1984,6 +2425,20 @@ mod tests {
         assert!(!ours.result.contains("\"error\""), "{}", ours.result);
 
         crate::testing::cleanup_database(&path);
+    }
+
+    #[test]
+    fn template_variables_say_what_the_user_has_to_write() {
+        let variables = template_variables(
+            "# Web port\nPORT=3001\n\n# SMTP host. Required for invites.\nSMTP_HOST=\nSECRET={{password_32}}\n",
+        );
+        assert_eq!(variables[0]["kind"], "default");
+        assert_eq!(variables[0]["default"], "3001");
+        assert_eq!(variables[1]["kind"], "empty");
+        assert_eq!(variables[1]["hint"], "SMTP host. Required for invites.");
+        assert_eq!(variables[2]["kind"], "generated");
+        assert!(variables[2]["default"].is_null(), "a secret marker is not a value");
+        assert!(variables[2]["hint"].is_null());
     }
 
     #[test]

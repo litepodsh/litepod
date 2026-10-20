@@ -35,6 +35,20 @@ pub const UPDATE_DOMAIN: &str = "update_domain";
 
 pub const DELETE_DOMAIN: &str = "delete_domain";
 
+pub const DEPLOY_STATIC_SITE: &str = "deploy_static_site";
+
+pub const CREATE_FROM_TEMPLATE: &str = "create_from_template";
+
+/// Litepod's own database templates. Anything else is a catalog template id.
+pub const INTERNAL_TEMPLATES: &[&str] = &[
+    "postgres",
+    "mariadb",
+    "mongodb",
+    "dragonflydb",
+    "keydb",
+    "sqlserver",
+];
+
 /// The branch a repository is assumed to deploy from when nobody says
 /// otherwise. Named here rather than left to the model, so a forgotten field
 /// cannot become a deploy from whatever branch it invented.
@@ -183,6 +197,54 @@ pub struct DomainFields {
     pub reason: Option<String>,
 }
 
+/// Validated arguments for [`DEPLOY_STATIC_SITE`]: a project (existing or
+/// new), a static application in it, the site uploaded to the action's own URL,
+/// a deploy, and optionally a domain. One card, so one confirmation.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StaticSite {
+    /// Created on confirm when the project does not exist yet.
+    pub project_name: String,
+    pub name: String,
+    #[serde(default)]
+    pub server_id: String,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub https: Option<bool>,
+    /// SHA-256 of the upload token: the token itself is only ever handed to the
+    /// agent that proposed this, never stored.
+    #[serde(default)]
+    pub upload_token_hash: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// Validated arguments for [`CREATE_FROM_TEMPLATE`]: a project (existing or
+/// new), an application from an internal or catalog template, the variable
+/// values the user gave, an optional domain, and a deploy. One card.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FromTemplate {
+    pub project_name: String,
+    pub template: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub server_id: String,
+    /// Runtime variables the user wrote, by name. Only for catalog templates:
+    /// a database template generates its own credentials.
+    #[serde(default)]
+    pub values: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub https: Option<bool>,
+    /// The template's primary container port, resolved when proposed.
+    #[serde(default)]
+    pub port: Option<i64>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// Where an action lives, resolved once so the confirm never re-derives it.
 #[derive(Debug, Clone)]
 pub struct ActionTarget {
@@ -223,7 +285,10 @@ impl ActionTarget {
             // The list, for all three: the panel navigates before it applies,
             // so a create has no page yet and a delete's page is about to stop
             // existing - and a rename is read on the list anyway.
-            CREATE_PROJECT | UPDATE_PROJECT | DELETE_PROJECT => "/projects".into(),
+            CREATE_PROJECT | UPDATE_PROJECT | DELETE_PROJECT | DEPLOY_STATIC_SITE
+            | CREATE_FROM_TEMPLATE => {
+                "/projects".into()
+            }
             // The application does not exist yet, so the environment it lands
             // in is the closest page there is.
             CREATE_APPLICATION => format!(

@@ -45,6 +45,17 @@ La mayoría de los PaaS autoalojados son una capa fina sobre Docker o una plataf
 - **Backups** — copias programadas a cualquier bucket compatible con S3.
 - **Equipos** — organizaciones, miembros y roles.
 
+## MCP
+
+Conecta tu propio agente (Claude, Cursor, …) a `/api/v1/organizations/{organization_id}/mcp`. Expone dos herramientas:
+
+- **`get`** lee. Todos los proyectos y aplicaciones de la organización con su estado (`running`, `stopped`, `failed`, …) en una sola llamada, o los de un proyecto; todos los dominios de la organización, o los de una aplicación; además nombres de variables de entorno (nunca valores), despliegues y sus logs, contenedores en vivo y sus logs, origen, archivo compose, servidores y proveedores Git; las plantillas internas de bases de datos y el catálogo, y de una plantilla sus puertos y las variables que el usuario debe completar.
+- **`exec`** cambia. `start` y `stop` se ejecutan al instante. Todo lo demás es una propuesta que una persona confirma en Litepod: definir o borrar variables de entorno, redesplegar, editar el compose o el origen, agregar, editar o borrar dominios, crear, renombrar o borrar proyectos y aplicaciones (vacías o Compose).
+  - **`deploy_static_site`** — una sola confirmación para un sitio estático completo: proyecto (existente o nuevo), aplicación, subida, despliegue y un dominio HTTPS opcional. El agente recibe una `upload_url` de un solo uso y sube el sitio (hasta 10 MB) con `curl -T site.zip <upload_url>`.
+  - **`create_from_template`** — una sola confirmación para una base de datos (`postgres`, `mariadb`, `mongodb`, `dragonflydb`, `keydb`, `sqlserver`) o una plantilla del catálogo como `uptime-kuma`: proyecto (existente o nuevo), los valores de variables que escribió el usuario, un dominio opcional y el despliegue.
+
+  Tras confirmar, el agente consulta `get applications` hasta ver el estado `running` y avisa.
+
 ## Capturas
 
 <table>

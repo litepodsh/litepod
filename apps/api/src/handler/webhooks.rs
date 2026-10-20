@@ -684,9 +684,70 @@ pub async fn deploy_hook_handler(
     ))
 }
 
+/// Where an MCP agent `curl -T`s the site of a pending `deploy_static_site`.
+/// The token in the path is the credential, as with the deploy hook.
+pub async fn assistant_upload_handler(
+    State(state): State<SharedState>,
+    Path((action_id, token)): Path<(String, String)>,
+    body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<impl IntoResponse, AppError> {
+    // The route's `DefaultBodyLimit` is what trips here; say so in plain words
+    // instead of axum's generic "length limit exceeded".
+    let body = body.map_err(|rejection| {
+        if rejection.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
+            AppError::ValidationError(
+                "The site is larger than 10 MB, the upload limit. Remove large assets or host them elsewhere and upload again.".into(),
+            )
+        } else {
+            AppError::ValidationError(format!("Could not read the upload: {rejection}"))
+        }
+    })?;
+    if body.is_empty() {
+        return Err(AppError::ValidationError("The upload is empty".into()));
+    }
+    crate::assistant::actions::stage_upload(&state, &action_id, &token, &body).await?;
+    Ok(axum::Json(serde_json::json!({
+        "uploaded": true,
+        "bytes": body.len(),
+        "next": "Ask the user to confirm the proposal in Litepod.",
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn an_oversized_site_is_refused_with_the_limit_in_words() {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+
+        let (state, path) = crate::testing::test_state().await;
+        let router = axum::Router::new()
+            .route(
+                "/uploads/{action_id}/{token}",
+                axum::routing::put(assistant_upload_handler)
+                    .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)),
+            )
+            .with_state(state);
+        let response = router
+            .oneshot(
+                Request::put("/uploads/action/token")
+                    .body(Body::from(vec![0u8; 10 * 1024 * 1024 + 1]))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&body).contains("larger than 10 MB"),
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        crate::testing::cleanup_database(&path);
+    }
 
     #[test]
     fn watch_paths_matches_touched_prefix() {

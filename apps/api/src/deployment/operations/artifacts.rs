@@ -12,7 +12,7 @@ use crate::{
 use super::identity::*;
 use super::resources::*;
 
-pub(super) fn file_kind(filename: &str, bytes: &[u8]) -> Result<&'static str, AppError> {
+pub(crate) fn file_kind(filename: &str, bytes: &[u8]) -> Result<&'static str, AppError> {
     let zip = bytes.len() >= 4
         && bytes[0..2] == [0x50, 0x4b]
         && matches!(&bytes[2..4], [0x03, 0x04] | [0x05, 0x06] | [0x07, 0x08]);

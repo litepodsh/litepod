@@ -923,6 +923,138 @@ async fn a_compose_application_is_created_whole_or_not_at_all() {
     cleanup_database(&path);
 }
 
+#[tokio::test]
+async fn a_static_site_waits_for_its_upload_then_comes_up_whole() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let target = ActionTarget::project("organization-a", "", "");
+
+    let (action, token) = propose_static_site(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        StaticSite {
+            project_name: "landing".into(),
+            name: "site".into(),
+            server_id: "local".into(),
+            host: Some("site.example.com".into()),
+            ..StaticSite::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Confirming before the upload creates nothing and leaves it pending.
+    assert!(confirm(&state, "organization-a", &actor, &action.id).await.is_err());
+    sqlx::query("UPDATE assistant_actions SET status = 'pending', failure = NULL WHERE id = ?1")
+        .bind(&action.id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let projects = crate::cqrs::queries::project::list_projects(&state, "organization-a")
+        .await
+        .unwrap();
+    assert!(!projects.iter().any(|project| project.name == "landing"));
+
+    let html = b"<!DOCTYPE html><html><body>hi</body></html>";
+    assert!(
+        super::stage_upload(&state, &action.id, "wrong-token", html)
+            .await
+            .is_err()
+    );
+    super::stage_upload(&state, &action.id, &token, html)
+        .await
+        .unwrap();
+
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    let project = crate::cqrs::queries::project::list_projects(&state, "organization-a")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|project| project.name == "landing")
+        .expect("the project was created");
+    let detail = crate::cqrs::queries::project::get_project(&state, "organization-a", &project.id)
+        .await
+        .unwrap();
+    let site = detail
+        .environments
+        .iter()
+        .flat_map(|environment| environment.applications.iter())
+        .find(|application| application.name == "site")
+        .expect("the application was created");
+    assert_eq!(
+        deployment::source::get(&state, &site.id).await.unwrap().deploy_type,
+        "static"
+    );
+    let domains = deployment::domains::list(&state, &site.id).await.unwrap();
+    assert_eq!(domains[0].host, "site.example.com");
+    assert_eq!(domains[0].port, STATIC_PORT);
+    // The token dies with the proposal.
+    assert!(
+        super::stage_upload(&state, &action.id, &token, html)
+            .await
+            .is_err()
+    );
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn a_database_template_lands_in_a_new_project_with_one_confirmation() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let target = ActionTarget::project("organization-a", "", "");
+    let arguments = FromTemplate {
+        project_name: "data".into(),
+        template: "postgres".into(),
+        name: Some("main-db".into()),
+        server_id: "local".into(),
+        ..FromTemplate::default()
+    };
+
+    // A database generates its own credentials: values are refused, not ignored.
+    let mut with_values = arguments.clone();
+    with_values.values.insert("POSTGRES_PASSWORD".into(), "x".into());
+    assert!(
+        propose_from_template(&state, &chat, &actor, &target, with_values)
+            .await
+            .is_err()
+    );
+
+    let (action, unset) = propose_from_template(&state, &chat, &actor, &target, arguments)
+        .await
+        .unwrap();
+    assert!(unset.is_empty());
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    let project = crate::cqrs::queries::project::list_projects(&state, "organization-a")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|project| project.name == "data")
+        .expect("the project was created");
+    let detail = crate::cqrs::queries::project::get_project(&state, "organization-a", &project.id)
+        .await
+        .unwrap();
+    let database = detail
+        .environments
+        .iter()
+        .flat_map(|environment| environment.applications.iter())
+        .find(|application| application.name == "main-db")
+        .expect("the database was created");
+    assert_eq!(database.template_kind.as_deref(), Some("postgres"));
+
+    cleanup_database(&path);
+}
+
 #[test]
 fn every_stored_proposal_is_an_allowed_action() {
     for tool in [
@@ -938,6 +1070,8 @@ fn every_stored_proposal_is_an_allowed_action() {
         ADD_DOMAIN,
         UPDATE_DOMAIN,
         DELETE_DOMAIN,
+        DEPLOY_STATIC_SITE,
+        CREATE_FROM_TEMPLATE,
         REDEPLOY_APPLICATION,
         START_APPLICATION,
         STOP_APPLICATION,

@@ -45,7 +45,7 @@ async fn context(
     Ok((project.name, environment.name))
 }
 
-fn public_host(state: &SharedState) -> String {
+pub(crate) fn public_host(state: &SharedState) -> String {
     let configured_host = Url::parse(&state.public_url)
         .ok()
         .and_then(|url| url.host_str().map(str::to_string))
