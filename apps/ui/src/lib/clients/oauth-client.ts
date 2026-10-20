@@ -4,6 +4,8 @@ export type ConsentInfo = {
 	client_name: string;
 	organization: { id: string; name: string };
 	redirect_host: string;
+	/** The code leaves the user's device for a hosted client. */
+	remote: boolean;
 };
 
 /** The parts of the original authorize query that consent must echo back. */

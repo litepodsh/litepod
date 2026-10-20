@@ -59,8 +59,6 @@ const HOSTED_REDIRECT_URIS: &[&str] = &[
     "https://claude.ai/api/mcp/auth_callback",
     "https://claude.com/api/mcp/auth_callback",
     "https://chatgpt.com/connector_platform_oauth_redirect",
-    "https://vscode.dev/redirect",
-    "https://insiders.vscode.dev/redirect",
 ];
 
 /// Hosted callbacks that end in a per-app id: the prefix plus one path segment.
@@ -169,15 +167,23 @@ async fn register_handler(
             "Between 1 and 10 redirect_uris are required",
         );
     }
-    if let Some(bad) = request
+    // Keep the acceptable ones (RFC 7591 §3.2.1 lets the server trim metadata):
+    // VS Code sends loopback alongside `https://vscode.dev/redirect`, which forwards
+    // wherever its `state` says and so is never trusted.
+    let redirect_uris: Vec<String> = request
         .redirect_uris
         .iter()
-        .find(|uri| !acceptable_redirect_uri(uri))
-    {
+        .filter(|uri| acceptable_redirect_uri(uri))
+        .cloned()
+        .collect();
+    if redirect_uris.is_empty() {
         return oauth_error(
             StatusCode::BAD_REQUEST,
             "invalid_redirect_uri",
-            &format!("Not an acceptable redirect URI: {bad}"),
+            &format!(
+                "Not an acceptable redirect URI: {}",
+                request.redirect_uris[0]
+            ),
         );
     }
     let name: String = request

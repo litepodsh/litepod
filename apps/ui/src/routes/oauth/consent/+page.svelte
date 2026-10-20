@@ -18,6 +18,7 @@
 	let clientName = $state('');
 	let organizationName = $state('');
 	let redirectHost = $state('');
+	let remote = $state(false);
 	let loading = $state(true);
 	let submitting = $state(false);
 	let error = $state('');
@@ -35,6 +36,7 @@
 			clientName = info.client_name;
 			organizationName = info.organization.name;
 			redirectHost = info.redirect_host;
+			remote = info.remote;
 		} catch (err) {
 			error = err instanceof Error ? err.message : t('organizations.oauth.error');
 		} finally {
@@ -90,6 +92,11 @@
 				<p class="text-muted-foreground text-center text-xs">
 					{t('organizations.oauth.redirect_note', { host: redirectHost })}
 				</p>
+				{#if remote}
+					<p class="text-destructive text-balance text-center text-sm font-medium" role="alert">
+						{t('organizations.oauth.remote_warning', { host: redirectHost })}
+					</p>
+				{/if}
 				<div class="mt-2 flex gap-3">
 					<Button
 						variant="outline"
