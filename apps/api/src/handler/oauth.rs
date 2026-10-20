@@ -54,10 +54,33 @@ fn oauth_error(status: StatusCode, error: &str, description: &str) -> Response {
         .into_response()
 }
 
+/// Hosted MCP clients whose callback is a fixed, known URL. Matched exactly.
+const HOSTED_REDIRECT_URIS: &[&str] = &[
+    "https://claude.ai/api/mcp/auth_callback",
+    "https://claude.com/api/mcp/auth_callback",
+    "https://chatgpt.com/connector_platform_oauth_redirect",
+    "https://vscode.dev/redirect",
+    "https://insiders.vscode.dev/redirect",
+];
+
+/// Hosted callbacks that end in a per-app id: the prefix plus one path segment.
+const HOSTED_REDIRECT_PREFIXES: &[&str] = &["https://chatgpt.com/connector/oauth/"];
+
+fn hosted_redirect_uri(value: &str) -> bool {
+    HOSTED_REDIRECT_URIS.contains(&value)
+        || HOSTED_REDIRECT_PREFIXES.iter().any(|prefix| {
+            value.strip_prefix(prefix).is_some_and(|id| {
+                !id.is_empty()
+                    && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            })
+        })
+}
+
 /// `http` on loopback (RFC 8252 native apps) or a private scheme such as
-/// `cursor://`: a code sent there stays on the user's device. Never `https`
-/// yet: anyone can register, so a remote redirect would hand a code to
-/// whoever got the user to approve it. Never a scheme a browser would run or read.
+/// `cursor://`: a code sent there stays on the user's device. `https` only for
+/// the exact hosted callbacks above: anyone can register, so any other remote
+/// redirect would hand a code to whoever got the user to approve it. Never a
+/// scheme a browser would run or read.
 fn acceptable_redirect_uri(value: &str) -> bool {
     let Ok(url) = Url::parse(value) else {
         return false;
@@ -66,8 +89,8 @@ fn acceptable_redirect_uri(value: &str) -> bool {
         return false;
     }
     match url.scheme() {
-        // shortcut: no remote redirects at all; claude.ai/ChatGPT need a per-org allowlist first.
-        "https" => false,
+        // shortcut: only a fixed list of hosted clients; any other needs a per-org allowlist.
+        "https" => hosted_redirect_uri(value),
         "http" => matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")),
         "javascript" | "data" | "file" | "vbscript" | "blob" | "about" | "ws" | "wss" => false,
         _ => true,
@@ -832,7 +855,7 @@ mod tests {
             "POST",
             "/oauth/register",
             None,
-            json!({ "redirect_uris": ["http://localhost:9000/cb", "http://127.0.0.1:33418/callback", "cursor://anysphere.cursor-mcp/oauth/callback"] }),
+            json!({ "redirect_uris": ["http://localhost:9000/cb", "http://127.0.0.1:33418/callback", "cursor://anysphere.cursor-mcp/oauth/callback", "https://claude.ai/api/mcp/auth_callback", "https://chatgpt.com/connector/oauth/abc_123", "https://vscode.dev/redirect"] }),
         )
         .await;
         assert_eq!(status, StatusCode::CREATED, "{client}");
@@ -847,7 +870,11 @@ mod tests {
         let app = app(state);
         for uri in [
             "https://evil.test/cb",
-            "https://claude.ai/api/mcp/auth_callback",
+            "https://claude.ai/api/mcp/auth_callback/x",
+            "https://claude.ai/api/mcp/auth_callback?x=1",
+            "https://chatgpt.com/connector/oauth/",
+            "https://chatgpt.com/connector/oauth/a/../../evil",
+            "https://chatgpt.com/connector/oauth/a?next=https://evil.test",
             "http://evil.test/cb",
             "javascript:alert(1)",
             "https://ok.test/cb#frag",
