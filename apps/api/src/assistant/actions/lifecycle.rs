@@ -315,10 +315,14 @@ pub async fn confirm(
     settle(state, actor, action_id, "applied", None).await?;
     note(state, &stored, "confirmed and applied").await;
 
+    // An MCP proposal lives in its token's conversation (`mcp::session`), so the
+    // title names the agent that asked; the person confirming is still the actor.
+    let proposed_via = mcp_agent(state, &stored.conversation_id).await;
     let metadata = serde_json::json!({
         "action_id": action_id,
         "tool": stored.tool,
-        "source": "assistant",
+        "source": if proposed_via.is_some() { "mcp" } else { "assistant" },
+        "proposed_via": proposed_via,
     })
     .to_string();
     // A project-scoped action has no application to name, so the audit entry
@@ -347,4 +351,18 @@ pub async fn confirm(
         removed: applied.removed,
         ..dto(&stored, "applied", applied.added)
     })
+}
+
+/// The token behind an MCP conversation, e.g. `MCP · Claude`; `None` for an in-app chat.
+async fn mcp_agent(state: &SharedState, conversation_id: &str) -> Option<String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let title: String =
+        sqlx::query_scalar("SELECT title FROM assistant_conversations WHERE id = ?1")
+            .bind(conversation_id)
+            .fetch_optional(&conn)
+            .await
+            .ok()??;
+    title
+        .strip_prefix(crate::mcp::session::TITLE_PREFIX)
+        .map(str::to_owned)
 }

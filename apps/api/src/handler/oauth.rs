@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use url::Url;
 
-use crate::dtos::response::AppError;
+use crate::dtos::response::{AppError, ok};
 use crate::git::repositories::oauth as repo;
 use crate::handler::common::require_session_auth;
 use crate::security::authz::extract::{RequireOrg, perm};
@@ -365,7 +365,7 @@ async fn read_consent_handler(
                 .unwrap_or_else(|| url.scheme().to_owned())
         })
         .unwrap_or_default();
-    Ok(Json(json!({
+    Ok(ok(json!({
         "client_name": client.name,
         "organization": { "id": organization.id, "name": organization.name },
         "redirect_host": redirect_host,
@@ -445,6 +445,27 @@ async fn consent_handler(
             Some(&client.name),
         )
         .await;
+        // The organization's own trail: which agent was let in, and by whom.
+        // `client.name` is self-declared at registration; the redirect host is not.
+        let metadata = json!({
+            "source": "mcp",
+            "redirect_host": Url::parse(redirect_uri).ok().and_then(|url| url.host_str().map(str::to_owned)),
+        })
+        .to_string();
+        let _ = crate::git::repositories::audit_log::record(
+            &state,
+            &org.organization_id,
+            &user,
+            "mcp.connected",
+            Some("oauth_client"),
+            Some(&client.id),
+            Some(&client.name),
+            Some(&metadata),
+            None,
+            None,
+            None,
+        )
+        .await;
         with_query(redirect_uri, &[("code", &code), ("state", client_state)])
     } else {
         with_query(
@@ -452,7 +473,7 @@ async fn consent_handler(
             &[("error", "access_denied"), ("state", client_state)],
         )
     };
-    Ok(Json(json!({ "redirect_to": redirect_to })).into_response())
+    Ok(ok(json!({ "redirect_to": redirect_to })).into_response())
 }
 
 /// GET /.well-known/oauth-protected-resource/api/v1/organizations/{id}/mcp (RFC 9728)
@@ -850,7 +871,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        let redirect = Url::parse(body["redirect_to"].as_str().unwrap()).unwrap();
+        let redirect = Url::parse(body["data"]["redirect_to"].as_str().unwrap()).unwrap();
         let code = redirect
             .query_pairs()
             .find(|(key, _)| key == "code")
@@ -1018,10 +1039,10 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{shown}");
-        assert_eq!(shown["client_name"], "Claude Code");
-        assert_eq!(shown["organization"]["id"], "organization-a");
-        assert_eq!(shown["redirect_host"], "127.0.0.1");
-        assert_eq!(shown["remote"], false);
+        assert_eq!(shown["data"]["client_name"], "Claude Code");
+        assert_eq!(shown["data"]["organization"]["id"], "organization-a");
+        assert_eq!(shown["data"]["redirect_host"], "127.0.0.1");
+        assert_eq!(shown["data"]["remote"], false);
 
         let (status, body) = send_json(
             &app,
@@ -1032,7 +1053,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        let redirect_to = body["redirect_to"].as_str().unwrap();
+        let redirect_to = body["data"]["redirect_to"].as_str().unwrap();
         assert!(
             redirect_to.starts_with(&format!("{REDIRECT}?code=")),
             "{redirect_to}"
@@ -1048,7 +1069,7 @@ mod tests {
         )
         .await;
         assert_eq!(
-            denied["redirect_to"],
+            denied["data"]["redirect_to"],
             format!("{REDIRECT}?error=access_denied&state=xyz")
         );
         cleanup_database(&path);

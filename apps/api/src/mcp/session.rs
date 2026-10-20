@@ -12,12 +12,18 @@ use crate::{
     dtos::response::AppError, security::middleware::auth::AuthUser, state::state::SharedState,
 };
 
+/// Also how `assistant::actions` tells an MCP proposal from an in-app one.
+pub const TITLE_PREFIX: &str = "MCP · ";
+
 pub async fn conversation_for(
     state: &SharedState,
     organization_id: &str,
     actor: &AuthUser,
 ) -> Result<String, AppError> {
-    let title = format!("MCP · {}", actor.token_name.as_deref().unwrap_or("session"));
+    let title = format!(
+        "{TITLE_PREFIX}{}",
+        actor.token_name.as_deref().unwrap_or("session")
+    );
     let conn = crate::git::repositories::db::get_conn(state).await;
 
     let found: Option<String> = sqlx::query_scalar(
