@@ -51,6 +51,9 @@ fn normalize_origin(origin: &str) -> String {
 /// authenticated by their own signature/shared-secret/single-use token
 /// instead, so the CSRF origin check doesn't apply to them.
 const ORIGIN_GUARD_EXEMPT_PREFIXES: &[&str] = &[
+    // OAuth register and token (`handler::oauth`): called by an MCP client with
+    // no browser Origin; trust comes from PKCE and a single-use code, never a cookie.
+    "/oauth/",
     "/api/v1/webhooks/polar",
     "/api/v1/webhooks/git/",
     "/deploy/",
@@ -68,22 +71,23 @@ const ORIGIN_GUARD_EXEMPT_PREFIXES: &[&str] = &[
 /// The MCP endpoint (`handler::mcp`), called by the user's own agent with no
 /// browser Origin.
 fn is_mcp_path(path: &str) -> bool {
-    path.strip_prefix("/api/v1/organizations/")
-        .and_then(|rest| rest.strip_suffix("/mcp"))
-        .is_some_and(|organization| !organization.is_empty() && !organization.contains('/'))
+    mcp_path_organization(path).is_some()
 }
 
-/// Authenticated by a bearer token and nothing else. A forged cross-site
-/// request cannot carry one: a browser only attaches `Authorization` to a
-/// cross-origin request after a CORS preflight, which `cors_allowed_origins`
-/// restricts. A session cookie alongside it disqualifies the request, because
-/// `auth_middleware` would authenticate the cookie, not the token.
-fn bearer_only(request: &Request) -> bool {
+/// The organization id in an MCP endpoint path, `None` for any other path.
+pub(crate) fn mcp_path_organization(path: &str) -> Option<&str> {
+    path.strip_prefix("/api/v1/organizations/")
+        .and_then(|rest| rest.strip_suffix("/mcp"))
+        .filter(|organization| !organization.is_empty() && !organization.contains('/'))
+}
+
+/// No session cookie, so nothing a forged cross-site request could ride on:
+/// `auth_middleware` then authenticates the bearer token or answers 401, and
+/// that 401 is how an MCP client discovers OAuth (`handler::oauth`). A browser
+/// only attaches `Authorization` cross-origin after a CORS preflight, which
+/// `cors_allowed_origins` restricts.
+fn without_session(request: &Request) -> bool {
     let headers = request.headers();
-    let bearer = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.starts_with("Bearer "));
     let session_cookie = headers
         .get_all(axum::http::header::COOKIE)
         .iter()
@@ -93,7 +97,7 @@ fn bearer_only(request: &Request) -> bool {
                 .split(';')
                 .any(|cookie| cookie.trim_start().starts_with("session_token="))
         });
-    bearer && !session_cookie
+    !session_cookie
 }
 
 pub async fn origin_guard(
@@ -115,7 +119,7 @@ pub async fn origin_guard(
     {
         return Ok(next.run(request).await);
     }
-    if is_mcp_path(path) && bearer_only(&request) {
+    if is_mcp_path(path) && without_session(&request) {
         return Ok(next.run(request).await);
     }
 
@@ -261,10 +265,11 @@ mod tests {
         crate::testing::cleanup_database(&path);
     }
 
-    /// An MCP client sends a token and no Origin; it must get through. The same
-    /// request carrying a session cookie, or aimed at any other route, must not.
+    /// An MCP client sends a token, or nothing yet, and no Origin; it must get
+    /// through. The same request carrying a session cookie, or aimed at any
+    /// other route, must not.
     #[tokio::test]
-    async fn mcp_with_a_bearer_token_only_is_exempt() {
+    async fn mcp_without_a_session_is_exempt() {
         use axum::{Router, body::Body, routing::post};
         use tower::ServiceExt;
         let (state, path) = crate::testing::test_state().await;
@@ -298,7 +303,8 @@ mod tests {
         let mcp = "/api/v1/organizations/org/mcp";
         assert_eq!(status(mcp, true, false).await, StatusCode::OK);
         assert_eq!(status(mcp, true, true).await, StatusCode::FORBIDDEN);
-        assert_eq!(status(mcp, false, false).await, StatusCode::FORBIDDEN);
+        assert_eq!(status(mcp, false, false).await, StatusCode::OK);
+        assert_eq!(status(mcp, false, true).await, StatusCode::FORBIDDEN);
         assert_eq!(
             status("/api/v1/organizations/org/projects", true, false).await,
             StatusCode::FORBIDDEN

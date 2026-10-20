@@ -33,3 +33,4 @@ apps/api/target/
 /apps/api/compose
 /.claude
 /.agents
+skills-lock.json

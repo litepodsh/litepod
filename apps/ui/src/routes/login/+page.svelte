@@ -85,6 +85,16 @@
 		}
 	});
 
+	/** Where a successful login lands: the `next` path the 401 redirect sent, or home. */
+	function afterLogin() {
+		const next = page.url.searchParams.get('next');
+		if (next && next.startsWith('/') && !next.startsWith('//')) {
+			goto(next);
+		} else {
+			goto('/home');
+		}
+	}
+
 	async function handleSubmit(e: SubmitEvent) {
 		e.preventDefault();
 		if (loading) return;
@@ -118,7 +128,7 @@
 				error = '';
 				return;
 			}
-			goto('/home');
+			afterLogin();
 		} catch (err) {
 			error = err instanceof Error ? err.message : t('auth.login.invalid_credentials');
 			if (err instanceof ApiError && err.captchaRequired) {
@@ -138,7 +148,7 @@
 		loading = true;
 		try {
 			await completeTotpLogin(totpChallenge, totpCode.trim());
-			goto('/home');
+			afterLogin();
 		} catch (err) {
 			error = err instanceof Error ? err.message : t('auth.login.invalid_code');
 			totpCode = '';

@@ -135,6 +135,7 @@ pub async fn create_token_handler(
         &token_prefix,
         &scopes_json,
         expires_at.as_deref(),
+        None,
     )
     .await
     .map_err(AppError::DatabaseError)?;

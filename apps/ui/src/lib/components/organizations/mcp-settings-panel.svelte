@@ -29,8 +29,23 @@
 			API_URL || window.location.origin,
 		).toString(),
 	);
-	const snippet = $derived(
-		`claude mcp add --transport http litepod ${endpoint} --header "Authorization: Bearer <token>"`,
+	// `-s user` so the server is there in every folder, not only the one it was added from.
+	// OAuth-first: pasting the endpoint opens Litepod to sign in; no token.
+	const claudeCode = $derived(`claude mcp add -s user --transport http litepod ${endpoint}`);
+	const desktop = $derived(
+		JSON.stringify(
+			{
+				mcpServers: {
+					litepod: {
+						command: 'npx',
+						args: ['-y', 'mcp-remote', endpoint, '--header', 'Authorization:${LITEPOD_AUTH}'],
+						env: { LITEPOD_AUTH: 'Bearer <token>' },
+					},
+				},
+			},
+			null,
+			2,
+		),
 	);
 
 	async function toggle(checked: boolean) {
@@ -68,17 +83,43 @@
 		<div class="lp-raised bg-card flex flex-col gap-3 rounded-2xl border p-4">
 			<div class="min-w-0">
 				<p class="text-sm font-medium">{t('organizations.mcp.endpoint')}</p>
-				<CopyButton
-					value={endpoint}
-					revealOnHover={false}
-					class="mt-1 font-mono text-xs break-all" />
+				<p class="text-muted-foreground mt-0.5 text-xs">{t('organizations.mcp.endpoint_hint')}</p>
+				<div class="lp-well relative mt-1.5 rounded-lg bg-muted/60 p-3 pr-10">
+					<code class="block font-mono text-xs leading-relaxed break-all">{endpoint}</code>
+					<CopyButton
+						value={endpoint}
+						label={null}
+						revealOnHover={false}
+						class="absolute top-1.5 right-1.5 size-7 justify-center rounded-md text-muted-foreground hover:bg-card hover:text-foreground" />
+				</div>
 			</div>
 			<div class="min-w-0">
 				<p class="text-sm font-medium">{t('organizations.mcp.snippet')}</p>
-				<CopyButton
-					value={snippet}
-					revealOnHover={false}
-					class="mt-1 font-mono text-xs break-all" />
+				<p class="text-muted-foreground mt-0.5 text-xs">{t('organizations.mcp.snippet_hint')}</p>
+				<div class="lp-well relative mt-1.5 rounded-lg bg-muted/60 p-3 pr-10">
+					<code class="block font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{claudeCode}</code>
+					<CopyButton
+						value={claudeCode}
+						label={null}
+						revealOnHover={false}
+						class="absolute top-1.5 right-1.5 size-7 justify-center rounded-md text-muted-foreground hover:bg-card hover:text-foreground" />
+				</div>
+			</div>
+			<p class="text-muted-foreground text-sm">{t('organizations.mcp.chatgpt_hint')}</p>
+			<div class="mt-2">
+				<p class="text-sm font-medium text-muted-foreground">{t('organizations.mcp.without_oauth')}</p>
+			</div>
+			<div class="min-w-0">
+				<p class="text-sm font-medium">{t('organizations.mcp.desktop')}</p>
+				<p class="text-muted-foreground mt-0.5 text-xs">{t('organizations.mcp.desktop_hint')}</p>
+				<div class="lp-well relative mt-1.5 rounded-lg bg-muted/60 p-3 pr-10">
+					<code class="block font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{desktop}</code>
+					<CopyButton
+						value={desktop}
+						label={null}
+						revealOnHover={false}
+						class="absolute top-1.5 right-1.5 size-7 justify-center rounded-md text-muted-foreground hover:bg-card hover:text-foreground" />
+				</div>
 			</div>
 			<p class="text-muted-foreground text-sm">
 				{t('organizations.mcp.token_hint')}

@@ -93,6 +93,14 @@ pub async fn auth_middleware(
             }
         }
 
+        // An OAuth access token is not an API key: off its MCP route it is no token at all.
+        if let Some(organization) = &token_row.mcp_organization_id
+            && crate::security::middleware::csrf::mcp_path_organization(request.uri().path())
+                != Some(organization.as_str())
+        {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+
         let user_row = user::get_user_by_id_result(&state, &token_row.user_id)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
@@ -157,6 +165,8 @@ mod tests {
         }
         Router::new()
             .route("/probe", get(whoami))
+            .route("/api/v1/organizations/{organization_id}/mcp", get(whoami))
+            .route("/api/v1/account/tokens", get(whoami))
             .layer(middleware::from_fn_with_state(
                 state.clone(),
                 auth_middleware,
@@ -165,8 +175,12 @@ mod tests {
     }
 
     fn bearer_request(token: &str) -> Request<Body> {
+        bearer_request_to("/probe", token)
+    }
+
+    fn bearer_request_to(uri: &str, token: &str) -> Request<Body> {
         Request::builder()
-            .uri("/probe")
+            .uri(uri)
             .header(header::AUTHORIZATION, format!("Bearer {token}"))
             .body(Body::empty())
             .unwrap()
@@ -184,6 +198,7 @@ mod tests {
             &token,
             "lp_abc",
             "[\"read\"]",
+            None,
             None,
         )
         .await
@@ -226,6 +241,7 @@ mod tests {
             "lp_abc",
             "[\"read\"]",
             Some("2000-01-01 00:00:00"),
+            None,
         )
         .await
         .unwrap();
@@ -242,6 +258,42 @@ mod tests {
                 .is_none(),
             "an expired token should be revoked on use, same as an expired session"
         );
+
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn an_mcp_pinned_token_is_refused_off_its_route() {
+        let (state, path) = test_state().await;
+        let token = generate_token();
+        personal_access_token::create(
+            &state,
+            "token-1",
+            "editor",
+            "MCP · Claude",
+            &token,
+            "lp_abc",
+            "[\"write\"]",
+            None,
+            Some("organization-a"),
+        )
+        .await
+        .unwrap();
+
+        for (uri, expected) in [
+            ("/api/v1/organizations/organization-a/mcp", StatusCode::OK),
+            (
+                "/api/v1/organizations/organization-b/mcp",
+                StatusCode::UNAUTHORIZED,
+            ),
+            ("/api/v1/account/tokens", StatusCode::UNAUTHORIZED),
+        ] {
+            let response = probe_router(state.clone())
+                .oneshot(bearer_request_to(uri, &token))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected, "{uri}");
+        }
 
         cleanup_database(&path);
     }
