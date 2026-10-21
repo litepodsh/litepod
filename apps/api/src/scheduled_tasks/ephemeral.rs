@@ -15,6 +15,38 @@ pub struct EphemeralStore {
     client: Option<redis::Client>,
 }
 
+/// Most keys walked for the per-prefix breakdown; keeps the debug read cheap on a busy store.
+const DEBUG_SCAN_LIMIT: usize = 10_000;
+
+/// Read-only report for the debug page: server counters from `INFO` plus key counts grouped by
+/// prefix. Never returns key values.
+#[derive(Debug, Serialize)]
+pub struct DebugStats {
+    pub version: Option<String>,
+    pub uptime_secs: Option<u64>,
+    pub used_memory_bytes: Option<u64>,
+    pub peak_memory_bytes: Option<u64>,
+    /// 0 means no limit was configured.
+    pub max_memory_bytes: Option<u64>,
+    pub connected_clients: Option<u64>,
+    pub total_commands: Option<u64>,
+    pub keyspace_hits: Option<u64>,
+    pub keyspace_misses: Option<u64>,
+    pub expired_keys: Option<u64>,
+    pub evicted_keys: Option<u64>,
+    pub key_count: u64,
+    /// Second segment of `litepod:<group>:...` keys (whole key otherwise), largest first.
+    pub prefixes: Vec<KeyPrefix>,
+    /// True when the scan stopped at `DEBUG_SCAN_LIMIT` keys, so `prefixes` is partial.
+    pub prefixes_truncated: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct KeyPrefix {
+    pub name: String,
+    pub keys: u64,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TokenBucketResult {
     pub allowed: bool,
@@ -234,5 +266,100 @@ impl EphemeralStore {
             remaining: values[1].max(0) as u32,
             retry_after_secs: values[2].max(0) as u64,
         })
+    }
+
+    pub async fn debug_stats(&self) -> Result<DebugStats, String> {
+        let mut connection = self.connection().await?;
+        let info: String = redis::cmd("INFO")
+            .query_async(&mut connection)
+            .await
+            .map_err(|error| error.to_string())?;
+        let key_count: u64 = redis::cmd("DBSIZE")
+            .query_async(&mut connection)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let mut counts = std::collections::HashMap::<String, u64>::new();
+        let mut scanned = 0usize;
+        let mut cursor = 0u64;
+        loop {
+            let (next, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("COUNT")
+                .arg(500)
+                .query_async(&mut connection)
+                .await
+                .map_err(|error| error.to_string())?;
+            scanned += keys.len();
+            for key in keys {
+                *counts.entry(key_prefix(&key)).or_default() += 1;
+            }
+            cursor = next;
+            if cursor == 0 || scanned >= DEBUG_SCAN_LIMIT {
+                break;
+            }
+        }
+        let mut prefixes: Vec<KeyPrefix> = counts
+            .into_iter()
+            .map(|(name, keys)| KeyPrefix { name, keys })
+            .collect();
+        prefixes.sort_by(|a, b| b.keys.cmp(&a.keys).then_with(|| a.name.cmp(&b.name)));
+
+        let field = |name: &str| info_field(&info, name);
+        let number = |name: &str| field(name).and_then(|value| value.parse::<u64>().ok());
+        Ok(DebugStats {
+            version: field("dragonfly_version").or_else(|| field("redis_version")),
+            uptime_secs: number("uptime_in_seconds"),
+            used_memory_bytes: number("used_memory"),
+            peak_memory_bytes: number("used_memory_peak"),
+            max_memory_bytes: number("maxmemory"),
+            connected_clients: number("connected_clients"),
+            total_commands: number("total_commands_processed"),
+            keyspace_hits: number("keyspace_hits"),
+            keyspace_misses: number("keyspace_misses"),
+            expired_keys: number("expired_keys"),
+            evicted_keys: number("evicted_keys"),
+            key_count,
+            prefixes,
+            prefixes_truncated: cursor != 0,
+        })
+    }
+}
+
+/// `INFO` is `name:value` lines grouped under `# Section` headers.
+fn info_field(info: &str, name: &str) -> Option<String> {
+    info.lines().find_map(|line| {
+        let (key, value) = line.trim_end().split_once(':')?;
+        (key == name).then(|| value.to_string())
+    })
+}
+
+/// Litepod keys look like `litepod:<group>:<id>...`; anything else is reported whole.
+fn key_prefix(key: &str) -> String {
+    let mut parts = key.splitn(3, ':');
+    match (parts.next(), parts.next()) {
+        (Some("litepod"), Some(group)) if !group.is_empty() => group.to_string(),
+        _ => key.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn info_field_reads_named_value() {
+        let info = "# Server\r\nredis_version:7.4.0\r\ndragonfly_version:df-v1.39.0\r\n# Memory\r\nused_memory:1024\r\n";
+        assert_eq!(info_field(info, "dragonfly_version").as_deref(), Some("df-v1.39.0"));
+        assert_eq!(info_field(info, "used_memory").as_deref(), Some("1024"));
+        assert_eq!(info_field(info, "used_memory_peak"), None);
+    }
+
+    #[test]
+    fn key_prefix_groups_litepod_keys() {
+        assert_eq!(key_prefix("litepod:rate-limit:global:1.2.3.4"), "rate-limit");
+        assert_eq!(key_prefix("litepod:login:1.2.3.4:failures"), "login");
+        assert_eq!(key_prefix("other"), "other");
+        assert_eq!(key_prefix("litepod:"), "litepod:");
     }
 }

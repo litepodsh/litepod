@@ -70,8 +70,9 @@ jobs:
           fi
           if [[ "${version}" == *-alpha.* ]]; then channel=alpha; else channel=stable; fi
           bash podx/scripts/validate-release-tag.sh "${channel}" "${version}"
-          caddy="$(sed -n 's/^readonly FALLBACK_CADDY_IMAGE_TAG="\(.*\)"/\1/p' scripts/install.sh)"
-          : "${caddy:?caddy pin missing in scripts/install.sh}"
+          # scripts/install.sh is a symlink into the web repo, absent in CI.
+          caddy="$(sed -n 's/.*docker\.io\/library\/caddy:\${CADDY_IMAGE_TAG:-\([^}]*\)}.*/\1/p' podman-compose-prod.yml)"
+          : "${caddy:?caddy pin missing in podman-compose-prod.yml}"
           [[ "${caddy}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ && "${caddy}" != latest ]] || {
             echo "invalid core service tag: ${caddy}" >&2; exit 1;
           }

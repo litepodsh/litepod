@@ -206,7 +206,7 @@
 				</Button>
 			{/if}
 
-			<UserMenu {user} organizationId={activeOrganization?.id ?? null} {systemVersion} />
+			<UserMenu {user} {systemVersion} />
 		</div>
 	</div>
 </header>

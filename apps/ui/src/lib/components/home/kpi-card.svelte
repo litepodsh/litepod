@@ -11,6 +11,7 @@
 		href,
 		icon: Icon,
 		ticks = [],
+		tickShape = 'bar',
 		children,
 		class: className = '',
 	}: {
@@ -22,6 +23,8 @@
 		href?: string;
 		icon?: Component;
 		ticks?: StatusTone[];
+		/** `bar`: tall thin ticks. `square`: small squares, for counts read one by one. */
+		tickShape?: 'bar' | 'square';
 		children?: Snippet;
 		class?: string;
 	} = $props();
@@ -50,9 +53,15 @@
 		{#if hint}<small class="truncate text-xs text-muted-foreground">{hint}</small>{/if}
 	</span>
 	{#if ticks.length}
-		<span class="flex h-[22px] gap-1 overflow-hidden" data-testid="kpi-ticks" aria-hidden="true">
+		<span
+			class="flex gap-1 overflow-hidden {tickShape === 'square' ? 'h-2.5' : 'h-[22px]'}"
+			data-testid="kpi-ticks"
+			aria-hidden="true">
 			{#each ticks as tone, index (index)}
-				<i class="h-full w-1 shrink-0 rounded-[2px] {toneDot(tone)}"></i>
+				<i
+					class="shrink-0 rounded-[2px] {tickShape === 'square'
+						? 'size-2.5'
+						: 'h-full w-1'} {toneDot(tone)}"></i>
 			{/each}
 		</span>
 	{/if}

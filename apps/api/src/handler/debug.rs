@@ -333,10 +333,17 @@ struct MetricsStorage {
 }
 
 #[derive(Serialize)]
+struct DragonflyStorage {
+    stats: Option<crate::scheduled_tasks::ephemeral::DebugStats>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
 struct StorageReport {
     #[serde(flatten)]
     sqlite: DatabaseStorage,
     metrics: MetricsStorage,
+    dragonfly: DragonflyStorage,
 }
 
 /// Read-only storage report for the litepod SQLite database. Never returns row contents:
@@ -345,9 +352,10 @@ async fn database_storage_handler(
     State(state): State<SharedState>,
 ) -> Result<impl IntoResponse, AppError> {
     let conn = crate::git::repositories::db::get_conn(&state).await;
-    let (sqlite, metrics) = tokio::join!(
+    let (sqlite, metrics, dragonfly) = tokio::join!(
         database_storage(&conn),
-        crate::metrics_history::debug_stats()
+        crate::metrics_history::debug_stats(),
+        state.ephemeral.debug_stats()
     );
     let metrics = match metrics {
         Ok(stats) => MetricsStorage {
@@ -359,7 +367,21 @@ async fn database_storage_handler(
             error: Some(error.to_string()),
         },
     };
-    Ok(ok(StorageReport { sqlite, metrics }))
+    let dragonfly = match dragonfly {
+        Ok(stats) => DragonflyStorage {
+            stats: Some(stats),
+            error: None,
+        },
+        Err(error) => DragonflyStorage {
+            stats: None,
+            error: Some(error),
+        },
+    };
+    Ok(ok(StorageReport {
+        sqlite,
+        metrics,
+        dragonfly,
+    }))
 }
 
 async fn database_storage(conn: &SqlitePool) -> DatabaseStorage {

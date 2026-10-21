@@ -360,7 +360,9 @@ _bump channel component version:
         rm -f "${file}.bak"
         echo "${file}: ${compose_key} -> ${version}"
     done
-    for file in scripts/install.sh; do
+    # scripts/install.sh is a symlink to the published copy in the web repo;
+    # edit its target so sed -i does not replace the link with a regular file.
+    for file in "$(realpath scripts/install.sh)"; do
         sed -i.bak -E "s|^(readonly ${fallback}=)\"[^\"]*\"|\\1\"${version}\"|" "$file"
         rm -f "${file}.bak"
         echo "${file}: ${fallback} -> ${version}"

@@ -7,6 +7,7 @@
 	import MemoryStickIcon from '@lucide/svelte/icons/memory-stick';
 	import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 	import DatabaseIcon from '@lucide/svelte/icons/database';
+	import ZapIcon from '@lucide/svelte/icons/zap';
 	import ChartLineIcon from '@lucide/svelte/icons/chart-line';
 	import ActivityIcon from '@lucide/svelte/icons/activity';
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
@@ -172,6 +173,51 @@
 			],
 		);
 		return facts;
+	});
+
+	const dragonflyStats = $derived(database?.dragonfly?.stats ?? null);
+	const dragonflyFacts = $derived.by((): [string, string][] => {
+		const stats = dragonflyStats;
+		if (!stats) return [];
+		const count = (value: number | null) =>
+			value === null ? '—' : value.toLocaleString(i18n.locale);
+		const lookups = (stats.keyspace_hits ?? 0) + (stats.keyspace_misses ?? 0);
+		const facts: [string, string | null][] = [
+			[t('operations.debug.version'), stats.version],
+			[
+				t('operations.debug.uptime'),
+				stats.uptime_secs === null ? null : formatDuration(stats.uptime_secs),
+			],
+			[t('common.home.dragonfly_keys'), count(stats.key_count)],
+			[t('common.home.dragonfly_memory'), formatBytes(stats.used_memory_bytes)],
+			[t('common.home.dragonfly_peak_memory'), formatBytes(stats.peak_memory_bytes)],
+			[
+				t('common.home.dragonfly_max_memory'),
+				stats.max_memory_bytes === 0
+					? t('common.home.dragonfly_no_limit')
+					: formatBytes(stats.max_memory_bytes),
+			],
+			[t('common.home.dragonfly_clients'), count(stats.connected_clients)],
+			[t('common.home.dragonfly_commands'), count(stats.total_commands)],
+			[
+				t('common.home.dragonfly_hit_rate'),
+				lookups === 0 ? '—' : `${(((stats.keyspace_hits ?? 0) / lookups) * 100).toFixed(1)}%`,
+			],
+			[t('common.home.dragonfly_expired'), count(stats.expired_keys)],
+			[t('common.home.dragonfly_evicted'), count(stats.evicted_keys)],
+		];
+		return facts.filter((fact): fact is [string, string] => Boolean(fact[1]));
+	});
+
+	/** Key counts per `litepod:<group>` prefix, relative to the largest group. */
+	const dragonflyPrefixBars = $derived.by(() => {
+		const prefixes = dragonflyStats?.prefixes ?? [];
+		const max = Math.max(1, ...prefixes.map((prefix) => prefix.keys));
+		return prefixes.map((prefix) => ({
+			name: prefix.name,
+			percent: (prefix.keys / max) * 100,
+			label: prefix.keys.toLocaleString(i18n.locale),
+		}));
 	});
 
 	/** Bytes when dbstat exists, otherwise row counts; bars are relative to the largest table. */
@@ -370,18 +416,29 @@
 	{#if database?.per_table_mode === 'rows'}
 		<p class="text-xs text-muted-foreground">{t('common.home.database_rows_mode')}</p>
 	{/if}
-	{@render tableList(tableBars)}
+	{@render tableList(tableBars, t('common.home.database_tables'))}
 {/snippet}
 
 {#snippet metricsTables()}
-	{@render tableList(metricsTableBars)}
+	{@render tableList(metricsTableBars, t('common.home.database_tables'))}
 {/snippet}
 
-{#snippet tableList(bars: { name: string; percent: number; label: string }[])}
+{#snippet dragonflyPrefixes()}
+	{@render tableList(dragonflyPrefixBars, t('common.home.dragonfly_prefixes'))}
+	{#if dragonflyStats?.prefixes_truncated}
+		<p class="text-xs text-muted-foreground">
+			{t('common.home.dragonfly_prefixes_truncated', {
+				count: (10_000).toLocaleString(i18n.locale),
+			})}
+		</p>
+	{/if}
+{/snippet}
+
+{#snippet tableList(bars: { name: string; percent: number; label: string }[], heading: string)}
 	{#if bars.length > 0}
 		<div class="flex flex-col gap-2">
 			<p class="font-mono text-[11px] tracking-[.04em] text-muted-foreground uppercase">
-				{t('common.home.database_tables')}
+				{heading}
 			</p>
 			<div class="flex max-h-80 flex-col gap-2 overflow-y-auto">
 				{#each bars as table (table.name)}
@@ -503,6 +560,14 @@
 						metricsFacts,
 						database.metrics?.error ?? null,
 						metricsTables,
+					)}
+					{@render statusCard(
+						ZapIcon,
+						'DragonflyDB',
+						dragonflyStats !== null,
+						dragonflyFacts,
+						database.dragonfly?.error ?? null,
+						dragonflyPrefixes,
 					)}
 				</div>
 			</div>

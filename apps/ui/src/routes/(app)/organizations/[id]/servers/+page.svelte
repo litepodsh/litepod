@@ -42,6 +42,7 @@
 	import ServerGroupDialog from '#lib/components/server-groups/server-group-dialog.svelte';
 	import ServerGroupMark from '#lib/components/server-groups/server-group-mark.svelte';
 	import BoxesIcon from '@lucide/svelte/icons/boxes';
+	import WaypointsIcon from '@lucide/svelte/icons/waypoints';
 	import type { ServerSummaryDto } from '#lib/clients/project-client.js';
 	import {
 		listServerGroups,
@@ -332,6 +333,22 @@
 					? t('organizations.servers.cloud_description')
 					: t('organizations.servers.description')}
 			</p>
+			<div class="mt-2 flex flex-wrap gap-2">
+				<Button
+					variant="outline"
+					size="sm"
+					href={`/organizations/${encodeURIComponent(organizationId)}/server-groups`}>
+					<BoxesIcon class="size-4" />
+					{t('menu.navigation.server_groups')}
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					href={`/organizations/${encodeURIComponent(organizationId)}/topology`}>
+					<WaypointsIcon class="size-4" />
+					{t('menu.navigation.map')}
+				</Button>
+			</div>
 		</div>
 		{#if !error && canManage}
 			<div class="flex flex-col items-start gap-1 sm:items-end">

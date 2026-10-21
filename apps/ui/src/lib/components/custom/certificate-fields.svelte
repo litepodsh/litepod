@@ -42,7 +42,7 @@
 			certificateId
 		)
 			return;
-		if ((await refresh()) && certificates.length === 0) await goto('/settings?tab=certificates');
+		if ((await refresh()) && certificates.length === 0) await goto('/system?tab=certificates');
 	}
 	onMount(async () => {
 		try {
@@ -97,7 +97,7 @@
 				{t('account.certificates.no_saved_hint')}
 				<a
 					class="font-medium text-primary underline underline-offset-4"
-					href="/settings?tab=certificates">{t('account.certificates.open_settings')}</a>
+					href="/system?tab=certificates">{t('account.certificates.open_settings')}</a>
 			</p>
 		{/if}
 		<p class="text-xs text-muted-foreground">{t('account.certificates.selection_hint')}</p>

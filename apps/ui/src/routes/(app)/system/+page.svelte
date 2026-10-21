@@ -11,6 +11,10 @@
 	import CaddyPanel from '#lib/components/system/caddy-panel.svelte';
 	import MaintenancePanel from '#lib/components/system/maintenance-panel.svelte';
 	import BackupsPanel from '#lib/components/system/backups-panel.svelte';
+	import InstanceSettingsPanel from '#lib/components/system/instance-settings-panel.svelte';
+	import BuildsPanel from '#lib/components/system/builds-panel.svelte';
+	import RateLimitPanel from '#lib/components/system/rate-limit-panel.svelte';
+	import CertificatesSettings from '#lib/components/custom/certificates-settings.svelte';
 	import SystemStatusSection from '#lib/components/home/system-status-section.svelte';
 	import { getMe } from '#lib/clients/auth-client.js';
 	import { getSelectedOrganizationId } from '#lib/utils/selected-organization.js';
@@ -22,10 +26,25 @@
 	import ServerCogIcon from '@lucide/svelte/icons/server-cog';
 	import BugIcon from '@lucide/svelte/icons/bug';
 	import DatabaseBackupIcon from '@lucide/svelte/icons/database-backup';
+	import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal';
+	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
+	import CpuIcon from '@lucide/svelte/icons/cpu';
+	import GaugeIcon from '@lucide/svelte/icons/gauge';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	/** Every section `?tab=` may name; anything else lands on System info. */
-	const TABS = ['info', 'containers', 'caddy', 'maintenance', 'debug', 'backups'];
+	const TABS = [
+		'info',
+		'general',
+		'certificates',
+		'builds',
+		'rate-limit',
+		'containers',
+		'caddy',
+		'maintenance',
+		'debug',
+		'backups',
+	];
 
 	// Containers and Caddy act on one organization's servers: the one the switcher selected.
 	// The header switcher reloads the page, so this is read once per org.
@@ -41,6 +60,10 @@
 
 	const tabItems = $derived([
 		{ value: 'info', label: t('menu.user_menu.system_info'), icon: InfoIcon },
+		{ value: 'general', label: t('account.settings.tabs.general'), icon: SlidersHorizontalIcon },
+		{ value: 'certificates', label: t('account.certificates.title'), icon: ShieldCheckIcon },
+		{ value: 'builds', label: t('account.settings.tabs.builds'), icon: CpuIcon },
+		{ value: 'rate-limit', label: t('account.settings.tabs.rate_limit'), icon: GaugeIcon },
 		...(organizationId
 			? [
 					{ value: 'containers', label: t('menu.navigation.containers'), icon: ContainerIcon },
@@ -142,6 +165,14 @@
 					<ContainersPanel {organizationId} />
 				{:else if visibleTab === 'caddy' && organizationId}
 					<CaddyPanel {organizationId} />
+				{:else if visibleTab === 'general'}
+					<InstanceSettingsPanel />
+				{:else if visibleTab === 'certificates'}
+					<CertificatesSettings />
+				{:else if visibleTab === 'builds'}
+					<BuildsPanel />
+				{:else if visibleTab === 'rate-limit'}
+					<RateLimitPanel />
 				{:else if visibleTab === 'maintenance'}
 					<MaintenancePanel />
 				{:else if visibleTab === 'debug'}

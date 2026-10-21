@@ -117,9 +117,9 @@
 	<title>{t('common.home.home')} · litepod</title>
 </svelte:head>
 
-{#snippet legend(tone: StatusTone, label: string)}
+{#snippet legend(tone: StatusTone, label: string, square = false)}
 	<span class="inline-flex items-center gap-1.5">
-		<i class="h-2.5 w-[3px] rounded-[2px] {toneDot(tone)}"></i>{label}
+		<i class="{square ? 'size-2' : 'h-2.5 w-[3px]'} rounded-[2px] {toneDot(tone)}"></i>{label}
 	</span>
 {/snippet}
 
@@ -225,15 +225,22 @@
 			{:else}
 				<KpiCard
 					title={t('common.org_apps.kpi_domains')}
-					sub={t('common.home.domains_https', { count: httpsCount })}
 					value={String(domainCount)}
 					href="{orgBase}/domains"
-					icon={GlobeIcon}>
-					<span class="lp-well block h-1 overflow-hidden rounded-full bg-muted">
-						<i
-							class="block h-full rounded-full bg-success"
-							style="width: {domainCount ? (httpsCount / domainCount) * 100 : 0}%"></i>
-					</span>
+					icon={GlobeIcon}
+					tickShape="square"
+					ticks={[
+						...Array<StatusTone>(httpsCount).fill('ok'),
+						...Array<StatusTone>(domainCount - httpsCount).fill('neutral'),
+					]}>
+					<p class="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-muted-foreground">
+						{@render legend('ok', t('common.home.domains_https', { count: httpsCount }), true)}
+						{@render legend(
+							'neutral',
+							t('common.home.domains_http', { count: domainCount - httpsCount }),
+							true,
+						)}
+					</p>
 				</KpiCard>
 			{/if}
 			{#if tasksLoading}

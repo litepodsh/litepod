@@ -1,28 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import type { Component } from 'svelte';
 	import * as Avatar from '#lib/components/ui/avatar/index.js';
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import BadgeCheckIcon from '@lucide/svelte/icons/badge-check';
-	import BellIcon from '@lucide/svelte/icons/bell';
-	import BoxesIcon from '@lucide/svelte/icons/boxes';
-	import BugIcon from '@lucide/svelte/icons/bug';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import CloudIcon from '@lucide/svelte/icons/cloud';
-	import ContainerIcon from '@lucide/svelte/icons/container';
-	import CreditCardIcon from '@lucide/svelte/icons/credit-card';
-	import DatabaseBackupIcon from '@lucide/svelte/icons/database-backup';
-	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
-	import NetworkIcon from '@lucide/svelte/icons/network';
 	import PaletteIcon from '@lucide/svelte/icons/palette';
-	import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
-	import ServerCogIcon from '@lucide/svelte/icons/server-cog';
-	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
-	import WaypointsIcon from '@lucide/svelte/icons/waypoints';
 	import LocaleFlag from '#lib/components/shell/locale-flag.svelte';
 	import ThemePicker from '#lib/components/custom/theme-picker.svelte';
 	import { i18n, setLocale, t } from '#lib/i18n/index.svelte.js';
@@ -31,82 +18,21 @@
 	import type { SystemVersion } from '#lib/clients/system-client.js';
 	import { cn } from '#lib/utils.js';
 
-	// Everything the old sidebar listed that is not a scope tab lives here.
+	// Personal things only: organization and instance pages live in the scope tabs.
 	let {
 		user,
-		organizationId,
 		systemVersion,
 	}: {
 		user: { name: string; email: string; is_sysadmin: boolean };
-		organizationId: string | null;
 		systemVersion: SystemVersion | null;
 	} = $props();
-
-	type Item = { title: string; url: string; icon: Component };
 
 	// Phone-only collapsibles; both start folded every time the menu opens.
 	let appearanceOpen = $state(false);
 	let languageOpen = $state(false);
 
-	let isCloud = $derived(systemVersion?.is_cloud ?? false);
-
-	let organizationItems = $derived.by((): Item[] => {
-		if (!organizationId) return [];
-		const base = `/organizations/${encodeURIComponent(organizationId)}`;
-		return [
-			{
-				title: t('menu.navigation.git_providers'),
-				url: `${base}?tab=git-providers`,
-				icon: GitBranchIcon,
-			},
-			{
-				title: t('menu.navigation.notifications'),
-				url: `${base}?tab=notifications`,
-				icon: BellIcon,
-			},
-			{
-				title: t('menu.navigation.audit_logs'),
-				url: `${base}?tab=audit-logs`,
-				icon: ScrollTextIcon,
-			},
-			{ title: t('menu.navigation.server_groups'), url: `${base}/server-groups`, icon: BoxesIcon },
-			{ title: t('menu.navigation.map'), url: `${base}/topology`, icon: WaypointsIcon },
-		];
-	});
-
-	// Same rules the sidebar applied: cloud members get Subscription, sysadmins the
-	// instance pages, and self-hosted members keep instance Settings.
-	let systemItems = $derived.by((): Item[] => {
-		if (!user.is_sysadmin) {
-			return isCloud
-				? [{ title: t('menu.navigation.subscription'), url: '/billing', icon: CreditCardIcon }]
-				: [{ title: t('menu.user_menu.settings'), url: '/settings', icon: SettingsIcon }];
-		}
-		return [
-			...(isCloud
-				? [{ title: t('menu.navigation.admin'), url: '/admin', icon: ShieldCheckIcon }]
-				: []),
-			{ title: t('menu.user_menu.settings'), url: '/settings', icon: SettingsIcon },
-			{ title: t('menu.navigation.system'), url: '/system', icon: ServerCogIcon },
-			{
-				title: t('menu.navigation.containers'),
-				url: '/system?tab=containers',
-				icon: ContainerIcon,
-			},
-			{ title: t('menu.navigation.caddy'), url: '/system?tab=caddy', icon: NetworkIcon },
-			{
-				title: t('menu.user_menu.maintenance'),
-				url: '/system?tab=maintenance',
-				icon: ServerCogIcon,
-			},
-			{ title: t('menu.user_menu.debug'), url: '/system?tab=debug', icon: BugIcon },
-			{
-				title: t('menu.navigation.backups'),
-				url: '/system?tab=backups',
-				icon: DatabaseBackupIcon,
-			},
-		];
-	});
+	// Admin is the only instance page without a scope tab of its own.
+	let showAdmin = $derived(user.is_sysadmin && (systemVersion?.is_cloud ?? false));
 </script>
 
 {#snippet avatar(size: string)}
@@ -127,21 +53,6 @@
 		{t('menu.appearance.spanish')}
 		{#if i18n.locale === 'es'}<CheckIcon class="ms-auto" />{/if}
 	</DropdownMenu.Item>
-{/snippet}
-
-{#snippet group(label: string, items: Item[])}
-	{#if items.length}
-		<DropdownMenu.Group>
-			<DropdownMenu.Label class="text-xs text-muted-foreground">{label}</DropdownMenu.Label>
-			{#each items as item (item.url)}
-				<DropdownMenu.Item onclick={() => goto(item.url)}>
-					<item.icon />
-					{item.title}
-				</DropdownMenu.Item>
-			{/each}
-		</DropdownMenu.Group>
-		<DropdownMenu.Separator />
-	{/if}
 {/snippet}
 
 <DropdownMenu.Root
@@ -232,8 +143,13 @@
 			</div>
 		{/if}
 		<DropdownMenu.Separator />
-		{@render group(t('menu.user_menu.organization'), organizationItems)}
-		{@render group(t('menu.user_menu.system'), systemItems)}
+		{#if showAdmin}
+			<DropdownMenu.Item onclick={() => goto('/admin')}>
+				<ShieldCheckIcon />
+				{t('menu.navigation.admin')}
+			</DropdownMenu.Item>
+			<DropdownMenu.Separator />
+		{/if}
 		<DropdownMenu.Item onclick={() => goto('/logout')}>
 			<LogOutIcon />
 			{t('menu.user_menu.log_out')}

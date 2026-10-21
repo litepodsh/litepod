@@ -230,6 +230,11 @@
 			? [
 					{ title: t('menu.navigation.system'), url: '/system', icon: ContainerIcon },
 					{
+						title: t('menu.user_menu.settings'),
+						url: '/system?tab=general',
+						icon: SettingsIcon,
+					},
+					{
 						title: t('menu.navigation.containers'),
 						url: '/system?tab=containers',
 						icon: ContainerIcon,
@@ -254,7 +259,6 @@
 		...(!isSysadmin && isCloud
 			? [{ title: t('menu.navigation.subscription'), url: '/billing', icon: CreditCardIcon }]
 			: []),
-		{ title: t('menu.user_menu.settings'), url: '/settings', icon: SettingsIcon },
 		{ title: t('menu.user_menu.account'), url: '/account', icon: BadgeCheckIcon },
 	]);
 
