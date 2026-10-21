@@ -498,8 +498,16 @@ vec3 ground(float lng, float lat) {
 		scene.scale.setScalar(1);
 		const diameter = new three.Box3().setFromObject(scene).getSize(new three.Vector3()).x;
 		const toCamera = world.camera().position.clone().normalize();
-		const moonAt = new three.Vector3();
-		place(moonAt, [moonUniform.value.x, moonUniform.value.y], MOON_DISTANCE - MOON_RADIUS);
+		// place() targets Object3D.position; moonAt is a bare Vector3, so solve
+		// the point directly instead of routing it through place().
+		const moonLat = (moonUniform.value.y * Math.PI) / 180;
+		const moonLng = (moonUniform.value.x * Math.PI) / 180;
+		const moonDist = MOON_DISTANCE - MOON_RADIUS;
+		const moonAt = new three.Vector3(
+			moonDist * Math.cos(moonLat) * Math.sin(moonLng),
+			moonDist * Math.sin(moonLat),
+			moonDist * Math.cos(moonLat) * Math.cos(moonLng),
+		);
 		// Laps start and end straight under the moon.
 		const start = moonAt.clone().normalize();
 		const normal = new three.Vector3().crossVectors(start, toCamera);
@@ -1006,7 +1014,11 @@ vec3 ground(float lng, float lat) {
 		}
 	});
 
+	// Waits for the world: launchUfo() bails without one, so a bump that lands
+	// while the globe is still booting must re-fire once it exists instead of
+	// being swallowed. ready flips in the same async init that assigns world.
 	$effect(() => {
+		void ready;
 		if (ufo) void launchUfo();
 	});
 
