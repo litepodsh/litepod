@@ -1,8 +1,8 @@
 //! Keeping secrets out of what the model is sent.
 //!
-//! `get environment` returns names only, but a log line prints whatever the
-//! application printed and a compose file carries passwords in clear text. Both
-//! leave this machine, so both are scrubbed first.
+//! `get environment` and `get compose` are read as stored, but a log line prints
+//! whatever the application printed, secrets included, and it leaves this
+//! machine, so it is scrubbed first.
 //!
 //! Two passes, in this order:
 //!

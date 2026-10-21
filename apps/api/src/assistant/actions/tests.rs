@@ -464,6 +464,8 @@ async fn a_repository_with_no_branch_gets_main() {
         &target,
         SetSource {
             git_url: Some("https://example.com/team/app.git".into()),
+            railpack_project_path: Some(".".into()),
+            container_port: Some(3000),
             ..Default::default()
         },
     )
@@ -960,6 +962,25 @@ async fn a_compose_application_is_created_whole_or_not_at_all() {
             .contains("louislam/uptime-kuma")
     );
 
+    // An edit cannot bring a host path in either: rootless Podman cannot
+    // write to a directory it does not own.
+    let mut created_target = seeded.clone();
+    created_target.application_id = created.id.clone();
+    created_target.application_name = created.name.clone();
+    let error = propose_compose_file(
+        &state,
+        &chat,
+        &actor,
+        &created_target,
+        SetComposeFile {
+            compose: format!("{compose}    volumes:\n      - ./data:/app/data\n"),
+            reason: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("named volumes"), "{error}");
+
     cleanup_database(&path);
 }
 
@@ -1246,6 +1267,85 @@ async fn a_database_template_lands_in_a_new_project_with_one_confirmation() {
     cleanup_database(&path);
 }
 
+#[tokio::test]
+async fn a_compose_app_is_created_like_a_catalog_template() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let target = ActionTarget::project("organization-a", "", "");
+    let compose = "services:\n  kuma:\n    image: docker.io/louislam/uptime-kuma:1\n    restart: unless-stopped\n    expose:\n      - \"3001\"\n    environment:\n      ADMIN_PASSWORD: ${ADMIN_PASSWORD}\n      PUBLIC_URL: ${PUBLIC_URL}\n    volumes:\n      - kuma_data:/app/data\n\nvolumes:\n  kuma_data:\n";
+    let arguments = ComposeApp {
+        project_name: "monitoring".into(),
+        name: "kuma".into(),
+        server_id: "local".into(),
+        compose: compose.into(),
+        env: "# login\nADMIN_PASSWORD={{password_24}}\nPUBLIC_URL={{url}}\n".into(),
+        port: Some(3001),
+        ..ComposeApp::default()
+    };
+
+    // A host path is refused while it is still a proposal.
+    let bound = compose.replace("kuma_data:/app/data", "./data:/app/data");
+    let error = propose_deploy_compose(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        ComposeApp {
+            compose: bound,
+            ..arguments.clone()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("named volumes"), "{error}");
+
+    let action = propose_deploy_compose(&state, &chat, &actor, &target, arguments)
+        .await
+        .unwrap();
+    assert!(
+        !action.added.as_deref().unwrap_or_default().contains("{{"),
+        "the card names variables, never values"
+    );
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    let project = crate::cqrs::queries::project::list_projects(&state, "organization-a")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|project| project.name == "monitoring")
+        .expect("the project was created");
+    let detail = crate::cqrs::queries::project::get_project(&state, "organization-a", &project.id)
+        .await
+        .unwrap();
+    let created = detail
+        .environments
+        .iter()
+        .flat_map(|environment| environment.applications.iter())
+        .find(|application| application.name == "kuma")
+        .expect("the application keeps the name it was given");
+
+    let source = deployment::source::get(&state, &created.id).await.unwrap();
+    assert_eq!(source.deploy_type, "compose");
+    assert_eq!(source.compose_public_service.as_deref(), Some("kuma"));
+    let env = deployment::decrypted_environment(&state, &created.id, "runtime")
+        .await
+        .unwrap();
+    let password = &env.iter().find(|(name, _)| name == "ADMIN_PASSWORD").unwrap().1;
+    assert_eq!(password.len(), 24, "the secret marker was generated");
+    // A domain marker is kept as written and resolved on each deploy.
+    assert!(env.iter().any(|(name, value)| name == "PUBLIC_URL" && value == "{{url}}"));
+    let ports = crate::git::repositories::project::get_catalog_ports(&state, &created.id)
+        .await
+        .unwrap();
+    assert_eq!(ports.len(), 1);
+    assert_eq!(ports[0].container, 3001);
+
+    cleanup_database(&path);
+}
+
 #[test]
 fn every_stored_proposal_is_an_allowed_action() {
     for tool in [
@@ -1263,6 +1363,7 @@ fn every_stored_proposal_is_an_allowed_action() {
         DELETE_DOMAIN,
         DEPLOY_STATIC_SITE,
         CREATE_FROM_TEMPLATE,
+        DEPLOY_COMPOSE,
         REDEPLOY_APPLICATION,
         START_APPLICATION,
         STOP_APPLICATION,
@@ -1349,6 +1450,79 @@ fn an_inline_site_is_zipped_and_checked() {
 }
 
 #[tokio::test]
+async fn a_new_repository_asks_where_it_builds_from() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let repository = || SetSource {
+        git_url: Some("https://github.com/team/app.git".into()),
+        container_port: Some(3000),
+        ..Default::default()
+    };
+    let refused = |arguments| async {
+        propose_source(&state, &chat, &actor, &target, arguments)
+            .await
+            .unwrap_err()
+            .to_string()
+    };
+
+    // No build method means Railpack, and Railpack needs its folder.
+    assert!(refused(repository()).await.contains("railpack_project_path"));
+    assert!(
+        refused(SetSource {
+            build_method: Some("docker".into()),
+            ..repository()
+        })
+        .await
+        .contains("dockerfile_path")
+    );
+    assert!(
+        refused(SetSource {
+            build_method: Some("compose".into()),
+            compose_file_path: Some("./compose.yml".into()),
+            ..repository()
+        })
+        .await
+        .contains("compose_public_service")
+    );
+    assert!(
+        refused(SetSource {
+            railpack_project_path: Some("../outside".into()),
+            ..repository()
+        })
+        .await
+        .contains("inside the repository")
+    );
+
+    let action = propose_source(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        SetSource {
+            build_method: Some("compose".into()),
+            compose_file_path: Some("deploy/compose.yml".into()),
+            compose_public_service: Some("web".into()),
+            ..repository()
+        },
+    )
+    .await
+    .unwrap();
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+    let source = deployment::source::get(&state, &target.application_id)
+        .await
+        .unwrap();
+    assert_eq!(source.build_method, "compose");
+    assert_eq!(source.compose_file_path.as_deref(), Some("deploy/compose.yml"));
+    assert_eq!(source.compose_public_service.as_deref(), Some("web"));
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
 async fn a_public_repository_becomes_a_railpack_git_deploy() {
     let (state, path) = test_state().await;
     let target = target(&state, "organization-a").await;
@@ -1363,6 +1537,7 @@ async fn a_public_repository_becomes_a_railpack_git_deploy() {
         SetSource {
             git_url: Some("https://github.com/team/app.git".into()),
             build_method: Some("railpack".into()),
+            railpack_project_path: Some("apps/web".into()),
             container_port: Some(3000),
             ..Default::default()
         },
@@ -1383,6 +1558,7 @@ async fn a_public_repository_becomes_a_railpack_git_deploy() {
     assert_eq!(source.build_method, "railpack");
     assert_eq!(source.container_port, Some(3000));
     assert_eq!(source.git_branch.as_deref(), Some("main"));
+    assert_eq!(source.railpack_project_path, "apps/web");
 
     assert!(
         propose_source(

@@ -6,6 +6,7 @@
 //! `stop` run on the spot (`direct`), and every other action is stored as a
 //! proposal under the caller's MCP conversation (`session`) and confirmed in
 //! the same call (`capabilities::mcp_auto_confirm`).
+pub mod catalog_check;
 pub mod direct;
 pub mod protocol;
 pub mod session;

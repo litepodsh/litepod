@@ -137,7 +137,7 @@ fn generate(marker: Marker) -> String {
 
 /// Replaces every recognized `{{...}}` marker inside a single value. Unknown or
 /// malformed markers are copied through verbatim, braces included.
-fn substitute_value(value: &str) -> String {
+pub fn substitute_value(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut rest = value;
     while let Some(open) = rest.find("{{") {

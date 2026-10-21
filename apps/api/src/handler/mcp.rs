@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use crate::{
     assistant::{actions, capabilities, tools},
     dtos::response::AppError,
-    mcp::{self as server, direct, protocol, session},
+    mcp::{self as server, catalog_check, direct, protocol, session},
     security::{
         authz::extract::{RequireOrg, perm},
         middleware::org_scope::OrgScope,
@@ -127,6 +127,15 @@ async fn call(state: &SharedState, org: &OrgScope, params: &Value) -> Result<Val
     {
         let outcome = direct::run(state, org, action, &arguments).await;
         return Ok(protocol::tool_result(outcome.text, outcome.is_error));
+    }
+
+    // A compose the agent wrote waits until its human has heard what the
+    // catalog already has.
+    if name == tools::EXEC
+        && arguments.get("action").and_then(Value::as_str) == Some("deploy_compose")
+        && let Some(found) = catalog_check::templates_first(&arguments).await
+    {
+        return Ok(protocol::tool_result(found.to_string(), false));
     }
 
     // Only a proposal needs a conversation to hang off; a read creates none.

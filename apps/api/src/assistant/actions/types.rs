@@ -39,6 +39,8 @@ pub const DEPLOY_STATIC_SITE: &str = "deploy_static_site";
 
 pub const CREATE_FROM_TEMPLATE: &str = "create_from_template";
 
+pub const DEPLOY_COMPOSE: &str = "deploy_compose";
+
 /// Litepod's own database templates. Anything else is a catalog template id.
 pub const INTERNAL_TEMPLATES: &[&str] = &[
     "postgres",
@@ -130,8 +132,17 @@ pub struct SetSource {
     pub git_branch: Option<String>,
     #[serde(default)]
     pub railpack_project_path: Option<String>,
-    /// `railpack` or `docker`. Setting it, or a repository, makes the
-    /// application a git deploy.
+    /// Path of the Dockerfile inside the repository, for `docker`.
+    #[serde(default)]
+    pub dockerfile_path: Option<String>,
+    /// Path of the compose file inside the repository, for `compose`.
+    #[serde(default)]
+    pub compose_file_path: Option<String>,
+    /// The compose service the proxy routes to, for `compose`.
+    #[serde(default)]
+    pub compose_public_service: Option<String>,
+    /// `railpack`, `docker` or `compose`. Setting it, or a repository, makes
+    /// the application a git deploy; a new repository without one is `railpack`.
     #[serde(default)]
     pub build_method: Option<String>,
     /// The port the built container listens on; git deploys require one.
@@ -256,6 +267,32 @@ pub struct FromTemplate {
     pub reason: Option<String>,
 }
 
+/// Validated arguments for [`DEPLOY_COMPOSE`]: a Compose application written
+/// the way a catalog template is - the compose file plus its `.env` - in a
+/// project (existing or new), with an optional domain, then a deploy. One card.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ComposeApp {
+    pub project_name: String,
+    pub name: String,
+    #[serde(default)]
+    pub server_id: String,
+    pub compose: String,
+    /// `.env` content: `KEY=VALUE` lines. Secret markers (`{{password_32}}`)
+    /// are expanded on confirm, never stored in the action; domain markers
+    /// (`{{url}}`) stay and resolve on every deploy.
+    #[serde(default)]
+    pub env: String,
+    /// The container port the proxy routes to; it is also what `{{url}}` names.
+    #[serde(default)]
+    pub port: Option<i64>,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub https: Option<bool>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// Where an action lives, resolved once so the confirm never re-derives it.
 #[derive(Debug, Clone)]
 pub struct ActionTarget {
@@ -297,7 +334,7 @@ impl ActionTarget {
             // so a create has no page yet and a delete's page is about to stop
             // existing - and a rename is read on the list anyway.
             CREATE_PROJECT | UPDATE_PROJECT | DELETE_PROJECT | DEPLOY_STATIC_SITE
-            | CREATE_FROM_TEMPLATE => {
+            | CREATE_FROM_TEMPLATE | DEPLOY_COMPOSE => {
                 "/projects".into()
             }
             // The application does not exist yet, so the environment it lands

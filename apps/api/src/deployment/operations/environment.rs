@@ -194,6 +194,10 @@ pub async fn set_environment_variable(
             "`{name}` is not a valid environment variable name"
         )));
     }
+    // Same expansion the environment editor does, so a `{{password_32}}` sent
+    // by the assistant becomes a real secret instead of reaching a container.
+    let value = crate::templates::secrets::substitute_value(value);
+    let value = value.as_str();
     let variable = [(name.to_owned(), value.to_owned())];
     if scope == "runtime" {
         crate::deployment::compose::marker_routes::validate_env(state, application_id, &variable)

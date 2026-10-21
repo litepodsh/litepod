@@ -26,10 +26,10 @@ pub use types::{
     SetEnvironmentVariable, SetSource, StaticSite, UpdateApplication,
 };
 
-pub use types::{FromTemplate, INTERNAL_TEMPLATES};
+pub use types::{ComposeApp, FromTemplate, INTERNAL_TEMPLATES};
 
 pub use propose::{
-    propose_add_domain, propose_compose_file, propose_create_application, propose_create_project,
+    propose_add_domain, propose_compose_file, propose_deploy_compose, propose_create_application, propose_create_project,
     propose_delete_domain, propose_delete_environment_variable, propose_delete_project,
     propose_environment_variable, propose_lifecycle, propose_redeploy, propose_source,
     propose_from_template, propose_static_site, propose_update_application, propose_update_domain,

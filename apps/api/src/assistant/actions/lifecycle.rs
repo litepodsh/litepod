@@ -318,6 +318,7 @@ pub async fn confirm(
         DELETE_DOMAIN => apply_delete_domain(state, &stored).await,
         DEPLOY_STATIC_SITE => apply_static_site(state, actor, &stored).await,
         CREATE_FROM_TEMPLATE => apply_from_template(state, actor, &stored).await,
+        DEPLOY_COMPOSE => apply_deploy_compose(state, actor, &stored).await,
         other => {
             return Err(AppError::ValidationError(format!(
                 "`{other}` is not a tool this build can apply"

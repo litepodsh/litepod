@@ -89,9 +89,11 @@ pub(super) async fn apply_source(
         git_branch: arguments.git_branch.or(current.git_branch),
         auto_deploy: Some(arguments.auto_deploy.unwrap_or(current.auto_deploy)),
         watch_paths: arguments.watch_paths.or(current.watch_paths),
-        dockerfile_path: current.dockerfile_path,
-        compose_file_path: current.compose_file_path,
-        compose_public_service: current.compose_public_service,
+        dockerfile_path: arguments.dockerfile_path.or(current.dockerfile_path),
+        compose_file_path: arguments.compose_file_path.or(current.compose_file_path),
+        compose_public_service: arguments
+            .compose_public_service
+            .or(current.compose_public_service),
         container_port: arguments.container_port.or(current.container_port),
         railpack_project_path: Some(
             arguments
@@ -168,6 +170,59 @@ pub(super) async fn apply_compose_file(
 /// The second half is rolled back by deleting the application, the same way
 /// `catalog_templates` does it: an application that exists but whose source was
 /// never written is a half-created thing nobody asked for.
+/// Makes `application_id` a Compose application running `compose`, routed to
+/// whichever service publishes `port`. The port is also stored the way a
+/// catalog template's primary port is, so `{{url}}` in its env resolves.
+async fn write_compose(
+    state: &SharedState,
+    application_id: &str,
+    compose: &str,
+    port: Option<i64>,
+) -> Result<(), AppError> {
+    let service = port
+        .and_then(|port| u16::try_from(port).ok())
+        .and_then(|port| crate::deployment::compose_standalone::service_for_port(compose, port));
+    ComposeFileStore::new(&state.data_dir, application_id)
+        .write_content(compose)
+        .await
+        .map_err(AppError::InternalError)?;
+    deployment::source::save(
+        state,
+        application_id,
+        crate::dtos::deployment::UpdateSourceRequest {
+            deploy_type: "compose".into(),
+            build_method: "compose".into(),
+            git_provider_id: None,
+            git_url: None,
+            git_branch: None,
+            auto_deploy: Some(false),
+            watch_paths: None,
+            dockerfile_path: None,
+            compose_file_path: None,
+            compose_public_service: service.clone(),
+            container_port: None,
+            railpack_project_path: Some(".".into()),
+            railpack_start_command: None,
+            build_cpu_cores: None,
+            build_memory_mib: None,
+            build_swap_mib: None,
+            image_url: None,
+            registry_username: None,
+            registry_password: None,
+            restart_policy: None,
+        },
+    )
+    .await?;
+    let ports = super::propose::primary_port(port, service.as_deref());
+    if !ports.is_empty() {
+        let conn = crate::git::repositories::db::get_conn(state).await;
+        crate::git::repositories::project::set_catalog_ports(&conn, application_id, &ports, false, false)
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
+    Ok(())
+}
+
 pub(super) async fn apply_create_application(
     state: &SharedState,
     stored: &StoredAction,
@@ -190,47 +245,7 @@ pub(super) async fn apply_create_application(
     .await?;
 
     if let Some(compose) = &arguments.compose {
-        let service = arguments
-            .port
-            .and_then(|port| u16::try_from(port).ok())
-            .and_then(|port| {
-                crate::deployment::compose_standalone::service_for_port(compose, port)
-            });
-        let written = async {
-            ComposeFileStore::new(&state.data_dir, &application.id)
-                .write_content(compose)
-                .await
-                .map_err(AppError::InternalError)?;
-            deployment::source::save(
-                state,
-                &application.id,
-                crate::dtos::deployment::UpdateSourceRequest {
-                    deploy_type: "compose".into(),
-                    build_method: "compose".into(),
-                    git_provider_id: None,
-                    git_url: None,
-                    git_branch: None,
-                    auto_deploy: Some(false),
-                    watch_paths: None,
-                    dockerfile_path: None,
-                    compose_file_path: None,
-                    compose_public_service: service,
-                    container_port: None,
-                    railpack_project_path: Some(".".into()),
-                    railpack_start_command: None,
-                    build_cpu_cores: None,
-                    build_memory_mib: None,
-                    build_swap_mib: None,
-                    image_url: None,
-                    registry_username: None,
-                    registry_password: None,
-                    restart_policy: None,
-                },
-            )
-            .await
-        }
-        .await;
-        if let Err(error) = written {
+        if let Err(error) = write_compose(state, &application.id, compose, arguments.port).await {
             let _ = crate::cqrs::commands::project::delete_application(
                 state,
                 &stored.organization_id,
@@ -959,4 +974,113 @@ pub async fn reject(
     )
     .await;
     Ok(dto(&stored, "rejected", None))
+}
+
+/// Creates a compose application the way a catalog template does - compose
+/// file, `.env` with its secrets generated now, domain - and deploys it.
+/// Whatever this confirm created is removed again if a later step fails.
+pub(super) async fn apply_deploy_compose(
+    state: &SharedState,
+    actor: &AuthUser,
+    stored: &StoredAction,
+) -> Result<Applied, AppError> {
+    let arguments: ComposeApp = serde_json::from_str(&stored.arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let organization_id = &stored.organization_id;
+    let created_project = stored.project_id.is_empty();
+    let (project_id, environment_id) =
+        ensure_project(state, stored, &arguments.project_name).await?;
+
+    let built = async {
+        let application = crate::cqrs::commands::project::create_application(
+            state,
+            organization_id,
+            &project_id,
+            &environment_id,
+            &crate::dtos::project::CreateApplicationRequest {
+                name: arguments.name.clone(),
+                description: None,
+                server_id: Some(arguments.server_id.clone()),
+                server_group_id: None,
+            },
+        )
+        .await?;
+        let finished = async {
+            write_compose(state, &application.id, &arguments.compose, arguments.port).await?;
+            if !arguments.env.trim().is_empty() {
+                let env = crate::templates::secrets::substitute_placeholder_secrets(&arguments.env);
+                deployment::save_environment(state, &application.id, "runtime", &env).await?;
+            }
+            let url = match (&arguments.host, arguments.port) {
+                (Some(host), Some(port)) => Some(
+                    deployment::domains::create(
+                        state,
+                        &application.id,
+                        crate::dtos::deployment::CreateDomainRequest {
+                            certificate: Default::default(),
+                            host: host.clone(),
+                            port,
+                            https: arguments.https,
+                            is_primary: Some(true),
+                            server_id: None,
+                        },
+                    )
+                    .await?
+                    .url,
+                ),
+                _ => None,
+            };
+            deployment::enqueue_for_application(
+                state,
+                &application.id,
+                ASSISTANT_TRIGGER,
+                Some(&actor.user_id),
+            )
+            .await?;
+            Ok::<_, AppError>(url)
+        }
+        .await;
+        match finished {
+            Ok(url) => Ok((application.id, url)),
+            Err(error) => {
+                let _ = crate::cqrs::commands::project::delete_application(
+                    state,
+                    organization_id,
+                    &project_id,
+                    &environment_id,
+                    &application.id,
+                )
+                .await;
+                let _ = ComposeFileStore::new(&state.data_dir, &application.id)
+                    .remove_all()
+                    .await;
+                Err(error)
+            }
+        }
+    }
+    .await;
+
+    let (application_id, url) = match built {
+        Ok(built) => built,
+        Err(error) => {
+            if created_project {
+                let _ = crate::cqrs::commands::project::delete_project(
+                    state,
+                    organization_id,
+                    &project_id,
+                )
+                .await;
+            }
+            return Err(error);
+        }
+    };
+
+    Ok(Applied {
+        audit_action: "application.created",
+        added: Some(match url {
+            Some(url) => format!("{} deploying, {url}", arguments.name),
+            None => format!("{} deploying ({application_id})", arguments.name),
+        }),
+        removed: None,
+    })
 }

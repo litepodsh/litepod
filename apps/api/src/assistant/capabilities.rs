@@ -44,6 +44,7 @@ pub const ACTIONS: &[&str] = &[
     "delete_project",
     "deploy_static_site",
     "create_from_template",
+    "deploy_compose",
 ];
 
 pub fn resource_allowed(resource: &str) -> bool {

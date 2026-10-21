@@ -167,11 +167,79 @@ pub async fn propose_source(
         arguments.git_branch = Some(DEFAULT_BRANCH.to_owned());
     }
     if let Some(method) = arguments.build_method.as_deref()
-        && !matches!(method, "railpack" | "docker")
+        && !matches!(method, "railpack" | "docker" | "compose")
     {
         return Err(AppError::ValidationError(
-            "`build_method` must be `railpack` or `docker`".into(),
+            "`build_method` must be `railpack`, `docker` or `compose`".into(),
         ));
+    }
+    // A repository set for the first time, or a new build method, is a build
+    // being configured: Railpack unless the user said otherwise, and the path
+    // that method builds from has to come from the user, never a guess -
+    // `.` is the repository root, which is often not where the app is.
+    let configuring = (arguments.git_url.is_some() && current.git_url.is_none())
+        || arguments
+            .build_method
+            .as_deref()
+            .is_some_and(|method| method != current.build_method);
+    if configuring {
+        let method = arguments
+            .build_method
+            .get_or_insert_with(|| "railpack".to_owned())
+            .clone();
+        let ask = |field: &str, what: &str| {
+            Err(AppError::ValidationError(format!(
+                "Ask the user {what}, then send it as `{field}` (a path inside the repository; `.` is its root). \
+                 Do not guess it."
+            )))
+        };
+        match method.as_str() {
+            "railpack" if arguments.railpack_project_path.is_none() => {
+                return ask(
+                    "railpack_project_path",
+                    "which folder of the repository holds the app Railpack builds",
+                );
+            }
+            "docker" if arguments.dockerfile_path.is_none() => {
+                return ask("dockerfile_path", "where the Dockerfile is, e.g. `./Dockerfile`");
+            }
+            "compose" if arguments.compose_file_path.is_none() => {
+                return ask(
+                    "compose_file_path",
+                    "where the compose file is, e.g. `./compose.yml`",
+                );
+            }
+            "compose" if arguments.compose_public_service.is_none() => {
+                return ask(
+                    "compose_public_service",
+                    "which compose service serves the web traffic",
+                );
+            }
+            _ => {}
+        }
+        if arguments.container_port.is_none() && current.container_port.is_none() {
+            return Err(AppError::ValidationError(
+                "Ask the user which port the app listens on, then send it as `container_port`".into(),
+            ));
+        }
+    }
+    for (label, path) in [
+        ("railpack_project_path", &arguments.railpack_project_path),
+        ("dockerfile_path", &arguments.dockerfile_path),
+        ("compose_file_path", &arguments.compose_file_path),
+    ] {
+        if let Some(path) = path.as_deref() {
+            let path = path.trim();
+            if path.is_empty()
+                || path.starts_with('/')
+                || path.starts_with('~')
+                || path.split(['/', '\\']).any(|part| part == "..")
+            {
+                return Err(AppError::ValidationError(format!(
+                    "`{label}` must be a path inside the repository, like `.` or `apps/web`"
+                )));
+            }
+        }
     }
     if let Some(port) = arguments.container_port
         && !(1..=65535).contains(&port)
@@ -213,6 +281,21 @@ pub async fn propose_source(
         "root path",
         Some(current.railpack_project_path.as_str()),
         arguments.railpack_project_path.as_deref(),
+    );
+    note(
+        "Dockerfile",
+        current.dockerfile_path.as_deref(),
+        arguments.dockerfile_path.as_deref(),
+    );
+    note(
+        "compose file",
+        current.compose_file_path.as_deref(),
+        arguments.compose_file_path.as_deref(),
+    );
+    note(
+        "public service",
+        current.compose_public_service.as_deref(),
+        arguments.compose_public_service.as_deref(),
     );
     note(
         "watch paths",
@@ -448,6 +531,7 @@ pub async fn propose_compose_file(
             "That is the file it already has".into(),
         ));
     }
+    require_named_volumes(&arguments.compose)?;
 
     let title = format!("Replace the compose file of {}", target.application_name);
     let summary = match &arguments.reason {
@@ -489,6 +573,63 @@ pub async fn propose_compose_file(
 /// The compose file is parsed here rather than at confirm time: a `port` that
 /// no service publishes means the application would come up with no public
 /// URL, and that is worth refusing while it is still a proposal.
+/// Data lives in named volumes declared under `volumes:`, like every catalog
+/// template: rootless Podman cannot write to a host directory it does not own,
+/// and an anonymous volume can be left behind by a redeploy. See
+/// `unnamed_mounts_in_compose`.
+fn require_named_volumes(compose: &str) -> Result<(), AppError> {
+    let mounts = crate::deployment::compose::unnamed_mounts_in_compose(compose);
+    if mounts.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::ValidationError(
+        crate::deployment::compose::unnamed_mounts_message(&mounts),
+    ))
+}
+
+/// The checks every compose file the assistant creates an application from
+/// goes through, and the service `port` routes to when one is given.
+fn checked_compose(compose: &str, port: Option<i64>) -> Result<Option<String>, AppError> {
+    if compose.trim().is_empty() {
+        return Err(AppError::ValidationError(
+            "An empty compose file creates nothing".into(),
+        ));
+    }
+    if compose.len() > MAX_COMPOSE_BYTES {
+        return Err(AppError::ValidationError(format!(
+            "Compose files are limited to {MAX_COMPOSE_BYTES} bytes"
+        )));
+    }
+    let document: serde_yaml::Value = serde_yaml::from_str(compose)
+        .map_err(|error| AppError::ValidationError(format!("The compose file is not valid YAML: {error}")))?;
+    if !document.get("services").is_some_and(serde_yaml::Value::is_mapping) {
+        return Err(AppError::ValidationError(
+            "A compose file needs a `services:` mapping".into(),
+        ));
+    }
+    let reserved = crate::deployment::compose::reserved_services_in_compose(compose);
+    if !reserved.is_empty() {
+        return Err(AppError::ValidationError(
+            crate::deployment::compose::reserved_service_message(&reserved),
+        ));
+    }
+    require_named_volumes(compose)?;
+    let Some(port) = port else {
+        return Ok(None);
+    };
+    let port = u16::try_from(port)
+        .ok()
+        .filter(|port| *port > 0)
+        .ok_or_else(|| AppError::ValidationError("Port must be between 1 and 65535".into()))?;
+    crate::deployment::compose_standalone::service_for_port(compose, port)
+        .map(Some)
+        .ok_or_else(|| {
+            AppError::ValidationError(format!(
+                "No compose service publishes port {port}, so nothing could be routed to it; add it under `expose:`"
+            ))
+        })
+}
+
 pub async fn propose_create_application(
     state: &SharedState,
     conversation_id: &str,
@@ -530,36 +671,9 @@ pub async fn propose_create_application(
         )));
     }
 
-    let service = match (&arguments.compose, arguments.port) {
-        (None, _) => None,
-        (Some(compose), port) => {
-            if compose.trim().is_empty() {
-                return Err(AppError::ValidationError(
-                    "An empty compose file creates nothing".into(),
-                ));
-            }
-            if compose.len() > MAX_COMPOSE_BYTES {
-                return Err(AppError::ValidationError(format!(
-                    "Compose files are limited to {MAX_COMPOSE_BYTES} bytes"
-                )));
-            }
-            match port {
-                None => None,
-                Some(port) => {
-                    let port = u16::try_from(port).map_err(|_| {
-                        AppError::ValidationError("Port must be between 1 and 65535".into())
-                    })?;
-                    Some(
-                        crate::deployment::compose_standalone::service_for_port(compose, port)
-                            .ok_or_else(|| {
-                                AppError::ValidationError(format!(
-                                    "No compose service publishes port {port}, so nothing could be routed to it"
-                                ))
-                            })?,
-                    )
-                }
-            }
-        }
+    let service = match &arguments.compose {
+        None => None,
+        Some(compose) => checked_compose(compose, arguments.port)?,
     };
 
     let title = format!(
@@ -1312,4 +1426,146 @@ pub async fn propose_from_template(
         },
         unset,
     ))
+}
+
+/// Validates a compose application written like a catalog template and stores
+/// it as one card. The `.env` is checked as the editor would check it, with the
+/// port given standing in for the template's primary port, so `{{url}}` works.
+pub async fn propose_deploy_compose(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    arguments: ComposeApp,
+) -> Result<ActionDto, AppError> {
+    let project_name = project_name(Some(&arguments.project_name))?;
+    let name = arguments.name.trim().to_owned();
+    if name.is_empty() {
+        return Err(AppError::ValidationError(
+            "An application needs a name".into(),
+        ));
+    }
+    if name.chars().count() > 64 {
+        return Err(AppError::ValidationError(
+            "An application name is limited to 64 characters".into(),
+        ));
+    }
+    if !target.project_id.is_empty() {
+        let detail = crate::cqrs::queries::project::get_project(
+            state,
+            &target.organization_id,
+            &target.project_id,
+        )
+        .await?;
+        let taken = detail
+            .environments
+            .iter()
+            .filter(|environment| environment.id == target.environment_id)
+            .flat_map(|environment| environment.applications.iter())
+            .any(|application| application.name.eq_ignore_ascii_case(&name));
+        if taken {
+            return Err(AppError::ValidationError(format!(
+                "`{project_name}` already has an application called `{name}`; change it with `set_compose_file` and `set_environment_variable`"
+            )));
+        }
+    }
+
+    let service = checked_compose(&arguments.compose, arguments.port)?;
+    let env = deployment::parse_environment_content(&arguments.env)?;
+    if env.iter().any(|(_, value)| value.len() > MAX_VALUE_BYTES) {
+        return Err(AppError::ValidationError(format!(
+            "Environment values are limited to {MAX_VALUE_BYTES} bytes"
+        )));
+    }
+    let ports = primary_port(arguments.port, service.as_deref());
+    crate::deployment::compose::domain_markers::required_routes(&env, &ports, &arguments.compose)
+        .map_err(|error| AppError::ValidationError(format!("Domain marker: {error}")))?;
+
+    let host = arguments
+        .host
+        .as_deref()
+        .map(|host| host.trim().to_ascii_lowercase())
+        .filter(|host| !host.is_empty());
+    let port = arguments.port;
+    if host.is_some() && port.is_none() {
+        return Err(AppError::ValidationError(
+            "A domain needs `port`, the container port it routes to".into(),
+        ));
+    }
+    let https = host
+        .as_deref()
+        .map(|host| arguments.https.unwrap_or(!deployment::domains::is_local(host)));
+    if let (Some(host), Some(port), Some(https)) = (&host, port, https) {
+        deployment::domains::validate(state, host, port, https)?;
+    }
+
+    let title = format!("Deploy {name} in {project_name}");
+    let summary = arguments.reason.clone().unwrap_or_else(|| {
+        let mut steps = Vec::new();
+        if target.project_id.is_empty() {
+            steps.push(format!("creates the project {project_name}"));
+        }
+        steps.push(format!(
+            "creates {name} from a compose file ({} lines)",
+            arguments.compose.lines().count()
+        ));
+        if !env.is_empty() {
+            steps.push(format!("sets {} variables", env.len()));
+        }
+        if let Some(host) = &host {
+            let scheme = if https == Some(true) { "https" } else { "http" };
+            steps.push(format!("serves it on {scheme}://{host}"));
+        }
+        steps.push("deploys it".into());
+        let mut text = steps.join(", ");
+        text[..1].make_ascii_uppercase();
+        format!("{text}.")
+    });
+
+    let encoded = serde_json::to_string(&ComposeApp {
+        project_name: project_name.clone(),
+        name: name.clone(),
+        host: host.clone(),
+        https,
+        ..arguments.clone()
+    })
+    .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let stored = store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        DEPLOY_COMPOSE,
+        &encoded,
+        title,
+        summary,
+    )
+    .await?;
+
+    // Names only: a value may be a secret.
+    let names: Vec<&str> = env.iter().map(|(name, _)| name.as_str()).collect();
+    Ok(ActionDto {
+        added: Some(if names.is_empty() {
+            format!("{project_name}/{name}")
+        } else {
+            format!("{project_name}/{name}, sets {}", names.join(", "))
+        }),
+        ..stored
+    })
+}
+
+/// The port a compose application was created with, in the shape domain
+/// markers read a catalog template's ports in.
+pub(super) fn primary_port(
+    port: Option<i64>,
+    service: Option<&str>,
+) -> Vec<crate::deployment::compose::domain_markers::CatalogPort> {
+    port.and_then(|port| u16::try_from(port).ok())
+        .map(|container| crate::deployment::compose::domain_markers::CatalogPort {
+            container,
+            service: service.map(str::to_owned),
+            primary: true,
+        })
+        .into_iter()
+        .collect()
 }

@@ -6,9 +6,9 @@
 //! proposes rather than does - is stated once instead of once per tool.
 //!
 //! Reads run against the same query layer the UI uses, always scoped to the
-//! organization the caller is already authorised for. Values of environment
-//! variables are never returned, so a secret cannot be read back out through a
-//! conversation, and a value cannot smuggle a directive into the next turn.
+//! organization the caller is already authorised for. Environment variables
+//! come back with their values, so an agent can read a configuration before
+//! changing it; logs are still scrubbed of them (`redaction`).
 //!
 //! `exec` writes nothing. It validates and stores an action for a person to
 //! confirm; see `actions`.
@@ -71,7 +71,7 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
     ),
     (
         "environment",
-        "`environment` (variable NAMES only, never values; needs `application`)",
+        "`environment` (every variable with its value, as `variables`; needs `application`, optionally `scope`)",
     ),
     (
         "deployments",
@@ -110,7 +110,8 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
     ),
     (
         "compose",
-        "`compose` (the compose file; needs `application`, and only compose applications have one)",
+        "`compose` (the compose file as stored; needs `application`, and only compose applications have one. \
+        Read it before `set_compose_file` and send back the whole edited file)",
     ),
     (
         "templates",
@@ -147,7 +148,9 @@ const ACTION_HELP: &[(&str, &str)] = &[
     ),
     (
         "set_compose_file",
-        "`set_compose_file` (needs the complete new `compose`; send the whole file, never a fragment)",
+        "`set_compose_file` (needs the complete new `compose`; send the whole file, never a fragment. \
+        Data only in named volumes declared under top-level `volumes:`: host paths, binds and anonymous \
+        volumes are refused)",
     ),
     (
         "update_application",
@@ -156,12 +159,17 @@ const ACTION_HELP: &[(&str, &str)] = &[
     (
         "set_source",
         "`set_source` (how it is fetched and built: `git_provider_id`, `git_url`, `git_branch`, \
-        `build_method` (`railpack` or `docker`), `container_port`, `railpack_project_path`, `auto_deploy`, \
-        `watch_paths` - send only the fields that change, read `get source` first, and a repository with \
-        no branch deploys from `main`. To deploy a repository: `create_application`, then `set_source` with \
-        `git_url`, `build_method: railpack` and the `container_port` the app listens on - plus \
+        `build_method` (`railpack`, `docker` or `compose`), `container_port`, `railpack_project_path`, \
+        `dockerfile_path`, `compose_file_path`, `compose_public_service`, `auto_deploy`, `watch_paths` - send \
+        only the fields that change, read `get source` first, and a repository with no branch deploys from \
+        `main`. To deploy a repository: `create_application`, then `set_source` with `git_url` - plus \
         `git_provider_id` from `get git_providers` when the repository is private to a provider the \
-        organization has, or a public HTTPS `git_url` alone - then `redeploy`)",
+        organization has, or a public HTTPS `git_url` alone - then `redeploy`. When the user does not say \
+        how it builds, it is `railpack`. Before that `set_source`, ASK the user, never guess: the \
+        `container_port` the app listens on, and where it builds from - for `railpack` the folder of the \
+        app (`railpack_project_path`, `.` is the repository root), for `docker` the `dockerfile_path`, for \
+        `compose` the `compose_file_path` and the `compose_public_service` that serves the web traffic. \
+        Ask the same when changing `build_method`)",
     ),
     (
         "add_domain",
@@ -199,6 +207,21 @@ const ACTION_HELP: &[(&str, &str)] = &[
         user wrote, as an object), and `host` and `https` for a catalog template's domain. Read \
         `get template` first and ask the user for what it needs. Once confirmed it deploys; read \
         `get applications` until its `status` is `running` and tell the user)",
+    ),
+    (
+        "deploy_compose",
+        "`deploy_compose` (one confirmation for a whole Compose application written like a catalog template. \
+        First search `get templates` with `query` for the app: when the catalog has it, tell the user and ask \
+        whether to use the template (`create_from_template`) or their own compose. Then: \
+        needs `project` - an existing one, or a new one created with it - `name`, the whole `compose` file, \
+        and the container `port` the web service listens on; optionally `env` (the `.env` file as text, \
+        `KEY=VALUE` lines with `#` comments) and `host` and `https` for its domain. Write it like the catalog: \
+        `expose:` the port instead of `ports:`, `restart: unless-stopped`, data in named volumes declared under \
+        top-level `volumes:` (host paths, binds and anonymous volumes are refused), and every setting as `${VAR}` in the compose with its \
+        value in `env`. In `env`, `{{password_32}}`, `{{openssl_rand_32}}`, `{{base64_32}}` or `{{uuid_v4}}` \
+        generate a secret on confirm, and `{{url}}` / `{{domain}}` become the app's public address on every deploy \
+        (`{{url:SERVICE:PORT}}` for another service). Once confirmed it deploys; read `get applications` until \
+        its `status` is `running`. Change it later with `set_compose_file` and `set_environment_variable`)",
     ),
     (
         "deploy_static_site",
@@ -294,7 +317,7 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                 description: format!(
                     "{opening}`action` picks what: {}. \
                     `application` is required for every action except `create_application`, `create_project`, \
-                    `update_project`, `delete_project`, `deploy_static_site` and `create_from_template`, which take `project` instead \
+                    `update_project`, `delete_project`, `deploy_static_site`, `create_from_template` and `deploy_compose`, which take `project` instead \
                     (`create_project` takes neither). \
                     Always pass `reason`: it is the one line the user reads before deciding.",
                     help_for(capabilities::ACTIONS, ACTION_HELP)
@@ -311,13 +334,18 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                         "name": { "type": "string", "description": "Variable name, upper case with underscores." },
                         "value": { "type": "string" },
                         "scope": { "type": "string", "enum": ["runtime", "build"] },
-                        "compose": { "type": "string", "description": "The complete replacement compose file." },
+                        "compose": { "type": "string", "description": "The complete compose file." },
+                        "env": { "type": "string", "description": "`deploy_compose` only: the `.env` file as text, `KEY=VALUE` per line." },
+                        "use_own_compose": { "type": "boolean", "description": "`deploy_compose` only: true once the user chose their own compose over the catalog templates offered." },
                         "description": { "type": "string" },
                         "git_provider_id": { "type": "string", "description": "From `get git_providers`." },
                         "git_url": { "type": "string", "description": "Repository URL." },
                         "git_branch": { "type": "string", "description": "Defaults to `main` when a repository is set without one." },
-                        "railpack_project_path": { "type": "string", "description": "Directory inside the repository Railpack builds from." },
-                        "build_method": { "type": "string", "enum": ["railpack", "docker"], "description": "How a git deploy is built." },
+                        "railpack_project_path": { "type": "string", "description": "Directory inside the repository Railpack builds from; `.` is the root. Ask the user." },
+                        "dockerfile_path": { "type": "string", "description": "Dockerfile path inside the repository, e.g. `./Dockerfile`. Ask the user." },
+                        "compose_file_path": { "type": "string", "description": "Compose file path inside the repository, e.g. `./compose.yml`. Ask the user." },
+                        "compose_public_service": { "type": "string", "description": "The compose service that serves the web traffic, for `build_method: compose`." },
+                        "build_method": { "type": "string", "enum": ["railpack", "docker", "compose"], "description": "How a git deploy is built. `railpack` when the user does not say." },
                         "container_port": { "type": "integer", "description": "The port the built container listens on." },
                         "auto_deploy": { "type": "boolean", "description": "Redeploy on every push to the branch." },
                         "watch_paths": { "type": "string", "description": "Comma-separated path prefixes; a push only deploys if it touched one." },
@@ -524,6 +552,18 @@ async fn resolve_application(
             app.name.to_ascii_lowercase() == wanted || app.id.to_ascii_lowercase() == wanted
         })
         .collect();
+    // No exact name: one application whose name contains it, separators
+    // aside, is what was meant - `uptimekuma` for `uptime-kuma-x8k2ab3c`. Two
+    // or more stay a question.
+    if matches.is_empty() && !squash(&wanted).is_empty() {
+        let partial: Vec<_> = searched
+            .iter()
+            .filter(|(_, app)| squash(&app.name).contains(&squash(&wanted)))
+            .collect();
+        if partial.len() == 1 {
+            matches = partial;
+        }
+    }
 
     if matches.len() == 1 {
         let (summary, app) = matches.remove(0);
@@ -578,9 +618,10 @@ fn label(searched: &[&(ProjectSummary, ApplicationEntry)], application: &str) ->
 /// finds `static`. When nothing is close the whole (capped) list comes back:
 /// something to pick beats nothing at all.
 fn rank<'a>(wanted: &str, names: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let wanted = &squash(wanted);
     let mut scored: Vec<(usize, String)> = names
         .map(|name| {
-            let lowered = name.to_ascii_lowercase();
+            let lowered = squash(name);
             let score = if lowered.contains(wanted) || wanted.contains(&lowered) {
                 0
             } else {
@@ -609,6 +650,15 @@ fn rank<'a>(wanted: &str, names: impl Iterator<Item = &'a str>) -> Vec<String> {
     } else {
         close
     }
+}
+
+/// Lower case with separators dropped, so `uptimekuma` and `Uptime Kuma` both
+/// find `uptime-kuma-x8k2ab3c`, the name a catalog template is created with.
+fn squash(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// Levenshtein distance, two rows at a time. Small enough to keep here rather
@@ -768,18 +818,17 @@ async fn get(
                 Err(outcome) => return *outcome,
             };
             let scope = scope_of(arguments);
-            match deployment::environment(state, &resolved.target.application_id, &scope, false)
+            match deployment::environment(state, &resolved.target.application_id, &scope, true)
                 .await
             {
-                // Names only. A value is never returned by any resource.
                 Ok(variables) => ToolOutcome::data(json!({
                     "application": resolved.target.application_name,
                     "origin": resolved.origin,
                     "scope": scope,
-                    "names": variables
+                    "variables": variables
                         .into_iter()
-                        .map(|variable| variable.name)
-                        .collect::<Vec<_>>()
+                        .map(|variable| (variable.name, serde_json::Value::String(variable.value)))
+                        .collect::<serde_json::Map<_, _>>()
                 })),
                 Err(error) => ToolOutcome::failure(error.to_string()),
             }
@@ -950,9 +999,9 @@ async fn get(
                 Ok(content) => ToolOutcome::data(json!({
                     "application": resolved.target.application_name,
                     "origin": resolved.origin,
-                    // A compose file carries passwords in clear text, and it is
-                    // about to leave this machine.
-                    "compose": scrub(state, &resolved.target.application_id, &content).await,
+                    // Unscrubbed, like `environment`: a `[redacted]` read here
+                    // would be written back by the next `set_compose_file`.
+                    "compose": content,
                 })),
                 Err(error) => ToolOutcome::failure(format!(
                     "No compose file for `{}`: {error}",
@@ -1088,6 +1137,9 @@ async fn exec(
                     git_url: string_of(arguments, "git_url"),
                     git_branch: string_of(arguments, "git_branch"),
                     railpack_project_path: string_of(arguments, "railpack_project_path"),
+                    dockerfile_path: string_of(arguments, "dockerfile_path"),
+                    compose_file_path: string_of(arguments, "compose_file_path"),
+                    compose_public_service: string_of(arguments, "compose_public_service"),
                     build_method: string_of(arguments, "build_method"),
                     container_port: arguments.get("container_port").and_then(|v| v.as_i64()),
                     auto_deploy: arguments.get("auto_deploy").and_then(|v| v.as_bool()),
@@ -1281,6 +1333,11 @@ async fn project_action(
             from_template(state, organization_id, conversation_id, actor, arguments, reason).await,
         );
     }
+    if action == "deploy_compose" {
+        return Some(
+            compose_app(state, organization_id, conversation_id, actor, arguments, reason).await,
+        );
+    }
 
     if !matches!(
         action,
@@ -1469,6 +1526,50 @@ async fn from_template(
             }
             outcome
         }
+        Err(error) => ToolOutcome::failure(error.to_string()),
+    }
+}
+
+async fn compose_app(
+    state: &SharedState,
+    organization_id: &str,
+    conversation_id: &str,
+    actor: &AuthUser,
+    arguments: &serde_json::Value,
+    reason: Option<String>,
+) -> ToolOutcome {
+    let Some(compose) = string_of(arguments, "compose") else {
+        return ToolOutcome::failure("`compose` is required: the whole compose file");
+    };
+    let (target, project, server_id) =
+        match project_or_new(state, organization_id, arguments).await {
+            Ok(found) => found,
+            Err(outcome) => return *outcome,
+        };
+
+    match actions::propose_deploy_compose(
+        state,
+        conversation_id,
+        actor,
+        &target,
+        actions::ComposeApp {
+            project_name: project,
+            name: string_of(arguments, "name").unwrap_or_default(),
+            server_id,
+            compose,
+            env: string_of(arguments, "env").unwrap_or_default(),
+            port: arguments.get("port").and_then(|value| value.as_i64()),
+            host: string_of(arguments, "host"),
+            https: arguments.get("https").and_then(|value| value.as_bool()),
+            reason,
+        },
+    )
+    .await
+    {
+        Ok(action) => ToolOutcome::proposed(
+            action,
+            "Nothing is created yet. The user has to confirm this in Litepod; it deploys once confirmed.",
+        ),
         Err(error) => ToolOutcome::failure(error.to_string()),
     }
 }
@@ -2175,6 +2276,19 @@ mod tests {
     fn a_substring_beats_a_near_miss() {
         let names = ["gateway", "getaway-jobs"];
         assert_eq!(rank("gate", names.into_iter()).first().unwrap(), "gateway");
+    }
+
+    #[test]
+    fn separators_do_not_hide_a_catalog_name() {
+        let names = ["uptime-kuma-x8k2ab3c", "n8n-q1w2e3r4"];
+        assert_eq!(
+            rank("uptimekuma", names.into_iter()).first().unwrap(),
+            "uptime-kuma-x8k2ab3c"
+        );
+        assert_eq!(
+            rank("Uptime Kuma", names.into_iter()).first().unwrap(),
+            "uptime-kuma-x8k2ab3c"
+        );
     }
 
     #[test]
