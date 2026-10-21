@@ -42,7 +42,7 @@ services:
       HASH_SECRET: ${HASH_SECRET:?Set HASH_SECRET in apps/.env}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in apps/.env}
       # Unused on self-hosted (IS_CLOUD unset) — the register handler only checks
-      # Turnstile on the cloud path. Kept optional here for parity with install-cloud.sh.
+      # Turnstile on the cloud path. Kept optional here.
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       METRICS_USERNAME: ${METRICS_USERNAME:?Set METRICS_USERNAME in apps/.env}
       METRICS_PASSWORD: ${METRICS_PASSWORD:?Set METRICS_PASSWORD in apps/.env}

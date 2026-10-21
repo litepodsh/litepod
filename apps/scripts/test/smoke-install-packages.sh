@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Container smoke test for the package-resolution path shared by install.sh
-# and install-cloud.sh. Run inside a throwaway container as root:
+# Container smoke test for the package-resolution path in install.sh.
+# Run inside a throwaway container as root:
 #   podman run --rm -v "$PWD/scripts:/scripts:ro" fedora:latest \
 #       bash /scripts/test/smoke-install-packages.sh
 # Deliberately narrower than a full install.sh run: no compose stack, no

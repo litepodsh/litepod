@@ -9,12 +9,12 @@ Use the default stable channel for production releases, or choose alpha for buil
 ahead of stable:
 
 ```bash
-curl -fsSL https://rustfs.sebasgc.xyz/litepod/install.sh | bash
-curl -fsSL https://rustfs.sebasgc.xyz/litepod/install.sh | bash -s -- --alpha
+curl -fsSL https://litepod.sh/install.sh | bash
+curl -fsSL https://litepod.sh/install.sh | bash -s -- --alpha
 ```
 
 The corresponding removal script is published at
-`https://rustfs.sebasgc.xyz/litepod/uninstall.sh`.
+`https://litepod.sh/uninstall.sh`.
 
 Re-running the installer in the same channel repairs the stack while preserving its `.env`,
 database, and volumes. Changing channels is blocked to preserve data; use a new host instead, or
@@ -44,19 +44,6 @@ sudo bash scripts/install-staging.sh
 The installer prints detected CPU/RAM and, on small hosts, recommends a
 `Max concurrent builds` value for Settings → Build Configuration. See
 [README.md](README.md#staging--server-deploy-linux-only) for the full walkthrough.
-
-### Cloud edition (remote-only deployments)
-
-For a litepod control plane that never deploys workloads on its own host, use the
-cloud installer on a new Linux machine:
-
-```sh
-bash scripts/install-cloud.sh
-```
-
-It sets `IS_CLOUD=true`, keeps litepod's internal updater available, and requires a
-connected ready remote server before applications, databases, or templates can be created.
-It refuses to convert an existing standard installation; use a new host for cloud mode.
 
 ## Resource sizing
 

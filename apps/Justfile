@@ -290,8 +290,7 @@ _release-tag channel component:
 
     if [[ '{{channel}}' == stable ]]; then
         files=(podman-compose.yml podman-compose-staging.yml podman-compose-prod.yml
-               scripts/install.sh scripts/install-cloud.sh
-               scripts/test-install-channel.sh scripts/test-install-cloud.sh)
+               scripts/install.sh scripts/test-install-channel.sh)
         if ! git diff --quiet HEAD -- "${files[@]}"; then
             git commit -m "chore(release): ${tag}" -- "${files[@]}"
         else
@@ -361,12 +360,12 @@ _bump channel component version:
         rm -f "${file}.bak"
         echo "${file}: ${compose_key} -> ${version}"
     done
-    for file in scripts/install.sh scripts/install-cloud.sh; do
+    for file in scripts/install.sh; do
         sed -i.bak -E "s|^(readonly ${fallback}=)\"[^\"]*\"|\\1\"${version}\"|" "$file"
         rm -f "${file}.bak"
         echo "${file}: ${fallback} -> ${version}"
     done
-    for file in scripts/test-install-channel.sh scripts/test-install-cloud.sh; do
+    for file in scripts/test-install-channel.sh; do
         sed -i.bak -E "s|^(assert_eq) [^[:space:]]+ (\"\\\$\\{${fallback}\\}\")|\\1 ${version} \\2|" "$file"
         rm -f "${file}.bak"
     done
@@ -793,7 +792,6 @@ test-install-scripts:
     #!/usr/bin/env bash
     set -euo pipefail
     bash scripts/test-install-channel.sh
-    bash scripts/test-install-cloud.sh
     bash scripts/test-uninstall.sh
     bash scripts/test-distro.sh
 

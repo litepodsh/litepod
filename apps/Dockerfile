@@ -106,8 +106,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 # `postgres:17` fails to resolve. The API's own pre-pull step
 # (api/src/deployment/compose/pull.rs) always runs inside this container
 # against its local Podman, so it needs this drop-in too — same file and
-# contents as `configure_default_registry()` in scripts/install.sh /
-# install-cloud.sh and `install_default_registry()` in servers/setup.rs.
+# contents as `configure_default_registry()` in scripts/install.sh
+# and `install_default_registry()` in servers/setup.rs.
 RUN mkdir -p /etc/containers/registries.conf.d \
     && printf 'unqualified-search-registries = ["docker.io"]\n' \
         > /etc/containers/registries.conf.d/99-litepod-default-registry.conf

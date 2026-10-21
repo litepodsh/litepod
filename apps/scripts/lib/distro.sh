@@ -2,13 +2,13 @@
 # Shared distro-family detection and package-manager dispatch for litepod's
 # local installers.
 #
-# install.sh and install-cloud.sh are distributed standalone via
-# `curl | bash` and can't `source` a sibling file, so they each carry an
+# install.sh is distributed standalone via
+# `curl | bash` and can't `source` a sibling file, so it carries an
 # inline copy of the same four functions below, kept byte-for-byte in sync
 # with this file — THIS file is the canonical, tested copy. When adding a
 # distro family or a package: edit here first, run test-distro.sh, then copy
-# the same four function bodies verbatim into install.sh and install-cloud.sh
-# (search both for "BEGIN distro.sh sync"). install-staging.sh (always run
+# the same four function bodies verbatim into install.sh
+# (search for "BEGIN distro.sh sync"). install-staging.sh (always run
 # from a git clone) sources this file directly instead of carrying a copy.
 
 # distro_family: prints debian|fedora|arch to stdout and returns 0 on a

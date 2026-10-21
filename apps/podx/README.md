@@ -59,9 +59,8 @@ concurrent stable and alpha publications cannot silently replace each other's ch
 version label matches the requested tag before contacting Docker Hub. Pass `-- --no-cache` only
 when a clean rebuild is required; running `just clean` is not required before a release.
 Every successful release also uploads the current lifecycle scripts with signed S3 PUTs:
-`https://rustfs.sebasgc.xyz/litepod/install.sh` and
-`https://rustfs.sebasgc.xyz/litepod/install-cloud.sh` and
-`https://rustfs.sebasgc.xyz/litepod/uninstall.sh`. Either upload failing aborts the release
+`<S3_ENDPOINT>/<S3_BUCKET>/install.sh` and
+`<S3_ENDPOINT>/<S3_BUCKET>/uninstall.sh`. Either upload failing aborts the release
 before the channel manifest is published. Before announcing either channel, the release also
 publishes the app and core-service pins together in that channel's `version.json` object.
 Stable uses `LITEPOD_VERSION` and `CADDY_VERSION`; alpha uses

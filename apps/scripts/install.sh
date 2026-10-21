@@ -587,8 +587,8 @@ EOF
 	podman_user_run systemctl --user is-enabled --quiet litepod-stack.service
 }
 
-# BEGIN distro.sh sync — keep byte-for-byte identical to scripts/lib/distro.sh
-# and scripts/install-cloud.sh's copy. This script ships standalone via
+# BEGIN distro.sh sync — keep byte-for-byte identical to scripts/lib/distro.sh.
+# This script ships standalone via
 # `curl | bash` and can't source a sibling file.
 distro_family() {
 	local os_release_file="${DISTRO_OS_RELEASE_FILE:-/etc/os-release}" id='' id_like='' token

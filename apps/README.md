@@ -110,22 +110,6 @@ bash scripts/install.sh          # rootless, as yourself
 sudo bash scripts/install.sh     # prompts rootless/rootful
 ```
 
-### Cloud edition (remote-only deployments)
-
-Install the cloud edition on a new Linux host when litepod must manage only remote
-servers. Its control plane still uses litepod's built-in version updater, but applications,
-databases, and templates can be created only after a remote server has been connected and
-reaches **Ready**.
-
-```sh
-curl -fsSL https://litepod.sh/install-cloud.sh | bash
-# or from a checkout
-bash scripts/install-cloud.sh
-```
-
-The cloud installer writes `IS_CLOUD=true` and refuses to run over a standard installation.
-Cloud and standard installations cannot be converted; install cloud on a new host instead.
-
 The matching published uninstaller is available at
 `https://litepod.sh/uninstall.sh`:
 
@@ -135,7 +119,7 @@ curl -fsSL https://litepod.sh/uninstall.sh | bash
 
 It installs Podman/`podman-compose`/openssl if missing, generates `.env` with every
 secret auto-generated and the host's public IP auto-detected, resolves stable (or `--alpha`)
-from `https://rustfs.sebasgc.xyz/litepod/version.json`, pins the resulting immutable tag, and
+from `https://litepod.sh/version.json`, pins the resulting immutable tag, and
 starts the stack. Override the repository with `LITEPOD_IMAGE_REPO` and use
 `LITEPOD_VERSION_MANIFEST_URL` for a compatible custom manifest; the production installer does
 not accept a floating `LITEPOD_IMAGE_TAG` override. After it's up, log in and set the real domain

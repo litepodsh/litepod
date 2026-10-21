@@ -289,20 +289,19 @@ def test_release_recipe_verifies_compose_cli_before_registry_or_push() -> None:
 def test_lifecycle_upload_publishes_all_scripts_and_fails_closed() -> None:
     scratch, env, state = fixture()
     with scratch:
-        result = run(UPLOAD, env | {"FAKE_PUT_STATUSES": "200,200,200"})
+        result = run(UPLOAD, env | {"FAKE_PUT_STATUSES": "200,200"})
         assert result.returncode == 0, result.stderr
         calls = json.loads(state.read_text())
-        assert calls["puts"] == 3
+        assert calls["puts"] == 2
         joined = "\n".join(" ".join(args) for args in calls["put_args"])
         assert "https://objects.test/litepod/install.sh" in joined
-        assert "https://objects.test/litepod/install-cloud.sh" in joined
         assert "https://objects.test/litepod/uninstall.sh" in joined
 
     scratch, env, state = fixture()
     with scratch:
-        result = run(UPLOAD, env | {"FAKE_PUT_STATUSES": "200,200,500"})
+        result = run(UPLOAD, env | {"FAKE_PUT_STATUSES": "200,500"})
         assert result.returncode != 0
-        assert json.loads(state.read_text())["puts"] == 3
+        assert json.loads(state.read_text())["puts"] == 2
 
 
 def test_channel_tags_are_strictly_validated() -> None:

@@ -8,8 +8,7 @@
 //! the same file via a second connection.
 //!
 //! Self-hosted installs lose password-reset-by-email when `RESEND_API_KEY`
-//! is not configured (`install.sh` makes it optional, `install-cloud.sh`
-//! does not). Until that gap is closed upstream, the commands here are the
+//! is not configured (`install.sh` makes it optional). Until that gap is closed upstream, the commands here are the
 //! documented recovery path for the sysadmin account.
 
 pub mod change_email;
