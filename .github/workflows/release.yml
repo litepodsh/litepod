@@ -142,7 +142,6 @@ jobs:
           # while the cargo metadata call above was failing.
           prefix-key: v1-rust
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: taiki-e/install-action@v2
         if: matrix.arch == 'arm64'
