@@ -31,8 +31,8 @@ const DISCOVER_TTL_MS: u64 = 3_600_000;
 
 pub const INSTRUCTIONS: &str = "Litepod deploys and runs applications for this organization. \
     Use `get` to read; start with `resource: projects` when you have not seen a name yet. \
-    Use `exec` to change something: `start` and `stop` happen immediately, every other action \
-    is a proposal a person confirms in Litepod.";
+    Use `exec` to change something: every action happens immediately and returns its result. \
+    For `deploy_static_site`, send the site inline with `files` or `zip_base64` so it deploys in the same call.";
 
 #[derive(Debug, Deserialize)]
 pub struct Request {
@@ -108,7 +108,7 @@ pub fn initialize(requested: Option<&str>, version: &str) -> Value {
 /// The assistant's own tools, in its own order (deterministic, as the spec
 /// asks, so clients and prompt caches can reuse it).
 pub fn tools_list() -> Value {
-    let tools: Vec<Value> = tools::definitions_with(capabilities::MCP_DIRECT)
+    let tools: Vec<Value> = tools::definitions_with(capabilities::ACTIONS)
         .into_iter()
         .map(|definition| {
             let function = definition.function;
@@ -167,7 +167,7 @@ mod tests {
         let list = tools_list();
         let exec = list["tools"][1]["description"].as_str().unwrap();
         assert!(
-            exec.contains("`start` and `stop` happen immediately"),
+            exec.contains("Every action happens immediately"),
             "{exec}"
         );
         assert!(!exec.contains("This NEVER performs it"), "{exec}");

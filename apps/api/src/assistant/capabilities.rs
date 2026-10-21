@@ -65,6 +65,18 @@ pub fn mcp_direct(action: &str) -> bool {
     MCP_DIRECT.contains(&action)
 }
 
+/// Whether the MCP endpoint confirms this `exec` action itself, as the token's
+/// user, right after proposing it: every allowed action that does not already
+/// run directly. Nobody approves MCP changes in Litepod; the agent's own client
+/// asks its human before a tool call, and the audit log keeps every step.
+///
+/// Confirming goes through the same `actions::confirm` as a person's click, so
+/// validation and permissions are unchanged. A `deploy_static_site` whose site
+/// was not sent inline stays pending: there is nothing to apply until upload.
+pub fn mcp_auto_confirm(action: &str) -> bool {
+    action_allowed(action) && !mcp_direct(action)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +96,14 @@ mod tests {
         );
         assert!(!mcp_direct("redeploy"));
         assert!(!mcp_direct("delete_project"));
+    }
+
+    #[test]
+    fn mcp_confirms_every_allowed_action_it_does_not_run_directly() {
+        for action in ACTIONS {
+            assert_eq!(mcp_auto_confirm(action), !mcp_direct(action), "{action}");
+        }
+        assert!(!mcp_auto_confirm("run_shell"));
     }
 
     #[test]

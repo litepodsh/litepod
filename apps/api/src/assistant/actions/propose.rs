@@ -166,6 +166,20 @@ pub async fn propose_source(
     if arguments.git_branch.as_deref().is_some_and(str::is_empty) {
         arguments.git_branch = Some(DEFAULT_BRANCH.to_owned());
     }
+    if let Some(method) = arguments.build_method.as_deref()
+        && !matches!(method, "railpack" | "docker")
+    {
+        return Err(AppError::ValidationError(
+            "`build_method` must be `railpack` or `docker`".into(),
+        ));
+    }
+    if let Some(port) = arguments.container_port
+        && !(1..=65535).contains(&port)
+    {
+        return Err(AppError::ValidationError(
+            "`container_port` must be between 1 and 65535".into(),
+        ));
+    }
 
     let mut changes = Vec::new();
     let mut note = |label: &str, before: Option<&str>, after: Option<&str>| {
@@ -191,6 +205,11 @@ pub async fn propose_source(
         arguments.git_branch.as_deref(),
     );
     note(
+        "build",
+        Some(current.build_method.as_str()),
+        arguments.build_method.as_deref(),
+    );
+    note(
         "root path",
         Some(current.railpack_project_path.as_str()),
         arguments.railpack_project_path.as_deref(),
@@ -200,6 +219,11 @@ pub async fn propose_source(
         current.watch_paths.as_deref(),
         arguments.watch_paths.as_deref(),
     );
+    if let Some(port) = arguments.container_port
+        && current.container_port != Some(port)
+    {
+        changes.push(format!("port = {port}"));
+    }
     if let Some(auto_deploy) = arguments.auto_deploy
         && auto_deploy != current.auto_deploy
     {

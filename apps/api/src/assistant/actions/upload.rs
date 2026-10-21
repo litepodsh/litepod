@@ -90,6 +90,70 @@ pub async fn stage_upload(
     Ok(())
 }
 
+/// The upload route's own limit, so a site is refused the same either way.
+const MAX_SITE_BYTES: usize = 10 * 1024 * 1024;
+
+/// A site sent inside the tool call instead of to the upload URL, for an agent
+/// whose sandbox cannot reach this host: `zip_base64`, or `files` as path to
+/// text content, zipped here. `None` when the call carries neither.
+pub fn inline_site(arguments: &serde_json::Value) -> Result<Option<Vec<u8>>, AppError> {
+    use base64::Engine;
+    use std::io::{Cursor, Write};
+
+    if let Some(encoded) = arguments.get("zip_base64").and_then(|value| value.as_str()) {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded.trim())
+            .map_err(|error| AppError::ValidationError(format!("`zip_base64` is not base64: {error}")))?;
+        return sized(bytes).map(Some);
+    }
+    let Some(files) = arguments.get("files").and_then(|value| value.as_object()) else {
+        return Ok(None);
+    };
+    if !files.contains_key("index.html") {
+        return Err(AppError::ValidationError(
+            "`files` needs an `index.html` at the root".into(),
+        ));
+    }
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (path, content) in files {
+        let Some(content) = content.as_str() else {
+            return Err(AppError::ValidationError(format!(
+                "`files.{path}` must be the file's text"
+            )));
+        };
+        // Checked again when the site is unpacked; refusing here keeps a bad
+        // path from ever becoming a proposal.
+        if path.starts_with('/') || path.split(['/', '\\']).any(|part| part == "..") {
+            return Err(AppError::ValidationError(format!(
+                "`{path}` must be a relative path inside the site"
+            )));
+        }
+        zip.start_file(path.as_str(), options)
+            .map_err(|error| AppError::InternalError(error.to_string()))?;
+        zip.write_all(content.as_bytes())
+            .map_err(|error| AppError::InternalError(error.to_string()))?;
+    }
+    let bytes = zip
+        .finish()
+        .map_err(|error| AppError::InternalError(error.to_string()))?
+        .into_inner();
+    sized(bytes).map(Some)
+}
+
+fn sized(bytes: Vec<u8>) -> Result<Vec<u8>, AppError> {
+    if bytes.is_empty() {
+        return Err(AppError::ValidationError("The site is empty".into()));
+    }
+    if bytes.len() > MAX_SITE_BYTES {
+        return Err(AppError::ValidationError(
+            "The site is larger than 10 MB, the upload limit.".into(),
+        ));
+    }
+    Ok(bytes)
+}
+
 /// The staged site, as `(filename, bytes)`; `None` until the agent uploads.
 pub(super) async fn staged(state: &SharedState, action_id: &str) -> Option<(String, Vec<u8>)> {
     let dir = staging_dir(state, action_id);

@@ -42,4 +42,4 @@ pub use lifecycle::{confirm, list_for_conversation};
 
 pub use apply::reject;
 
-pub use upload::{stage_upload, upload_url};
+pub use upload::{inline_site, stage_upload, upload_url};

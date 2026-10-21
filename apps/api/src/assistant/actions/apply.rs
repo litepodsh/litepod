@@ -75,9 +75,15 @@ pub(super) async fn apply_source(
         .map_err(|error| AppError::InternalError(error.to_string()))?;
     let current = deployment::source::get(state, &stored.application_id).await?;
 
+    // A repository or a build method only means something to a git deploy.
+    let deploy_type = if arguments.git_url.is_some() || arguments.build_method.is_some() {
+        "git".to_owned()
+    } else {
+        current.deploy_type
+    };
     let request = crate::dtos::deployment::UpdateSourceRequest {
-        deploy_type: current.deploy_type,
-        build_method: current.build_method,
+        deploy_type,
+        build_method: arguments.build_method.unwrap_or(current.build_method),
         git_provider_id: arguments.git_provider_id.or(current.git_provider_id),
         git_url: arguments.git_url.or(current.git_url),
         git_branch: arguments.git_branch.or(current.git_branch),
@@ -86,7 +92,7 @@ pub(super) async fn apply_source(
         dockerfile_path: current.dockerfile_path,
         compose_file_path: current.compose_file_path,
         compose_public_service: current.compose_public_service,
-        container_port: current.container_port,
+        container_port: arguments.container_port.or(current.container_port),
         railpack_project_path: Some(
             arguments
                 .railpack_project_path

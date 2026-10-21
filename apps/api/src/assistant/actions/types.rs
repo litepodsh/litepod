@@ -130,6 +130,13 @@ pub struct SetSource {
     pub git_branch: Option<String>,
     #[serde(default)]
     pub railpack_project_path: Option<String>,
+    /// `railpack` or `docker`. Setting it, or a repository, makes the
+    /// application a git deploy.
+    #[serde(default)]
+    pub build_method: Option<String>,
+    /// The port the built container listens on; git deploys require one.
+    #[serde(default)]
+    pub container_port: Option<i64>,
     #[serde(default)]
     pub auto_deploy: Option<bool>,
     #[serde(default)]

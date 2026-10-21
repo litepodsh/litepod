@@ -16,7 +16,7 @@ use axum::{
 use serde_json::{Value, json};
 
 use crate::{
-    assistant::{capabilities, tools},
+    assistant::{actions, capabilities, tools},
     dtos::response::AppError,
     mcp::{self as server, direct, protocol, session},
     security::{
@@ -146,6 +146,40 @@ async fn call(state: &SharedState, org: &OrgScope, params: &Value) -> Result<Val
         &arguments.to_string(),
     )
     .await;
+
+    // Confirmed here, as the token's user, instead of waiting in the panel. A
+    // proposal that failed to store has no action and falls through, and so does
+    // a static site still waiting for its upload.
+    let uploaded = serde_json::from_str::<Value>(&outcome.result)
+        .ok()
+        .and_then(|result| result.get("uploaded").and_then(Value::as_bool))
+        .unwrap_or(false);
+    if name == tools::EXEC
+        && let Some(action) = arguments.get("action").and_then(Value::as_str)
+        && capabilities::mcp_auto_confirm(action)
+        && (action != "deploy_static_site" || uploaded)
+        && let Some(proposed) = outcome.action.as_ref()
+    {
+        let (result, is_error) =
+            match actions::confirm(state, &org.organization_id, &org.user, &proposed.id).await {
+                Ok(applied) => (
+                    json!({
+                        "done": true,
+                        "action": action,
+                        "action_id": applied.id,
+                        "title": applied.title,
+                        "status": applied.status,
+                    }),
+                    false,
+                ),
+                Err(error) => (
+                    json!({ "error": error.to_string(), "action_id": proposed.id }),
+                    true,
+                ),
+            };
+        return Ok(protocol::tool_result(result.to_string(), is_error));
+    }
+
     let is_error = serde_json::from_str::<Value>(&outcome.result)
         .ok()
         .is_some_and(|result| result.get("error").is_some());
@@ -289,16 +323,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn any_other_exec_is_a_proposal_under_the_mcp_conversation() {
+    async fn any_other_exec_is_confirmed_in_the_same_call() {
         let (router, path) = router("editor", true).await;
         let params = json!({
             "name": "exec",
-            "arguments": { "action": "redeploy", "application": "organization-a-app", "reason": "test" }
+            "arguments": { "action": "create_project", "name": "fresh", "reason": "test" }
         });
         let (_, reply) = send(&router, "organization-a", call(5, "tools/call", params)).await;
         assert_eq!(reply["result"]["isError"], false, "{reply}");
         let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("\"done\":true"), "{text}");
+        assert!(text.contains("\"status\":\"applied\""), "{text}");
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn a_static_site_without_its_upload_still_waits() {
+        let (router, path) = router("editor", true).await;
+        let params = json!({
+            "name": "exec",
+            "arguments": { "action": "deploy_static_site", "project": "fresh", "name": "site", "server": "organization-a-server", "reason": "test" }
+        });
+        let (_, reply) = send(&router, "organization-a", call(5, "tools/call", params)).await;
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("\"proposed\":true"), "{text}");
+        assert!(text.contains("upload_url"), "{text}");
         crate::testing::cleanup_database(&path);
     }
 

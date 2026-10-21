@@ -2,9 +2,10 @@
 //!
 //! Not a second tool system. `protocol` turns JSON-RPC into calls on
 //! `assistant::tools`, so `get` and `exec` mean the same thing here as in the
-//! in-app chat. The one difference is `capabilities::MCP_DIRECT`: `start` and
-//! `stop` run on the spot (`direct`), everything else is stored as a proposal
-//! under the caller's MCP conversation (`session`).
+//! in-app chat. The difference is that nothing waits for a person: `start` and
+//! `stop` run on the spot (`direct`), and every other action is stored as a
+//! proposal under the caller's MCP conversation (`session`) and confirmed in
+//! the same call (`capabilities::mcp_auto_confirm`).
 pub mod direct;
 pub mod protocol;
 pub mod session;

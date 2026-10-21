@@ -156,8 +156,12 @@ const ACTION_HELP: &[(&str, &str)] = &[
     (
         "set_source",
         "`set_source` (how it is fetched and built: `git_provider_id`, `git_url`, `git_branch`, \
-        `railpack_project_path`, `auto_deploy`, `watch_paths` - send only the fields that change, \
-        read `get source` first, and a repository with no branch deploys from `main`)",
+        `build_method` (`railpack` or `docker`), `container_port`, `railpack_project_path`, `auto_deploy`, \
+        `watch_paths` - send only the fields that change, read `get source` first, and a repository with \
+        no branch deploys from `main`. To deploy a repository: `create_application`, then `set_source` with \
+        `git_url`, `build_method: railpack` and the `container_port` the app listens on - plus \
+        `git_provider_id` from `get git_providers` when the repository is private to a provider the \
+        organization has, or a public HTTPS `git_url` alone - then `redeploy`)",
     ),
     (
         "add_domain",
@@ -201,8 +205,10 @@ const ACTION_HELP: &[(&str, &str)] = &[
         "`deploy_static_site` (one confirmation for the whole site: needs `project` - an existing \
         one, or a new one created with it - and `name`, optionally `host` and `https`. Returns an \
         `upload_url`: send the site there with `curl -T site.zip <upload_url>` (a ZIP with \
-        index.html at its root, or one HTML file, up to 10 MB) before the person confirms. Once confirmed it \
-        deploys; read `get applications` until its `status` is `running` and tell the user)",
+        index.html at its root, or one HTML file, up to 10 MB) before the person confirms. When the \
+        upload URL cannot be reached, send the site in the call instead: `files` (path to text content, \
+        with an `index.html`) or `zip_base64`. Once confirmed it deploys; read `get applications` until \
+        its `status` is `running` and tell the user)",
     ),
 ];
 
@@ -227,7 +233,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
 }
 
 /// The two tools, for a surface where `direct` actions run on the spot rather
-/// than being proposed (the MCP endpoint passes `capabilities::MCP_DIRECT`).
+/// than being proposed (the MCP endpoint passes every action: it confirms them itself).
 /// The in-app chat passes nothing, so its `exec` still says it never acts.
 pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
     let mut tools = Vec::new();
@@ -265,7 +271,10 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
         });
     }
     if !capabilities::ACTIONS.is_empty() {
-        let opening = if direct.is_empty() {
+        let opening = if capabilities::ACTIONS.iter().all(|action| direct.contains(action)) {
+            "Make a change. Every action happens immediately and returns its result, except a \
+            `deploy_static_site` sent without `files` or `zip_base64`, which waits for its upload. ".to_owned()
+        } else if direct.is_empty() {
             "Propose a change. This NEVER performs it: every action returns an id the user has to confirm in the panel, so say you have proposed it and never that it is done, live or deploying. ".to_owned()
         } else {
             let named: Vec<String> = direct.iter().map(|action| format!("`{action}`")).collect();
@@ -273,7 +282,7 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                 "Make a change. {} happen immediately and return their result. \
                 Every other action is only proposed: it returns an id the user has to confirm in Litepod, \
                 so say you have proposed it and never that it is done, live or deploying. ",
-                named.join(" and ")
+                named.join(", ")
             )
         };
         tools.push(ToolDefinition {
@@ -306,6 +315,8 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                         "git_url": { "type": "string", "description": "Repository URL." },
                         "git_branch": { "type": "string", "description": "Defaults to `main` when a repository is set without one." },
                         "railpack_project_path": { "type": "string", "description": "Directory inside the repository Railpack builds from." },
+                        "build_method": { "type": "string", "enum": ["railpack", "docker"], "description": "How a git deploy is built." },
+                        "container_port": { "type": "integer", "description": "The port the built container listens on." },
                         "auto_deploy": { "type": "boolean", "description": "Redeploy on every push to the branch." },
                         "watch_paths": { "type": "string", "description": "Comma-separated path prefixes; a push only deploys if it touched one." },
                         "environment": { "type": "string", "description": "Environment name or id. Defaults to the project's production environment." },
@@ -317,6 +328,8 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                         "port": { "type": "integer", "description": "The port this host fronts." },
                         "https": { "type": "boolean" },
                         "is_primary": { "type": "boolean", "description": "Make this the application's main URL." },
+                        "files": { "type": "object", "additionalProperties": { "type": "string" }, "description": "`deploy_static_site` only: the site inline, path to text content, with an `index.html` at the root." },
+                        "zip_base64": { "type": "string", "description": "`deploy_static_site` only: the site inline as a base64 ZIP with `index.html` at its root." },
                         "reason": { "type": "string", "description": "One line on why, shown to the user on the confirmation card." }
                     },
                     "required": ["action"],
@@ -1073,6 +1086,8 @@ async fn exec(
                     git_url: string_of(arguments, "git_url"),
                     git_branch: string_of(arguments, "git_branch"),
                     railpack_project_path: string_of(arguments, "railpack_project_path"),
+                    build_method: string_of(arguments, "build_method"),
+                    container_port: arguments.get("container_port").and_then(|v| v.as_i64()),
                     auto_deploy: arguments.get("auto_deploy").and_then(|v| v.as_bool()),
                     watch_paths: string_of(arguments, "watch_paths"),
                     reason,
@@ -1573,6 +1588,11 @@ async fn static_site(
     arguments: &serde_json::Value,
     reason: Option<String>,
 ) -> ToolOutcome {
+    // Parsed before anything is stored, so a broken payload proposes nothing.
+    let inline = match actions::inline_site(arguments) {
+        Ok(inline) => inline,
+        Err(error) => return ToolOutcome::failure(error.to_string()),
+    };
     let (target, project, server_id) =
         match project_or_new(state, organization_id, arguments).await {
             Ok(found) => found,
@@ -1597,6 +1617,20 @@ async fn static_site(
     .await
     {
         Ok((action, token)) => {
+            if let Some(bytes) = inline {
+                if let Err(error) = actions::stage_upload(state, &action.id, &token, &bytes).await {
+                    return ToolOutcome::failure(error.to_string());
+                }
+                let mut outcome = ToolOutcome::proposed(
+                    action,
+                    "The site is uploaded with the proposal. Tell the user to confirm it in Litepod.",
+                );
+                let mut result: serde_json::Value =
+                    serde_json::from_str(&outcome.result).unwrap_or_default();
+                result["uploaded"] = json!(true);
+                outcome.result = result.to_string();
+                return outcome;
+            }
             let upload_url = actions::upload_url(state, &action.id, &token).await;
             let mut outcome = ToolOutcome::proposed(
                 action,

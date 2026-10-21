@@ -1165,3 +1165,72 @@ async fn only_start_and_stop_are_lifecycle_proposals() {
     assert!(refused.is_err());
     cleanup_database(&path);
 }
+
+#[test]
+fn an_inline_site_is_zipped_and_checked() {
+    let files = serde_json::json!({ "files": { "index.html": "<!doctype html><p>hi</p>", "css/a.css": "p{}" } });
+    let bytes = super::inline_site(&files).unwrap().unwrap();
+    assert_eq!(crate::deployment::file_kind("site", &bytes).unwrap(), "zip");
+
+    assert!(super::inline_site(&serde_json::json!({})).unwrap().is_none());
+    assert!(super::inline_site(&serde_json::json!({ "files": { "a.html": "x" } })).is_err());
+    assert!(
+        super::inline_site(&serde_json::json!({ "files": { "index.html": "x", "../up.html": "x" } }))
+            .is_err()
+    );
+    assert!(super::inline_site(&serde_json::json!({ "zip_base64": "not base64!" })).is_err());
+}
+
+#[tokio::test]
+async fn a_public_repository_becomes_a_railpack_git_deploy() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+
+    let action = propose_source(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        SetSource {
+            git_url: Some("https://github.com/team/app.git".into()),
+            build_method: Some("railpack".into()),
+            container_port: Some(3000),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let added = action.added.as_deref().unwrap();
+    assert!(added.contains("build = railpack"), "{added}");
+    assert!(added.contains("port = 3000"), "{added}");
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    let source = deployment::source::get(&state, &target.application_id)
+        .await
+        .unwrap();
+    assert_eq!(source.deploy_type, "git");
+    assert_eq!(source.build_method, "railpack");
+    assert_eq!(source.container_port, Some(3000));
+    assert_eq!(source.git_branch.as_deref(), Some("main"));
+
+    assert!(
+        propose_source(
+            &state,
+            &chat,
+            &actor,
+            &target,
+            SetSource {
+                build_method: Some("nixpacks".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .is_err()
+    );
+
+    cleanup_database(&path);
+}
