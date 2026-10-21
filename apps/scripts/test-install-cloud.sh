@@ -32,7 +32,7 @@ assert_eq() {
 	fi
 }
 
-assert_eq v0.3.10 "${FALLBACK_LITEPOD_IMAGE_TAG}"
+assert_eq v0.3.11 "${FALLBACK_LITEPOD_IMAGE_TAG}"
 assert_eq 2.11.4 "${FALLBACK_CADDY_IMAGE_TAG}"
 assert_eq v2.0.2 "${FALLBACK_DRAGONFLY_IMAGE_TAG}"
 
