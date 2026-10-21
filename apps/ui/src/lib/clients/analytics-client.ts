@@ -62,6 +62,22 @@ export type Analytics = {
 	countries: CountryEntry[];
 	/** The 100 most recently seen client IPs. */
 	recent_visitors: VisitorEntry[];
+	/** Slowest by average response time, slowest first. */
+	slow_hosts: SlowEntry[];
+	slow_paths: SlowEntry[];
+	/** Organization view only. */
+	slow_applications: SlowEntry[];
+};
+
+export type SlowEntry = {
+	/** Host, path or application id, depending on the list. */
+	key: string;
+	/** The path's application (organization view, `slow_paths` only). */
+	application_id?: string;
+	requests: number;
+	avg_ms: number | null;
+	p95_ms: number | null;
+	max_ms: number | null;
 };
 
 export type CountryEntry = {

@@ -65,8 +65,23 @@ CREATE TABLE IF NOT EXISTS request_paths (
     path VARCHAR NOT NULL,
     requests BIGINT NOT NULL,
     errors BIGINT NOT NULL,
-    duration_sum_ms DOUBLE NOT NULL
+    duration_sum_ms DOUBLE NOT NULL,
+    -- Added after the table shipped; rows from before stay 0 (see the ALTERs below).
+    duration_max_ms DOUBLE DEFAULT 0,
+    lat_0 BIGINT DEFAULT 0, lat_1 BIGINT DEFAULT 0, lat_2 BIGINT DEFAULT 0,
+    lat_3 BIGINT DEFAULT 0, lat_4 BIGINT DEFAULT 0, lat_5 BIGINT DEFAULT 0,
+    lat_6 BIGINT DEFAULT 0, lat_7 BIGINT DEFAULT 0, lat_8 BIGINT DEFAULT 0
 );
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS duration_max_ms DOUBLE DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_0 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_1 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_2 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_3 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_4 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_5 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_6 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_7 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_8 BIGINT DEFAULT 0;
 -- Bounded per-minute top values of one request attribute (method, protocol, client, referrer).
 CREATE TABLE IF NOT EXISTS request_dimensions (
     ts TIMESTAMP NOT NULL,
@@ -131,6 +146,9 @@ const FLUSH_EVERY: Duration = Duration::from_secs(60);
 /// raise or move to a sketch if real top-N accuracy matters.
 const MAX_PATH_KEYS: usize = 20_000;
 const PATHS_PER_APP_MINUTE: usize = 20;
+/// Kept on top of the busiest paths: the slowest of the rest, so a rarely hit but slow
+/// endpoint still makes "slowest endpoints".
+const SLOW_PATHS_PER_APP_MINUTE: usize = 10;
 /// shortcut: per-minute cap on distinct visitors held in memory; past it a minute's
 /// unique count undercounts. Raise or switch to a sketch for very high traffic.
 const MAX_VISITOR_KEYS: usize = 100_000;
@@ -411,6 +429,8 @@ struct PathRollup {
     requests: i64,
     errors: i64,
     duration_sum_ms: f64,
+    duration_max_ms: f64,
+    latency: [i64; 9],
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -484,6 +504,42 @@ fn top_per_group<G: Eq + std::hash::Hash + Clone, K: Ord, V>(
     out
 }
 
+fn latency_bucket(duration_ms: f64) -> usize {
+    LATENCY_BOUNDS_MS
+        .iter()
+        .position(|bound| duration_ms <= *bound)
+        .unwrap_or(LATENCY_BOUNDS_MS.len() - 1)
+}
+
+/// Per application and minute: the [`PATHS_PER_APP_MINUTE`] busiest paths plus the
+/// [`SLOW_PATHS_PER_APP_MINUTE`] slowest (by max duration) of the rest.
+fn keep_paths(rows: impl Iterator<Item = (PathKey, PathRollup)>) -> Vec<(PathKey, PathRollup)> {
+    let mut groups: HashMap<(i64, Owner), Vec<(String, PathRollup)>> = HashMap::new();
+    for ((minute, owner, path), rollup) in rows {
+        groups
+            .entry((minute, owner))
+            .or_default()
+            .push((path, rollup));
+    }
+    let mut out = Vec::new();
+    for ((minute, owner), mut rows) in groups {
+        rows.sort_by(|a, b| b.1.requests.cmp(&a.1.requests).then(a.0.cmp(&b.0)));
+        let mut rest = rows.split_off(rows.len().min(PATHS_PER_APP_MINUTE));
+        rest.sort_by(|a, b| {
+            b.1.duration_max_ms
+                .total_cmp(&a.1.duration_max_ms)
+                .then(a.0.cmp(&b.0))
+        });
+        rest.truncate(SLOW_PATHS_PER_APP_MINUTE);
+        out.extend(
+            rows.into_iter()
+                .chain(rest)
+                .map(|(path, rollup)| ((minute, owner.clone(), path), rollup)),
+        );
+    }
+    out
+}
+
 impl Aggregator {
     fn record(&mut self, line: AccessLine, owner: Owner, server_id: Option<&str>) {
         let minute = line.ts_ms.div_euclid(MINUTE_MS) * MINUTE_MS;
@@ -502,10 +558,7 @@ impl Aggregator {
         rollup.bytes_in += line.bytes_in;
         rollup.duration_sum_ms += line.duration_ms;
         rollup.duration_max_ms = rollup.duration_max_ms.max(line.duration_ms);
-        let bucket = LATENCY_BOUNDS_MS
-            .iter()
-            .position(|bound| line.duration_ms <= *bound)
-            .unwrap_or(LATENCY_BOUNDS_MS.len() - 1);
+        let bucket = latency_bucket(line.duration_ms);
         rollup.latency[bucket] += 1;
         let error = i64::from(line.status >= 500);
 
@@ -552,17 +605,13 @@ impl Aggregator {
         path.requests += 1;
         path.errors += error;
         path.duration_sum_ms += line.duration_ms;
+        path.duration_max_ms = path.duration_max_ms.max(line.duration_ms);
+        path.latency[bucket] += 1;
     }
 
     /// Everything so far; partial minutes are fine because every query sums.
     fn drain(&mut self) -> Drained {
-        let paths = top_per_group(
-            self.paths
-                .drain()
-                .map(|((minute, owner, path), rollup)| ((minute, owner), path, rollup)),
-            PATHS_PER_APP_MINUTE,
-            |rollup| rollup.requests,
-        );
+        let paths = keep_paths(self.paths.drain());
         let dimensions = top_per_group(
             self.dimensions
                 .drain()
@@ -589,10 +638,7 @@ impl Aggregator {
                 })
                 .collect(),
             rollups: self.rollups.drain().collect(),
-            paths: paths
-                .into_iter()
-                .map(|((minute, owner), path, rollup)| ((minute, owner, path), rollup))
-                .collect(),
+            paths,
             dimensions: dimensions
                 .into_iter()
                 .map(|((minute, owner, dimension), value, counts)| {
@@ -668,6 +714,7 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
     appender.flush()?;
     let mut appender = conn.appender("request_paths")?;
     for ((minute, owner, path), r) in &batch.paths {
+        let l = &r.latency;
         appender.append_row(params![
             ts(*minute),
             owner.organization_id,
@@ -676,6 +723,16 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
             r.requests,
             r.errors,
             r.duration_sum_ms,
+            r.duration_max_ms,
+            l[0],
+            l[1],
+            l[2],
+            l[3],
+            l[4],
+            l[5],
+            l[6],
+            l[7],
+            l[8],
         ])?;
     }
     appender.flush()?;
@@ -804,6 +861,19 @@ pub struct TopEntry {
     pub avg_ms: Option<f64>,
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+pub struct SlowEntry {
+    /// Host, path or application id, depending on the list.
+    pub key: String,
+    /// The path's application (organization view, `slow_paths` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub application_id: Option<String>,
+    pub requests: i64,
+    pub avg_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+    pub max_ms: Option<f64>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct AnalyticsDto {
     pub range: AnalyticsRange,
@@ -825,6 +895,11 @@ pub struct AnalyticsDto {
     pub countries: Vec<CountryEntry>,
     /// The most recently seen client IPs.
     pub recent_visitors: Vec<VisitorEntry>,
+    /// Slowest by average response time, slowest first.
+    pub slow_hosts: Vec<SlowEntry>,
+    pub slow_paths: Vec<SlowEntry>,
+    /// Organization view only.
+    pub slow_applications: Vec<SlowEntry>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -927,6 +1002,9 @@ fn analytics(
         referrers: Vec::new(),
         countries: Vec::new(),
         recent_visitors: Vec::new(),
+        slow_hosts: Vec::new(),
+        slow_paths: Vec::new(),
+        slow_applications: Vec::new(),
     };
     if applications.is_empty() {
         return Ok(dto);
@@ -1153,6 +1231,42 @@ fn analytics(
             })
         })?
         .collect::<duckdb::Result<_>>()?;
+
+    // Grouped by application too, so the same path in two apps stays two rows.
+    let slowest = |table: &str, column: &str, with_app: bool| -> duckdb::Result<Vec<SlowEntry>> {
+        let mut statement = conn.prepare(&format!(
+            "SELECT {column}, application_id, sum(requests),
+                    sum(duration_sum_ms) / sum(requests) AS avg_ms, max(duration_max_ms),
+                    sum(lat_0), sum(lat_1), sum(lat_2), sum(lat_3), sum(lat_4),
+                    sum(lat_5), sum(lat_6), sum(lat_7), sum(lat_8)
+             FROM {table} WHERE {filter}
+             GROUP BY {column}, application_id
+             ORDER BY avg_ms DESC NULLS LAST, {column} LIMIT {TOP_LIMIT}"
+        ))?;
+        statement
+            .query_map(params_from_iter(values.iter()), |row| {
+                let max_ms: Option<f64> = row.get(4)?;
+                let mut latency = [0i64; 9];
+                for (index, slot) in latency.iter_mut().enumerate() {
+                    *slot = row.get::<_, Option<i64>>(5 + index)?.unwrap_or(0);
+                }
+                Ok(SlowEntry {
+                    key: row.get(0)?,
+                    application_id: with_app.then(|| row.get(1)).transpose()?,
+                    requests: row.get(2)?,
+                    avg_ms: row.get(3)?,
+                    // Path rows from before the max and histogram columns carry 0s.
+                    p95_ms: p95(&latency, max_ms.unwrap_or(0.0)),
+                    max_ms: max_ms.filter(|max| *max > 0.0),
+                })
+            })?
+            .collect()
+    };
+    dto.slow_hosts = slowest("request_rollups", "host", false)?;
+    dto.slow_paths = slowest("request_paths", "path", with_applications)?;
+    if with_applications {
+        dto.slow_applications = slowest("request_rollups", "application_id", false)?;
+    }
     Ok(dto)
 }
 
@@ -1772,6 +1886,107 @@ mod tests {
     }
 
     #[test]
+    fn ranks_slowest_hosts_and_paths() {
+        let conn = db();
+        let base = (NOW - 10 * MINUTE_MS) / MINUTE_MS * MINUTE_MS;
+        let mut aggregator = Aggregator::default();
+        // More busy paths than a minute keeps; the one slow, rare path must survive.
+        for index in 0..PATHS_PER_APP_MINUTE + 5 {
+            for _ in 0..3 {
+                aggregator.record(
+                    line(base, "a.test", &format!("/busy/{index}"), 200, 5.0),
+                    owner("app"),
+                    None,
+                );
+            }
+        }
+        aggregator.record(
+            line(base, "a.test", "/report", 200, 1_800.0),
+            owner("app"),
+            None,
+        );
+        aggregator.record(
+            line(base, "b.test", "/report", 200, 300.0),
+            owner("other"),
+            None,
+        );
+        aggregator.record(line(base, "b.test", "/", 200, 100.0), owner("other"), None);
+        insert(&conn, &aggregator.drain()).unwrap();
+
+        let dto = analytics(
+            &conn,
+            "org",
+            &["app".into()],
+            AnalyticsRange::Hour,
+            false,
+            NOW,
+        )
+        .unwrap();
+        let slow = &dto.slow_paths[0];
+        assert_eq!(slow.key, "/report");
+        assert_eq!(slow.application_id, None);
+        assert_eq!((slow.requests, slow.max_ms), (1, Some(1_800.0)));
+        assert_eq!(slow.p95_ms, Some(1_800.0));
+        assert_eq!(dto.slow_hosts.len(), 1);
+        assert!(dto.slow_applications.is_empty());
+
+        let org = analytics(
+            &conn,
+            "org",
+            &["app".into(), "other".into()],
+            AnalyticsRange::Hour,
+            true,
+            NOW,
+        )
+        .unwrap();
+        let paths: Vec<_> = org
+            .slow_paths
+            .iter()
+            .take(3)
+            .map(|entry| (entry.key.as_str(), entry.application_id.as_deref()))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                ("/report", Some("app")),
+                ("/report", Some("other")),
+                ("/", Some("other"))
+            ]
+        );
+        let hosts: Vec<_> = org
+            .slow_hosts
+            .iter()
+            .map(|entry| entry.key.as_str())
+            .collect();
+        assert_eq!(hosts, ["b.test", "a.test"]);
+        assert_eq!(org.slow_applications[0].key, "other");
+    }
+
+    #[test]
+    fn adds_path_latency_columns_to_an_old_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE request_paths (ts TIMESTAMP NOT NULL, organization_id VARCHAR NOT NULL,
+                application_id VARCHAR NOT NULL, path VARCHAR NOT NULL, requests BIGINT NOT NULL,
+                errors BIGINT NOT NULL, duration_sum_ms DOUBLE NOT NULL);
+             INSERT INTO request_paths VALUES (TIMESTAMP '2026-01-01', 'org', 'app', '/', 1, 0, 5);",
+        )
+        .unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        let mut aggregator = Aggregator::default();
+        aggregator.record(line(NOW, "a.test", "/x", 200, 5.0), owner("app"), None);
+        insert(&conn, &aggregator.drain()).unwrap();
+        let old: (f64, i64) = conn
+            .query_row(
+                "SELECT duration_max_ms, lat_0 FROM request_paths WHERE path = '/'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(old, (0.0, 0));
+    }
+
+    #[test]
     fn p95_reads_the_histogram() {
         assert_eq!(p95(&[0; 9], 0.0), None);
         // 100 requests: 94 under 10ms, 6 in the 250ms bucket.
@@ -1916,7 +2131,7 @@ mod tests {
     #[test]
     fn paths_are_capped_per_application_minute() {
         let mut aggregator = Aggregator::default();
-        for index in 0..(PATHS_PER_APP_MINUTE + 5) {
+        for index in 0..(PATHS_PER_APP_MINUTE + SLOW_PATHS_PER_APP_MINUTE + 5) {
             aggregator.record(
                 line(NOW, "a.test", &format!("/p{index}"), 200, 1.0),
                 owner("app"),
@@ -1925,7 +2140,10 @@ mod tests {
         }
         let batch = aggregator.drain();
         assert_eq!(batch.rollups.len(), 1);
-        assert_eq!(batch.paths.len(), PATHS_PER_APP_MINUTE);
+        assert_eq!(
+            batch.paths.len(),
+            PATHS_PER_APP_MINUTE + SLOW_PATHS_PER_APP_MINUTE
+        );
     }
 
     #[test]
