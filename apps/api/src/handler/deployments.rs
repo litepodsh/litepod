@@ -669,7 +669,13 @@ pub async fn download_artifact_handler(
             "attachment; filename=\"{}\"",
             filename
                 .chars()
-                .map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' { c } else { '_' })
+                .map(
+                    |c| if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' {
+                        c
+                    } else {
+                        '_'
+                    }
+                )
                 .collect::<String>()
         ))
         .map_err(|error| AppError::InternalError(error.to_string()))?,

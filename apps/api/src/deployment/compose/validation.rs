@@ -77,7 +77,12 @@ pub fn unnamed_mounts_in_compose(content: &str) -> Vec<String> {
     let declared: Vec<&str> = document
         .get("volumes")
         .and_then(serde_yaml::Value::as_mapping)
-        .map(|volumes| volumes.keys().filter_map(serde_yaml::Value::as_str).collect())
+        .map(|volumes| {
+            volumes
+                .keys()
+                .filter_map(serde_yaml::Value::as_str)
+                .collect()
+        })
         .unwrap_or_default();
     let Some(services) = document
         .get("services")

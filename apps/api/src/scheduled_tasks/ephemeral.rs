@@ -350,14 +350,20 @@ mod tests {
     #[test]
     fn info_field_reads_named_value() {
         let info = "# Server\r\nredis_version:7.4.0\r\ndragonfly_version:df-v1.39.0\r\n# Memory\r\nused_memory:1024\r\n";
-        assert_eq!(info_field(info, "dragonfly_version").as_deref(), Some("df-v1.39.0"));
+        assert_eq!(
+            info_field(info, "dragonfly_version").as_deref(),
+            Some("df-v1.39.0")
+        );
         assert_eq!(info_field(info, "used_memory").as_deref(), Some("1024"));
         assert_eq!(info_field(info, "used_memory_peak"), None);
     }
 
     #[test]
     fn key_prefix_groups_litepod_keys() {
-        assert_eq!(key_prefix("litepod:rate-limit:global:1.2.3.4"), "rate-limit");
+        assert_eq!(
+            key_prefix("litepod:rate-limit:global:1.2.3.4"),
+            "rate-limit"
+        );
         assert_eq!(key_prefix("litepod:login:1.2.3.4:failures"), "login");
         assert_eq!(key_prefix("other"), "other");
         assert_eq!(key_prefix("litepod:"), "litepod:");

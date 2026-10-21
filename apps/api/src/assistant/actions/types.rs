@@ -334,9 +334,7 @@ impl ActionTarget {
             // so a create has no page yet and a delete's page is about to stop
             // existing - and a rename is read on the list anyway.
             CREATE_PROJECT | UPDATE_PROJECT | DELETE_PROJECT | DEPLOY_STATIC_SITE
-            | CREATE_FROM_TEMPLATE | DEPLOY_COMPOSE => {
-                "/projects".into()
-            }
+            | CREATE_FROM_TEMPLATE | DEPLOY_COMPOSE => "/projects".into(),
             // The application does not exist yet, so the environment it lands
             // in is the closest page there is.
             CREATE_APPLICATION => format!(

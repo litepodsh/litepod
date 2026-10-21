@@ -103,7 +103,9 @@ pub fn inline_site(arguments: &serde_json::Value) -> Result<Option<Vec<u8>>, App
     if let Some(encoded) = arguments.get("zip_base64").and_then(|value| value.as_str()) {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded.trim())
-            .map_err(|error| AppError::ValidationError(format!("`zip_base64` is not base64: {error}")))?;
+            .map_err(|error| {
+                AppError::ValidationError(format!("`zip_base64` is not base64: {error}"))
+            })?;
         return sized(bytes).map(Some);
     }
     let Some(files) = arguments.get("files").and_then(|value| value.as_object()) else {

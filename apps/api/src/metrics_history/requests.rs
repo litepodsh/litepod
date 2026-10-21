@@ -30,7 +30,7 @@ use duckdb::{Connection, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
-use super::with_db;
+use super::{geo::Geo, with_db};
 use crate::{
     dtos::response::{AppError, ok},
     security::authz::{
@@ -84,14 +84,33 @@ CREATE TABLE IF NOT EXISTS request_visitors (
     organization_id VARCHAR NOT NULL,
     application_id VARCHAR NOT NULL,
     visitor BIGINT NOT NULL
+);
+-- One row per (minute, application, client IP, browser, OS), bounded per minute.
+-- Unlike request_visitors this keeps the IP itself, plus where it geolocates to.
+CREATE TABLE IF NOT EXISTS request_clients (
+    ts TIMESTAMP NOT NULL,
+    organization_id VARCHAR NOT NULL,
+    application_id VARCHAR NOT NULL,
+    ip VARCHAR NOT NULL,
+    -- NULL for bots and scripts, like request_visitors.
+    visitor BIGINT,
+    client VARCHAR NOT NULL,
+    os VARCHAR NOT NULL,
+    country VARCHAR,
+    region VARCHAR,
+    city VARCHAR,
+    requests BIGINT NOT NULL,
+    errors BIGINT NOT NULL,
+    bytes_out BIGINT NOT NULL
 );";
 
 /// Tables `apply_retention` prunes alongside `container_samples`.
-pub const TABLES: [&str; 4] = [
+pub const TABLES: [&str; 5] = [
     "request_rollups",
     "request_paths",
     "request_dimensions",
     "request_visitors",
+    "request_clients",
 ];
 
 /// Upper bounds (ms) of the latency histogram columns `lat_0..lat_8`; the last is open.
@@ -115,6 +134,10 @@ const PATHS_PER_APP_MINUTE: usize = 20;
 /// shortcut: per-minute cap on distinct visitors held in memory; past it a minute's
 /// unique count undercounts. Raise or switch to a sketch for very high traffic.
 const MAX_VISITOR_KEYS: usize = 100_000;
+/// Client IPs kept per application and minute, busiest first.
+const CLIENTS_PER_APP_MINUTE: usize = 200;
+/// Rows in the "recent visitors" list.
+const RECENT_VISITORS: usize = 100;
 const DIMENSIONS: [&str; 4] = ["method", "protocol", "client", "referrer"];
 const METHODS: [&str; 7] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const MAX_PATH_LEN: usize = 160;
@@ -199,6 +222,12 @@ struct AccessLine {
     referrer: Option<String>,
     /// Salted hash of (day, client IP, User-Agent); None for bots and scripts.
     visitor: Option<i64>,
+    /// Client IP as Caddy resolved it (trusted proxies honored).
+    ip: Option<String>,
+    /// See [`os_family`].
+    os: &'static str,
+    /// Filled in by `ingest`, once the host is known to belong to an application.
+    geo: Geo,
 }
 
 /// Coarse client from a User-Agent. Order matters: Edge and Opera also say Chrome,
@@ -238,6 +267,30 @@ fn client_family(user_agent: &str) -> &'static str {
         "chrome"
     } else if ua.contains("safari/") {
         "safari"
+    } else {
+        "other"
+    }
+}
+
+/// Coarse operating system from a User-Agent. iOS and Android before macOS and Linux,
+/// whose tokens their User-Agents also carry.
+fn os_family(user_agent: &str) -> &'static str {
+    let ua = user_agent.to_ascii_lowercase();
+    let has = |needles: &[&str]| needles.iter().any(|needle| ua.contains(needle));
+    if ua.is_empty() {
+        "unknown"
+    } else if has(&["iphone", "ipad", "ipod"]) {
+        "ios"
+    } else if ua.contains("android") {
+        "android"
+    } else if ua.contains("windows") {
+        "windows"
+    } else if ua.contains("cros") {
+        "chromeos"
+    } else if has(&["macintosh", "mac os x"]) {
+        "macos"
+    } else if has(&["linux", "x11"]) {
+        "linux"
     } else {
         "other"
     }
@@ -331,6 +384,9 @@ fn parse_line(line: &str, now_ms: i64) -> Option<AccessLine> {
         client,
         referrer,
         visitor,
+        ip: ip.map(str::to_owned),
+        os: os_family(user_agent),
+        geo: Geo::default(),
     })
 }
 
@@ -367,6 +423,16 @@ type RollupKey = (i64, Owner, Option<String>, String, i64);
 type PathKey = (i64, Owner, String);
 type DimensionKey = (i64, Owner, &'static str, String);
 type VisitorKey = (i64, Owner, i64);
+type ClientKey = (i64, Owner, String, &'static str, &'static str);
+
+#[derive(Debug, Default, Clone, PartialEq)]
+struct ClientRollup {
+    visitor: Option<i64>,
+    geo: Geo,
+    requests: i64,
+    errors: i64,
+    bytes_out: i64,
+}
 
 #[derive(Debug, Default)]
 struct Drained {
@@ -374,6 +440,7 @@ struct Drained {
     paths: Vec<(PathKey, PathRollup)>,
     dimensions: Vec<(DimensionKey, Counts)>,
     visitors: Vec<VisitorKey>,
+    clients: Vec<(ClientKey, ClientRollup)>,
 }
 
 impl Drained {
@@ -382,6 +449,7 @@ impl Drained {
             && self.paths.is_empty()
             && self.dimensions.is_empty()
             && self.visitors.is_empty()
+            && self.clients.is_empty()
     }
 }
 
@@ -391,6 +459,7 @@ struct Aggregator {
     paths: HashMap<PathKey, PathRollup>,
     dimensions: HashMap<DimensionKey, Counts>,
     visitors: HashSet<VisitorKey>,
+    clients: HashMap<ClientKey, ClientRollup>,
 }
 
 /// The `limit` busiest rows of each group, ties broken by key.
@@ -461,6 +530,19 @@ impl Aggregator {
         {
             self.visitors.insert((minute, owner.clone(), visitor));
         }
+        if let Some(ip) = line.ip {
+            let key = (minute, owner.clone(), ip, line.client, line.os);
+            if self.clients.len() < MAX_VISITOR_KEYS || self.clients.contains_key(&key) {
+                let client = self.clients.entry(key).or_insert_with(|| ClientRollup {
+                    visitor: line.visitor,
+                    geo: line.geo,
+                    ..Default::default()
+                });
+                client.requests += 1;
+                client.errors += error;
+                client.bytes_out += line.bytes_out;
+            }
+        }
 
         let key = (minute, owner, line.path);
         if self.paths.len() >= MAX_PATH_KEYS && !self.paths.contains_key(&key) {
@@ -490,7 +572,22 @@ impl Aggregator {
             PATHS_PER_APP_MINUTE,
             |counts| counts.requests,
         );
+        let clients = top_per_group(
+            self.clients
+                .drain()
+                .map(|((minute, owner, ip, client, os), rollup)| {
+                    ((minute, owner), (ip, client, os), rollup)
+                }),
+            CLIENTS_PER_APP_MINUTE,
+            |rollup| rollup.requests,
+        );
         Drained {
+            clients: clients
+                .into_iter()
+                .map(|((minute, owner), (ip, client, os), rollup)| {
+                    ((minute, owner, ip, client, os), rollup)
+                })
+                .collect(),
             rollups: self.rollups.drain().collect(),
             paths: paths
                 .into_iter()
@@ -512,7 +609,7 @@ static AGGREGATOR: LazyLock<Mutex<Aggregator>> = LazyLock::new(Mutex::default);
 static HOSTS: LazyLock<RwLock<HashMap<String, Owner>>> = LazyLock::new(RwLock::default);
 
 fn ingest(line: &str, now_ms: i64, server_id: Option<&str>) {
-    let Some(line) = parse_line(line, now_ms) else {
+    let Some(mut line) = parse_line(line, now_ms) else {
         return;
     };
     // Unknown hosts (the console itself, scanners) are dropped here so memory stays bounded.
@@ -524,6 +621,9 @@ fn ingest(line: &str, now_ms: i64, server_id: Option<&str>) {
     else {
         return;
     };
+    if let Some(ip) = &line.ip {
+        line.geo = super::geo::lookup(ip);
+    }
     AGGREGATOR
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -599,6 +699,25 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
             owner.organization_id,
             owner.application_id,
             visitor,
+        ])?;
+    }
+    appender.flush()?;
+    let mut appender = conn.appender("request_clients")?;
+    for ((minute, owner, ip, client, os), r) in &batch.clients {
+        appender.append_row(params![
+            ts(*minute),
+            owner.organization_id,
+            owner.application_id,
+            ip,
+            r.visitor,
+            client,
+            os,
+            r.geo.country,
+            r.geo.region,
+            r.geo.city,
+            r.requests,
+            r.errors,
+            r.bytes_out,
         ])?;
     }
     appender.flush()
@@ -702,6 +821,39 @@ pub struct AnalyticsDto {
     pub clients: Vec<TopEntry>,
     /// Referer hosts other than the site itself.
     pub referrers: Vec<TopEntry>,
+    /// Every country with traffic, busiest first.
+    pub countries: Vec<CountryEntry>,
+    /// The most recently seen client IPs.
+    pub recent_visitors: Vec<VisitorEntry>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct CountryEntry {
+    /// ISO 3166-1 alpha-2.
+    pub code: String,
+    pub requests: i64,
+    /// Distinct non-bot visitors (unique per day).
+    pub visitors: i64,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct VisitorEntry {
+    pub ip: String,
+    /// Organization view only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub application_id: Option<String>,
+    pub country: Option<String>,
+    pub region: Option<String>,
+    pub city: Option<String>,
+    /// Latest browser family seen from this IP; see `clients`.
+    pub client: String,
+    pub os: String,
+    pub requests: i64,
+    pub errors: i64,
+    pub bytes_out: i64,
+    /// Epoch milliseconds (minute precision).
+    pub first_seen: i64,
+    pub last_seen: i64,
 }
 
 /// ponytail: p95 from a fixed 9-bucket histogram, reported as the bucket's upper bound
@@ -773,6 +925,8 @@ fn analytics(
         protocols: Vec::new(),
         clients: Vec::new(),
         referrers: Vec::new(),
+        countries: Vec::new(),
+        recent_visitors: Vec::new(),
     };
     if applications.is_empty() {
         return Ok(dto);
@@ -957,6 +1111,48 @@ fn analytics(
     dto.protocols = dimension("protocol")?;
     dto.clients = dimension("client")?;
     dto.referrers = dimension("referrer")?;
+    drop(statement);
+
+    let mut statement = conn.prepare(&format!(
+        "SELECT country, sum(requests) AS n, count(DISTINCT visitor) FROM request_clients
+         WHERE {filter} AND country IS NOT NULL
+         GROUP BY country ORDER BY n DESC, country"
+    ))?;
+    dto.countries = statement
+        .query_map(params_from_iter(values.iter()), |row| {
+            Ok(CountryEntry {
+                code: row.get(0)?,
+                requests: row.get(1)?,
+                visitors: row.get(2)?,
+            })
+        })?
+        .collect::<duckdb::Result<_>>()?;
+
+    let mut statement = conn.prepare(&format!(
+        "SELECT ip, application_id, arg_max(country, ts), arg_max(region, ts), arg_max(city, ts),
+                arg_max(client, ts), arg_max(os, ts), sum(requests), sum(errors), sum(bytes_out),
+                epoch_ms(min(ts)), epoch_ms(max(ts)) AS last_seen
+         FROM request_clients WHERE {filter}
+         GROUP BY ip, application_id ORDER BY last_seen DESC, ip LIMIT {RECENT_VISITORS}"
+    ))?;
+    dto.recent_visitors = statement
+        .query_map(params_from_iter(values.iter()), |row| {
+            Ok(VisitorEntry {
+                ip: row.get(0)?,
+                application_id: with_applications.then(|| row.get(1)).transpose()?,
+                country: row.get(2)?,
+                region: row.get(3)?,
+                city: row.get(4)?,
+                client: row.get(5)?,
+                os: row.get(6)?,
+                requests: row.get(7)?,
+                errors: row.get(8)?,
+                bytes_out: row.get(9)?,
+                first_seen: row.get(10)?,
+                last_seen: row.get(11)?,
+            })
+        })?
+        .collect::<duckdb::Result<_>>()?;
     Ok(dto)
 }
 
@@ -1350,7 +1546,127 @@ mod tests {
             client: "chrome",
             referrer: None,
             visitor: Some(1),
+            ip: Some("1.2.3.4".into()),
+            os: "macos",
+            geo: Geo {
+                country: Some("MX".into()),
+                region: Some("Jalisco".into()),
+                city: Some("Guadalajara".into()),
+            },
         }
+    }
+
+    #[test]
+    fn classifies_operating_systems() {
+        for (ua, os) in [
+            (
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1",
+                "ios",
+            ),
+            (
+                "Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/130.0 Mobile",
+                "android",
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0",
+                "windows",
+            ),
+            (
+                "Mozilla/5.0 (X11; CrOS x86_64 16002.0.0) Chrome/130.0",
+                "chromeos",
+            ),
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1",
+                "macos",
+            ),
+            (
+                "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Firefox/131.0",
+                "linux",
+            ),
+            ("curl/8.7.1", "other"),
+            ("", "unknown"),
+        ] {
+            assert_eq!(os_family(ua), os, "{ua}");
+        }
+    }
+
+    #[test]
+    fn reports_countries_and_recent_visitors() {
+        let conn = db();
+        let base = (NOW - 10 * MINUTE_MS) / MINUTE_MS * MINUTE_MS;
+        let mut aggregator = Aggregator::default();
+        aggregator.record(line(base, "a.test", "/", 200, 5.0), owner("app"), None);
+        aggregator.record(
+            line(base + MINUTE_MS, "a.test", "/", 502, 5.0),
+            owner("app"),
+            None,
+        );
+        let mut curl = line(base + 2 * MINUTE_MS, "a.test", "/api", 200, 5.0);
+        curl.ip = Some("9.9.9.9".into());
+        curl.client = "tool";
+        curl.visitor = None;
+        curl.geo = Geo {
+            country: Some("DE".into()),
+            ..Default::default()
+        };
+        aggregator.record(curl, owner("app"), None);
+        let mut private = line(base, "a.test", "/", 200, 5.0);
+        private.ip = Some("10.0.0.2".into());
+        private.geo = Geo::default();
+        aggregator.record(private, owner("app"), None);
+        aggregator.record(line(base, "b.test", "/", 200, 5.0), owner("other"), None);
+        insert(&conn, &aggregator.drain()).unwrap();
+
+        let dto = analytics(
+            &conn,
+            "org",
+            &["app".into()],
+            AnalyticsRange::Hour,
+            false,
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(
+            dto.countries,
+            vec![
+                CountryEntry {
+                    code: "MX".into(),
+                    requests: 2,
+                    visitors: 1
+                },
+                CountryEntry {
+                    code: "DE".into(),
+                    requests: 1,
+                    visitors: 0
+                },
+            ]
+        );
+        let ips: Vec<_> = dto.recent_visitors.iter().map(|v| v.ip.as_str()).collect();
+        assert_eq!(ips, ["9.9.9.9", "1.2.3.4", "10.0.0.2"]);
+        let mexico = &dto.recent_visitors[1];
+        assert_eq!(mexico.application_id, None);
+        assert_eq!(mexico.city.as_deref(), Some("Guadalajara"));
+        assert_eq!((mexico.requests, mexico.errors), (2, 1));
+        assert_eq!(mexico.first_seen, base);
+        assert_eq!(mexico.last_seen, base + MINUTE_MS);
+        assert_eq!(dto.recent_visitors[0].client, "tool");
+        assert_eq!(dto.recent_visitors[2].country, None);
+
+        let org = analytics(
+            &conn,
+            "org",
+            &["app".into(), "other".into()],
+            AnalyticsRange::Hour,
+            true,
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(org.countries[0].requests, 3);
+        assert!(
+            org.recent_visitors
+                .iter()
+                .any(|v| v.application_id.as_deref() == Some("other"))
+        );
     }
 
     fn db() -> Connection {
@@ -1629,8 +1945,8 @@ mod tests {
         let batch = aggregator.drain();
         insert(&conn, &batch).unwrap();
         let deleted = super::super::apply_retention(&conn, &[], 7, NOW).unwrap();
-        // One rollup, path and visitor plus three dimensions (no referrer) for the old minute.
-        assert_eq!(deleted, 6);
+        // One rollup, path, visitor and client plus three dimensions (no referrer) for the old minute.
+        assert_eq!(deleted, 7);
         assert_eq!(request_row_count(&conn).unwrap(), 1);
     }
 }

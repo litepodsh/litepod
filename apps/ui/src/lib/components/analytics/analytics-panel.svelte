@@ -7,6 +7,8 @@
 	import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import AnalyticsDashboard from './analytics-dashboard.svelte';
+	import RecentVisitors from './recent-visitors.svelte';
+	import VisitorMap from './visitor-map.svelte';
 	import CellChart from '#lib/components/custom/cell-chart.svelte';
 	import SegmentedSwitch from '#lib/components/custom/segmented-switch.svelte';
 	import KpiCard from '#lib/components/home/kpi-card.svelte';
@@ -59,6 +61,8 @@
 	let range = $state<AnalyticsRange>('24h');
 	let data = $state<Analytics | null>(null);
 	let error = $state('');
+	/** Alpha-2 picked on the map; narrows the visitors list. */
+	let country = $state<string | null>(null);
 
 	$effect(() => {
 		const selected = range;
@@ -361,6 +365,9 @@
 				{/if}
 			</div>
 		</div>
+
+		<VisitorMap countries={data.countries} bind:selected={country} />
+		<RecentVisitors visitors={data.recent_visitors} {apps} bind:country />
 
 		<div class="lists" class:even={lists.length % 2 === 0}>
 			{#each lists as list (list.title)}

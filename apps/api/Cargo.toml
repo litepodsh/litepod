@@ -88,6 +88,8 @@ rig = { version = "=0.42.0", default-features = false, features = ["reqwest", "a
 openidconnect = "4"
 hickory-resolver = "0.26"
 samael = { version = "0.0.22", optional = true }
+maxminddb = { version = "0.32", features = ["mmap"] }
+flate2 = "1"
 
 [dev-dependencies]
 syn = { version = "2", features = ["full", "visit"] }

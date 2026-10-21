@@ -40,6 +40,7 @@ use crate::{
     state::state::SharedState,
 };
 
+mod geo;
 pub mod requests;
 
 const MAX_POINTS: i64 = 120;
@@ -847,6 +848,12 @@ const OPEN_RETRIES: u32 = 60;
 const OPEN_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 
 fn start(state: SharedState) {
+    geo::spawn(
+        db_path()
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default(),
+    );
     requests::spawn(state.clone());
     let sampler_state = state.clone();
     tokio::spawn(async move {

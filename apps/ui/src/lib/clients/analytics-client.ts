@@ -58,6 +58,37 @@ export type Analytics = {
 	clients: TopEntry[];
 	/** Referer hosts other than the site itself. */
 	referrers: TopEntry[];
+	/** Every country with traffic, busiest first. */
+	countries: CountryEntry[];
+	/** The 100 most recently seen client IPs. */
+	recent_visitors: VisitorEntry[];
+};
+
+export type CountryEntry = {
+	/** ISO 3166-1 alpha-2. */
+	code: string;
+	requests: number;
+	/** Distinct non-bot visitors (unique per day). */
+	visitors: number;
+};
+
+export type VisitorEntry = {
+	ip: string;
+	/** Organization view only. */
+	application_id?: string;
+	country: string | null;
+	region: string | null;
+	city: string | null;
+	/** Browser family, `bot`, `tool`, `other` or `unknown`. */
+	client: string;
+	/** `ios`, `android`, `windows`, `macos`, `linux`, `chromeos`, `other` or `unknown`. */
+	os: string;
+	requests: number;
+	errors: number;
+	bytes_out: number;
+	/** Epoch milliseconds, minute precision. */
+	first_seen: number;
+	last_seen: number;
 };
 
 export type Sparklines = {

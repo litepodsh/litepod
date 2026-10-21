@@ -296,9 +296,13 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
         });
     }
     if !capabilities::ACTIONS.is_empty() {
-        let opening = if capabilities::ACTIONS.iter().all(|action| direct.contains(action)) {
+        let opening = if capabilities::ACTIONS
+            .iter()
+            .all(|action| direct.contains(action))
+        {
             "Make a change. Every action happens immediately and returns its result, except a \
-            `deploy_static_site` sent without `files` or `zip_base64`, which waits for its upload. ".to_owned()
+            `deploy_static_site` sent without `files` or `zip_base64`, which waits for its upload. "
+                .to_owned()
         } else if direct.is_empty() {
             "Propose a change. This NEVER performs it: every action returns an id the user has to confirm in the panel, so say you have proposed it and never that it is done, live or deploying. ".to_owned()
         } else {
@@ -808,8 +812,12 @@ async fn get(
         },
 
         "applications" => {
-            applications_in(state, organization_id, string_of(arguments, "project").as_deref())
-                .await
+            applications_in(
+                state,
+                organization_id,
+                string_of(arguments, "project").as_deref(),
+            )
+            .await
         }
 
         "environment" => {
@@ -1326,16 +1334,42 @@ async fn project_action(
     }
 
     if action == "deploy_static_site" {
-        return Some(static_site(state, organization_id, conversation_id, actor, arguments, reason).await);
+        return Some(
+            static_site(
+                state,
+                organization_id,
+                conversation_id,
+                actor,
+                arguments,
+                reason,
+            )
+            .await,
+        );
     }
     if action == "create_from_template" {
         return Some(
-            from_template(state, organization_id, conversation_id, actor, arguments, reason).await,
+            from_template(
+                state,
+                organization_id,
+                conversation_id,
+                actor,
+                arguments,
+                reason,
+            )
+            .await,
         );
     }
     if action == "deploy_compose" {
         return Some(
-            compose_app(state, organization_id, conversation_id, actor, arguments, reason).await,
+            compose_app(
+                state,
+                organization_id,
+                conversation_id,
+                actor,
+                arguments,
+                reason,
+            )
+            .await,
         );
     }
 
@@ -1478,18 +1512,20 @@ async fn from_template(
     let Some(template) = string_of(arguments, "template") else {
         return ToolOutcome::failure("`template` is required; read `get templates`");
     };
-    let (target, project, server_id) =
-        match project_or_new(state, organization_id, arguments).await {
-            Ok(found) => found,
-            Err(outcome) => return *outcome,
-        };
+    let (target, project, server_id) = match project_or_new(state, organization_id, arguments).await
+    {
+        Ok(found) => found,
+        Err(outcome) => return *outcome,
+    };
     let values = arguments
         .get("values")
         .and_then(|values| values.as_object())
         .map(|values| {
             values
                 .iter()
-                .filter_map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())))
+                .filter_map(|(name, value)| {
+                    value.as_str().map(|value| (name.clone(), value.to_owned()))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -1541,11 +1577,11 @@ async fn compose_app(
     let Some(compose) = string_of(arguments, "compose") else {
         return ToolOutcome::failure("`compose` is required: the whole compose file");
     };
-    let (target, project, server_id) =
-        match project_or_new(state, organization_id, arguments).await {
-            Ok(found) => found,
-            Err(outcome) => return *outcome,
-        };
+    let (target, project, server_id) = match project_or_new(state, organization_id, arguments).await
+    {
+        Ok(found) => found,
+        Err(outcome) => return *outcome,
+    };
 
     match actions::propose_deploy_compose(
         state,
@@ -1590,12 +1626,14 @@ async fn templates(query: Option<String>) -> ToolOutcome {
             .map(|templates| {
                 templates
                     .into_iter()
-                    .map(|template| json!({
-                        "id": template.id,
-                        "name": template.name,
-                        "description": template.description,
-                        "categories": template.categories,
-                    }))
+                    .map(|template| {
+                        json!({
+                            "id": template.id,
+                            "name": template.name,
+                            "description": template.description,
+                            "categories": template.categories,
+                        })
+                    })
                     .collect::<Vec<_>>()
             })
             .map_err(|error| error.to_string()),
@@ -1696,11 +1734,11 @@ async fn static_site(
         Ok(inline) => inline,
         Err(error) => return ToolOutcome::failure(error.to_string()),
     };
-    let (target, project, server_id) =
-        match project_or_new(state, organization_id, arguments).await {
-            Ok(found) => found,
-            Err(outcome) => return *outcome,
-        };
+    let (target, project, server_id) = match project_or_new(state, organization_id, arguments).await
+    {
+        Ok(found) => found,
+        Err(outcome) => return *outcome,
+    };
 
     match actions::propose_static_site(
         state,
@@ -2513,7 +2551,11 @@ mod tests {
                 &json!({ "resource": resource }).to_string(),
             )
             .await;
-            assert!(!outcome.result.starts_with("{\"error\""), "{}", outcome.result);
+            assert!(
+                !outcome.result.starts_with("{\"error\""),
+                "{}",
+                outcome.result
+            );
             assert!(
                 !outcome.result.contains("organization-b"),
                 "{}",
@@ -2588,7 +2630,10 @@ mod tests {
         assert_eq!(variables[1]["kind"], "empty");
         assert_eq!(variables[1]["hint"], "SMTP host. Required for invites.");
         assert_eq!(variables[2]["kind"], "generated");
-        assert!(variables[2]["default"].is_null(), "a secret marker is not a value");
+        assert!(
+            variables[2]["default"].is_null(),
+            "a secret marker is not a value"
+        );
         assert!(variables[2]["hint"].is_null());
     }
 

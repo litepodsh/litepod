@@ -166,10 +166,7 @@ mod tests {
     fn exec_says_what_runs_now_and_what_waits() {
         let list = tools_list();
         let exec = list["tools"][1]["description"].as_str().unwrap();
-        assert!(
-            exec.contains("Every action happens immediately"),
-            "{exec}"
-        );
+        assert!(exec.contains("Every action happens immediately"), "{exec}");
         assert!(!exec.contains("This NEVER performs it"), "{exec}");
     }
 

@@ -201,7 +201,10 @@ pub async fn propose_source(
                 );
             }
             "docker" if arguments.dockerfile_path.is_none() => {
-                return ask("dockerfile_path", "where the Dockerfile is, e.g. `./Dockerfile`");
+                return ask(
+                    "dockerfile_path",
+                    "where the Dockerfile is, e.g. `./Dockerfile`",
+                );
             }
             "compose" if arguments.compose_file_path.is_none() => {
                 return ask(
@@ -219,7 +222,8 @@ pub async fn propose_source(
         }
         if arguments.container_port.is_none() && current.container_port.is_none() {
             return Err(AppError::ValidationError(
-                "Ask the user which port the app listens on, then send it as `container_port`".into(),
+                "Ask the user which port the app listens on, then send it as `container_port`"
+                    .into(),
             ));
         }
     }
@@ -600,9 +604,13 @@ fn checked_compose(compose: &str, port: Option<i64>) -> Result<Option<String>, A
             "Compose files are limited to {MAX_COMPOSE_BYTES} bytes"
         )));
     }
-    let document: serde_yaml::Value = serde_yaml::from_str(compose)
-        .map_err(|error| AppError::ValidationError(format!("The compose file is not valid YAML: {error}")))?;
-    if !document.get("services").is_some_and(serde_yaml::Value::is_mapping) {
+    let document: serde_yaml::Value = serde_yaml::from_str(compose).map_err(|error| {
+        AppError::ValidationError(format!("The compose file is not valid YAML: {error}"))
+    })?;
+    if !document
+        .get("services")
+        .is_some_and(serde_yaml::Value::is_mapping)
+    {
         return Err(AppError::ValidationError(
             "A compose file needs a `services:` mapping".into(),
         ));
@@ -1161,15 +1169,21 @@ pub async fn propose_static_site(
         .as_deref()
         .map(|host| host.trim().to_ascii_lowercase())
         .filter(|host| !host.is_empty());
-    let https = host
-        .as_deref()
-        .map(|host| arguments.https.unwrap_or(!deployment::domains::is_local(host)));
+    let https = host.as_deref().map(|host| {
+        arguments
+            .https
+            .unwrap_or(!deployment::domains::is_local(host))
+    });
     if let (Some(host), Some(https)) = (&host, https) {
         deployment::domains::validate(state, host, STATIC_PORT, https)?;
     }
     let existing = existing_static_target(state, target, &name).await?;
 
-    let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+    let token = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
     let new_project = target.project_id.is_empty();
     let title = format!("Deploy the static site {name} in {project_name}");
     let summary = arguments.reason.clone().unwrap_or_else(|| {
@@ -1179,7 +1193,9 @@ pub async fn propose_static_site(
         }
         match &existing {
             Some((_, true)) => steps.push(format!("replaces the site of {name}")),
-            Some((_, false)) => steps.push(format!("turns the empty application {name} into a static site")),
+            Some((_, false)) => steps.push(format!(
+                "turns the empty application {name} into a static site"
+            )),
             None => steps.push(format!("creates the static application {name}")),
         }
         steps.push("deploys the uploaded site".into());
@@ -1264,7 +1280,9 @@ pub(super) async fn existing_static_target(
     }
     let empty = source.git_url.is_none()
         && source.image_url.is_none()
-        && deployment::history::list(state, &application.id).await?.is_empty();
+        && deployment::history::list(state, &application.id)
+            .await?
+            .is_empty();
     if empty {
         return Ok(Some((application.id.clone(), false)));
     }
@@ -1363,9 +1381,11 @@ pub async fn propose_from_template(
         }
         (decoded.template.name.clone(), port, unset)
     };
-    let https = host
-        .as_deref()
-        .map(|host| arguments.https.unwrap_or(!deployment::domains::is_local(host)));
+    let https = host.as_deref().map(|host| {
+        arguments
+            .https
+            .unwrap_or(!deployment::domains::is_local(host))
+    });
     if let (Some(host), Some(port), Some(https)) = (&host, port, https) {
         deployment::domains::validate(state, host, port, https)?;
     }
@@ -1492,9 +1512,11 @@ pub async fn propose_deploy_compose(
             "A domain needs `port`, the container port it routes to".into(),
         ));
     }
-    let https = host
-        .as_deref()
-        .map(|host| arguments.https.unwrap_or(!deployment::domains::is_local(host)));
+    let https = host.as_deref().map(|host| {
+        arguments
+            .https
+            .unwrap_or(!deployment::domains::is_local(host))
+    });
     if let (Some(host), Some(port), Some(https)) = (&host, port, https) {
         deployment::domains::validate(state, host, port, https)?;
     }
@@ -1561,11 +1583,13 @@ pub(super) fn primary_port(
     service: Option<&str>,
 ) -> Vec<crate::deployment::compose::domain_markers::CatalogPort> {
     port.and_then(|port| u16::try_from(port).ok())
-        .map(|container| crate::deployment::compose::domain_markers::CatalogPort {
-            container,
-            service: service.map(str::to_owned),
-            primary: true,
-        })
+        .map(
+            |container| crate::deployment::compose::domain_markers::CatalogPort {
+                container,
+                service: service.map(str::to_owned),
+                primary: true,
+            },
+        )
         .into_iter()
         .collect()
 }

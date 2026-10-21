@@ -286,7 +286,14 @@ pub async fn confirm(
     if now_ms() > stored.expires_at {
         settle(state, actor, action_id, "expired", None).await?;
         super::upload::discard(state, action_id).await;
-        audit(state, actor, &stored.audited(), "assistant.action_expired", None).await;
+        audit(
+            state,
+            actor,
+            &stored.audited(),
+            "assistant.action_expired",
+            None,
+        )
+        .await;
         return Err(AppError::ValidationError(
             "This change expired. Ask again so the assistant can re-read the environment.".into(),
         ));
@@ -296,7 +303,14 @@ pub async fn confirm(
     if !crate::assistant::capabilities::action_allowed(exec_action(&stored.tool)) {
         let message = "The assistant is no longer allowed to make this change";
         settle(state, actor, action_id, "failed", Some(message)).await?;
-        audit(state, actor, &stored.audited(), "assistant.action_failed", Some(message)).await;
+        audit(
+            state,
+            actor,
+            &stored.audited(),
+            "assistant.action_failed",
+            Some(message),
+        )
+        .await;
         return Err(AppError::ValidationError(message.into()));
     }
     // Each write tool applies itself; everything around it - the gate, the
@@ -331,7 +345,14 @@ pub async fn confirm(
         Err(error) => {
             let message = error.to_string();
             settle(state, actor, action_id, "failed", Some(&message)).await?;
-            audit(state, actor, &stored.audited(), "assistant.action_failed", Some(&message)).await;
+            audit(
+                state,
+                actor,
+                &stored.audited(),
+                "assistant.action_failed",
+                Some(&message),
+            )
+            .await;
             return Err(error);
         }
     };

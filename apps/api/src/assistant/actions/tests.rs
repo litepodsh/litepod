@@ -1008,7 +1008,11 @@ async fn a_static_site_waits_for_its_upload_then_comes_up_whole() {
     .unwrap();
 
     // Confirming before the upload creates nothing and leaves it pending.
-    assert!(confirm(&state, "organization-a", &actor, &action.id).await.is_err());
+    assert!(
+        confirm(&state, "organization-a", &actor, &action.id)
+            .await
+            .is_err()
+    );
     sqlx::query("UPDATE assistant_actions SET status = 'pending', failure = NULL WHERE id = ?1")
         .bind(&action.id)
         .execute(&state.db)
@@ -1049,7 +1053,10 @@ async fn a_static_site_waits_for_its_upload_then_comes_up_whole() {
         .find(|application| application.name == "site")
         .expect("the application was created");
     assert_eq!(
-        deployment::source::get(&state, &site.id).await.unwrap().deploy_type,
+        deployment::source::get(&state, &site.id)
+            .await
+            .unwrap()
+            .deploy_type,
         "static"
     );
     let domains = deployment::domains::list(&state, &site.id).await.unwrap();
@@ -1211,7 +1218,12 @@ async fn a_static_site_never_overwrites_a_configured_application() {
         },
     )
     .await;
-    assert!(compose.unwrap_err().to_string().contains("never use a compose file"));
+    assert!(
+        compose
+            .unwrap_err()
+            .to_string()
+            .contains("never use a compose file")
+    );
 
     cleanup_database(&path);
 }
@@ -1232,7 +1244,9 @@ async fn a_database_template_lands_in_a_new_project_with_one_confirmation() {
 
     // A database generates its own credentials: values are refused, not ignored.
     let mut with_values = arguments.clone();
-    with_values.values.insert("POSTGRES_PASSWORD".into(), "x".into());
+    with_values
+        .values
+        .insert("POSTGRES_PASSWORD".into(), "x".into());
     assert!(
         propose_from_template(&state, &chat, &actor, &target, with_values)
             .await
@@ -1333,10 +1347,17 @@ async fn a_compose_app_is_created_like_a_catalog_template() {
     let env = deployment::decrypted_environment(&state, &created.id, "runtime")
         .await
         .unwrap();
-    let password = &env.iter().find(|(name, _)| name == "ADMIN_PASSWORD").unwrap().1;
+    let password = &env
+        .iter()
+        .find(|(name, _)| name == "ADMIN_PASSWORD")
+        .unwrap()
+        .1;
     assert_eq!(password.len(), 24, "the secret marker was generated");
     // A domain marker is kept as written and resolved on each deploy.
-    assert!(env.iter().any(|(name, value)| name == "PUBLIC_URL" && value == "{{url}}"));
+    assert!(
+        env.iter()
+            .any(|(name, value)| name == "PUBLIC_URL" && value == "{{url}}")
+    );
     let ports = crate::git::repositories::project::get_catalog_ports(&state, &created.id)
         .await
         .unwrap();
@@ -1429,7 +1450,8 @@ fn an_html_fragment_is_refused_with_its_opening_tag() {
     assert!(error.contains("loader.html starts with `<div class=\"loader\">`"));
     assert!(error.contains("<!DOCTYPE html><html><body>"));
     assert_eq!(
-        crate::deployment::file_kind("toggle.html", b"<!-- from uiverse -->\n<html></html>").unwrap(),
+        crate::deployment::file_kind("toggle.html", b"<!-- from uiverse -->\n<html></html>")
+            .unwrap(),
         "html"
     );
 }
@@ -1440,11 +1462,17 @@ fn an_inline_site_is_zipped_and_checked() {
     let bytes = super::inline_site(&files).unwrap().unwrap();
     assert_eq!(crate::deployment::file_kind("site", &bytes).unwrap(), "zip");
 
-    assert!(super::inline_site(&serde_json::json!({})).unwrap().is_none());
+    assert!(
+        super::inline_site(&serde_json::json!({}))
+            .unwrap()
+            .is_none()
+    );
     assert!(super::inline_site(&serde_json::json!({ "files": { "a.html": "x" } })).is_err());
     assert!(
-        super::inline_site(&serde_json::json!({ "files": { "index.html": "x", "../up.html": "x" } }))
-            .is_err()
+        super::inline_site(
+            &serde_json::json!({ "files": { "index.html": "x", "../up.html": "x" } })
+        )
+        .is_err()
     );
     assert!(super::inline_site(&serde_json::json!({ "zip_base64": "not base64!" })).is_err());
 }
@@ -1468,7 +1496,11 @@ async fn a_new_repository_asks_where_it_builds_from() {
     };
 
     // No build method means Railpack, and Railpack needs its folder.
-    assert!(refused(repository()).await.contains("railpack_project_path"));
+    assert!(
+        refused(repository())
+            .await
+            .contains("railpack_project_path")
+    );
     assert!(
         refused(SetSource {
             build_method: Some("docker".into()),
@@ -1516,7 +1548,10 @@ async fn a_new_repository_asks_where_it_builds_from() {
         .await
         .unwrap();
     assert_eq!(source.build_method, "compose");
-    assert_eq!(source.compose_file_path.as_deref(), Some("deploy/compose.yml"));
+    assert_eq!(
+        source.compose_file_path.as_deref(),
+        Some("deploy/compose.yml")
+    );
     assert_eq!(source.compose_public_service.as_deref(), Some("web"));
 
     cleanup_database(&path);

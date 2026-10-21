@@ -216,9 +216,15 @@ async fn write_compose(
     let ports = super::propose::primary_port(port, service.as_deref());
     if !ports.is_empty() {
         let conn = crate::git::repositories::db::get_conn(state).await;
-        crate::git::repositories::project::set_catalog_ports(&conn, application_id, &ports, false, false)
-            .await
-            .map_err(AppError::DatabaseError)?;
+        crate::git::repositories::project::set_catalog_ports(
+            &conn,
+            application_id,
+            &ports,
+            false,
+            false,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
     }
     Ok(())
 }
@@ -569,7 +575,8 @@ async fn apply_static_site_existing(
         application_name: String::new(),
     };
     let found = super::propose::existing_static_target(state, &target, &site.name).await?;
-    let Some((application_id, _)) = found.filter(|(id, _)| Some(id) == site.application_id.as_ref())
+    let Some((application_id, _)) =
+        found.filter(|(id, _)| Some(id) == site.application_id.as_ref())
     else {
         return Err(AppError::ValidationError(format!(
             "`{}` changed since this was proposed. Ask the agent to propose it again.",
@@ -693,8 +700,13 @@ async fn publish_static_site(
         }
         None => None,
     };
-    deployment::enqueue_for_application(state, application_id, ASSISTANT_TRIGGER, Some(&actor.user_id))
-        .await?;
+    deployment::enqueue_for_application(
+        state,
+        application_id,
+        ASSISTANT_TRIGGER,
+        Some(&actor.user_id),
+    )
+    .await?;
     Ok(url)
 }
 
@@ -775,13 +787,20 @@ pub(super) async fn apply_from_template(
         ensure_project(state, stored, &arguments.project_name).await?;
 
     let built = async {
-        let application_id =
-            create_from_template(state, organization_id, &project_id, &environment_id, &arguments)
-                .await?;
+        let application_id = create_from_template(
+            state,
+            organization_id,
+            &project_id,
+            &environment_id,
+            &arguments,
+        )
+        .await?;
         let finished = async {
-            if let Some(name) = arguments.name.as_ref().filter(|_| {
-                !INTERNAL_TEMPLATES.contains(&arguments.template.as_str())
-            }) {
+            if let Some(name) = arguments
+                .name
+                .as_ref()
+                .filter(|_| !INTERNAL_TEMPLATES.contains(&arguments.template.as_str()))
+            {
                 crate::cqrs::commands::project::update_application(
                     state,
                     organization_id,
@@ -799,8 +818,14 @@ pub(super) async fn apply_from_template(
                 .await?;
             }
             for (name, value) in &arguments.values {
-                deployment::set_environment_variable(state, &application_id, "runtime", name, value)
-                    .await?;
+                deployment::set_environment_variable(
+                    state,
+                    &application_id,
+                    "runtime",
+                    name,
+                    value,
+                )
+                .await?;
             }
             let url = match (&arguments.host, arguments.port) {
                 (Some(host), Some(port)) => Some(

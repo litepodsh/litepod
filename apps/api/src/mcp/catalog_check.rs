@@ -73,7 +73,10 @@ fn search_terms(arguments: &Value) -> Vec<String> {
     if let Some(name) = arguments.get("name").and_then(Value::as_str) {
         terms.push(name.trim().to_owned());
     }
-    let compose = arguments.get("compose").and_then(Value::as_str).unwrap_or_default();
+    let compose = arguments
+        .get("compose")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let port = arguments
         .get("port")
         .and_then(Value::as_u64)
@@ -125,7 +128,10 @@ mod tests {
 
     #[test]
     fn an_image_is_searched_by_its_repository_name() {
-        assert_eq!(image_name("docker.io/louislam/uptime-kuma:1"), "uptime-kuma");
+        assert_eq!(
+            image_name("docker.io/louislam/uptime-kuma:1"),
+            "uptime-kuma"
+        );
         assert_eq!(image_name("n8nio/n8n"), "n8n");
         assert_eq!(image_name("ghcr.io/a/b/c@sha256:abc"), "c");
     }
