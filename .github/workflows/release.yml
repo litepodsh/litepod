@@ -20,6 +20,10 @@ name: release
 # every run. Both binaries are therefore built on the runner and COPYed in
 # (PREBUILT_API), with `api/target` persisted per arch by rust-cache.
 # Actions caches are scoped per ref: a tag run can only restore caches saved
+# by its own tag or by main, and every release is a new tag. So only runs on
+# main save: `just bump litepod` dispatches a dry run on main first, and the
+# tag run queues behind it (concurrency group) and restores what it saved.
+# Actions caches are scoped per ref: a tag run can only restore caches saved
 # by its own tag or by main, and every release is a new tag. So only main
 # saves (warm-up runs and dispatches from main); tag runs just restore. The
 # weekly run keeps the cache alive past GitHub's 7-day eviction.
@@ -137,6 +141,7 @@ jobs:
           # Bumped from the default v0 to skip the near-empty caches saved
           # while the cargo metadata call above was failing.
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: taiki-e/install-action@v2

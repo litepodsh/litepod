@@ -253,7 +253,8 @@ podx-lint *ARGS:
 #   just bump dragonfly v2.0.1
 #   just bump caddy 2.11.5
 # Bumping litepod also commits the pinned files, tags vX.Y.Z and (after a
-# prompt) pushes both, which triggers .github/workflows/release.yml.
+# prompt) pushes both, which triggers .github/workflows/release.yml. On main
+# it first dispatches a dry run there to warm the rust cache for the tag run.
 bump component version:
     @just _bump stable {{component}} {{version}}
     @just _release-tag stable {{component}}
@@ -318,7 +319,25 @@ _release-tag channel component:
     if [[ -t 0 ]]; then
         read -r -p "push ${branch} + ${tag} to origin (starts the release workflow)? [y/N] " answer
         if [[ "${answer}" == [yY] ]]; then
-            "${push_cmd[@]}"
+            if [[ "${branch}" != main ]]; then
+                "${push_cmd[@]}"
+                exit 0
+            fi
+            # Actions caches are scoped per ref and a tag run only restores
+            # caches saved on main, so warm the rust cache with a dry run on
+            # main first. The tag run queues behind it (concurrency group
+            # `release`), so push the tag only once the dry run exists.
+            git push origin "HEAD:refs/heads/main"
+            sha="$(git rev-parse HEAD)"
+            gh workflow run release.yml --ref main -f version="${tag}" -f dry_run=true
+            for _ in $(seq 30); do
+                run_id="$(gh run list --workflow release.yml --event workflow_dispatch --commit "${sha}" -L1 --json databaseId -q '.[0].databaseId')"
+                [[ -n "${run_id}" ]] && break
+                sleep 2
+            done
+            [[ -n "${run_id:-}" ]] || { echo "dry run did not show up; tag not pushed. To release: git push origin refs/tags/${tag}" >&2; exit 1; }
+            echo "cache warm-up dry run: $(gh run view "${run_id}" --json url -q .url)"
+            git push origin "refs/tags/${tag}"
             exit 0
         fi
     fi
