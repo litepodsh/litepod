@@ -2419,6 +2419,16 @@ export async function deleteApplicationArtifact(
 	return data!;
 }
 
+/** The deployed static site, as an HTML file or a ZIP of its files. */
+export function applicationArtifactDownloadUrl(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): string {
+	return `${API_URL}${deploymentPath(organizationId, projectId, environmentId, applicationId, 'artifact')}`;
+}
+
 export async function getEnvironmentVariables(
 	organizationId: string,
 	projectId: string,

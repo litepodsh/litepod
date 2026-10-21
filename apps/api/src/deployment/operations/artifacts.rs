@@ -30,6 +30,16 @@ pub(crate) fn file_kind(filename: &str, bytes: &[u8]) -> Result<&'static str, Ap
     if rest.starts_with("<!doctype html") || rest.starts_with("<html") {
         return Ok("html");
     }
+    if rest.starts_with('<') {
+        let start: String = rest.chars().take_while(|c| *c != '\n').take(40).collect();
+        let start = match start.find('>') {
+            Some(end) => &start[..=end],
+            None => start.as_str(),
+        };
+        return Err(AppError::ValidationError(format!(
+            "{filename} starts with `{start}`, and only documents that start with `<!DOCTYPE html>` or `<html>` are accepted. Wrap it in `<!DOCTYPE html><html><body>…</body></html>` to upload it."
+        )));
+    }
     Err(AppError::ValidationError(format!(
         "{filename}: upload a ZIP archive or a complete HTML document. HTML files must start with `<!DOCTYPE html>` or `<html>` (comments before it are fine) — fragments or snippets are not accepted."
     )))
@@ -180,6 +190,92 @@ pub(super) async fn prune_unreferenced_artifacts(state: &SharedState, applicatio
             let _ = std::fs::remove_dir_all(state.data_dir.join(relative_path));
         }
     }
+}
+
+/// The site currently deployed, as it can be uploaded again: the HTML file
+/// for a single-page upload, a ZIP of the unpacked files otherwise. The
+/// original upload is not kept, so a ZIP is rebuilt from what is on disk.
+/// Returns the file name, its bytes and its content type.
+pub async fn download_artifact(
+    state: &SharedState,
+    application_id: &str,
+) -> Result<(String, Vec<u8>, &'static str), AppError> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let row = sqlx::query(
+        "SELECT a.filename, a.kind, a.relative_path FROM application_deployments d JOIN application_artifacts a ON a.id = d.artifact_id WHERE d.application_id = ?1",
+    )
+    .bind(application_id)
+    .fetch_optional(&conn)
+    .await
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?
+    .ok_or_else(|| AppError::ValidationError("No static files uploaded".into()))?;
+    drop(conn);
+    let filename: String = row
+        .try_get(0)
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let kind: String = row
+        .try_get(1)
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let relative_path: String = row
+        .try_get(2)
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let root = state.data_dir.join(relative_path);
+    let stem = Path::new(&filename)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| "site".into());
+
+    if kind == "html" {
+        let bytes = std::fs::read(root.join("index.html"))
+            .map_err(|e| AppError::InternalError(format!("Could not read the site: {e}")))?;
+        return Ok((format!("{stem}.html"), bytes, "text/html; charset=utf-8"));
+    }
+
+    let bytes = tokio::task::spawn_blocking(move || zip_directory(&root))
+        .await
+        .map_err(|e| AppError::InternalError(e.to_string()))??;
+    Ok((format!("{stem}.zip"), bytes, "application/zip"))
+}
+
+fn zip_directory(root: &Path) -> Result<Vec<u8>, AppError> {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let entries = std::fs::read_dir(&directory)
+            .map_err(|e| AppError::InternalError(format!("Could not read the site: {e}")))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| AppError::InternalError(e.to_string()))?;
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .map_err(|e| AppError::InternalError(e.to_string()))?;
+            if file_type.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let name = path
+                .strip_prefix(root)
+                .map_err(|e| AppError::InternalError(e.to_string()))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            zip.start_file(name, options)
+                .map_err(|e| AppError::InternalError(e.to_string()))?;
+            let bytes = std::fs::read(&path).map_err(|e| AppError::InternalError(e.to_string()))?;
+            zip.write_all(&bytes)
+                .map_err(|e| AppError::InternalError(e.to_string()))?;
+        }
+    }
+    Ok(zip
+        .finish()
+        .map_err(|e| AppError::InternalError(e.to_string()))?
+        .into_inner())
 }
 
 pub async fn delete_artifact(

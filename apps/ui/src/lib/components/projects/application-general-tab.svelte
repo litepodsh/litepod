@@ -35,7 +35,7 @@
 	import ApplicationComposeTab from '#lib/components/projects/application-compose-tab.svelte';
 	import AnimatedFileUpload from '#lib/components/custom/animated-file-upload.svelte';
 	import { untrack } from 'svelte';
-	import { detectArtifactFileKind } from '#lib/utils/artifact-file.js';
+	import { detectArtifactFileKind, htmlFragmentStart } from '#lib/utils/artifact-file.js';
 	import { deployLabel } from '#lib/utils/deploy-label.js';
 	import { isRunning } from '#lib/utils/container-status.js';
 	import type {
@@ -59,6 +59,7 @@
 		containerMetrics = new Map(),
 		onUpload,
 		onRemoveArtifact,
+		artifactDownloadUrl = null,
 		onDeploy,
 		onStop,
 		onStart,
@@ -91,6 +92,7 @@
 		containerMetrics?: ReadonlyMap<string, ContainerMetric>;
 		onUpload: (file: File) => Promise<void>;
 		onRemoveArtifact: () => Promise<void>;
+		artifactDownloadUrl?: string | null;
 		onDeploy: (cleanBuild?: boolean) => Promise<void>;
 		onStop: () => Promise<void>;
 		onStart: () => Promise<void>;
@@ -349,7 +351,12 @@
 		try {
 			const kind = await detectArtifactFileKind(file);
 			if (!kind) {
-				toast.error(t('projects.application_general.invalid_artifact_file'));
+				const start = await htmlFragmentStart(file);
+				toast.error(
+					start
+						? t('projects.application_general.html_fragment', { file: file.name, start })
+						: t('projects.application_general.invalid_artifact_file'),
+				);
 				return null;
 			}
 			return { file, kind };
@@ -789,6 +796,7 @@
 					onMultipleFiles={() => toast.error(t('projects.application_general.one_file_at_a_time'))}
 					{onUpload}
 					onDelete={onRemoveArtifact}
+					downloadUrl={artifactDownloadUrl}
 					currentFile={deployment.artifact
 						? {
 								name: deployment.artifact.filename,

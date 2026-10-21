@@ -893,7 +893,9 @@ pub fn create_router(state: SharedState) -> Router {
         )
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/artifact",
-            post(deployments::upload_artifact_handler).delete(deployments::delete_artifact_handler),
+            get(deployments::download_artifact_handler)
+                .post(deployments::upload_artifact_handler)
+                .delete(deployments::delete_artifact_handler),
         )
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/icon",

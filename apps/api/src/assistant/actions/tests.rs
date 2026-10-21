@@ -1045,6 +1045,157 @@ async fn a_static_site_waits_for_its_upload_then_comes_up_whole() {
 }
 
 #[tokio::test]
+async fn a_static_site_goes_into_an_empty_application_of_that_name() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let app = target(&state, "organization-a").await;
+    // The seeded ssh server is not trusted yet; the local one deploys.
+    sqlx::query("UPDATE applications SET server_id = 'local' WHERE id = ?1")
+        .bind(&app.application_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let project = ActionTarget {
+        application_id: String::new(),
+        application_name: String::new(),
+        ..app.clone()
+    };
+    let site = || StaticSite {
+        project_name: app.project_id.clone(),
+        name: app.application_name.clone(),
+        server_id: "local".into(),
+        host: Some("site.example.com".into()),
+        ..StaticSite::default()
+    };
+
+    // Never deployed and no repository: it is reused, not refused by name.
+    let (action, token) = propose_static_site(&state, &chat, &actor, &project, site())
+        .await
+        .unwrap();
+    super::stage_upload(&state, &action.id, &token, b"<!DOCTYPE html><html></html>")
+        .await
+        .unwrap();
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        deployment::source::get(&state, &app.application_id)
+            .await
+            .unwrap()
+            .deploy_type,
+        "static"
+    );
+    let domains = deployment::domains::list(&state, &app.application_id)
+        .await
+        .unwrap();
+    assert_eq!(domains.len(), 1);
+    assert_eq!(domains[0].port, STATIC_PORT);
+
+    let (filename, bytes, _) = deployment::download_artifact(&state, &app.application_id)
+        .await
+        .unwrap();
+    assert!(filename.ends_with(".html"));
+    assert_eq!(bytes, b"<!DOCTYPE html><html></html>");
+
+    // Asking again replaces the site and keeps the one domain.
+    let (again, token) = propose_static_site(&state, &chat, &actor, &project, site())
+        .await
+        .unwrap();
+    super::stage_upload(&state, &again.id, &token, b"<!DOCTYPE html><html>2</html>")
+        .await
+        .unwrap();
+    confirm(&state, "organization-a", &actor, &again.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        deployment::domains::list(&state, &app.application_id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn a_static_site_never_overwrites_a_configured_application() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let app = target(&state, "organization-a").await;
+    let current = deployment::source::get(&state, &app.application_id)
+        .await
+        .unwrap();
+    deployment::source::save(
+        &state,
+        &app.application_id,
+        crate::dtos::deployment::UpdateSourceRequest {
+            deploy_type: "git".into(),
+            build_method: current.build_method,
+            git_provider_id: None,
+            git_url: Some("https://github.com/example/site.git".into()),
+            git_branch: Some("main".into()),
+            auto_deploy: Some(false),
+            watch_paths: None,
+            dockerfile_path: Some("Dockerfile".into()),
+            compose_file_path: None,
+            compose_public_service: None,
+            container_port: Some(80),
+            railpack_project_path: Some(".".into()),
+            railpack_start_command: None,
+            build_cpu_cores: None,
+            build_memory_mib: None,
+            build_swap_mib: None,
+            image_url: None,
+            registry_username: None,
+            registry_password: None,
+            restart_policy: None,
+        },
+    )
+    .await
+    .unwrap();
+    let project = ActionTarget {
+        application_id: String::new(),
+        application_name: String::new(),
+        ..app.clone()
+    };
+
+    let refused = propose_static_site(
+        &state,
+        &chat,
+        &actor,
+        &project,
+        StaticSite {
+            project_name: app.project_id.clone(),
+            name: app.application_name.clone(),
+            server_id: "local".into(),
+            ..StaticSite::default()
+        },
+    )
+    .await;
+    assert!(refused.is_err());
+
+    // A compose file on a git application would be stored and never used.
+    let compose = propose_compose_file(
+        &state,
+        &chat,
+        &actor,
+        &app,
+        SetComposeFile {
+            compose: "services:\n  web:\n    image: nginx\n".into(),
+            reason: None,
+        },
+    )
+    .await;
+    assert!(compose.unwrap_err().to_string().contains("never use a compose file"));
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
 async fn a_database_template_lands_in_a_new_project_with_one_confirmation() {
     let (state, path) = test_state().await;
     let chat = conversation(&state, "organization-a").await;
@@ -1164,6 +1315,22 @@ async fn only_start_and_stop_are_lifecycle_proposals() {
     .await;
     assert!(refused.is_err());
     cleanup_database(&path);
+}
+
+#[test]
+fn an_html_fragment_is_refused_with_its_opening_tag() {
+    let error = crate::deployment::file_kind(
+        "loader.html",
+        b"<div class=\"loader\">\n  <svg width=\"100\"></svg>\n</div>",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("loader.html starts with `<div class=\"loader\">`"));
+    assert!(error.contains("<!DOCTYPE html><html><body>"));
+    assert_eq!(
+        crate::deployment::file_kind("toggle.html", b"<!-- from uiverse -->\n<html></html>").unwrap(),
+        "html"
+    );
 }
 
 #[test]

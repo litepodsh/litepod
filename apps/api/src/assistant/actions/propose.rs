@@ -425,6 +425,17 @@ pub async fn propose_compose_file(
         )));
     }
 
+    // Only a compose deploy reads this file; anywhere else it would be stored
+    // and silently ignored.
+    let source = deployment::source::get(state, &target.application_id).await?;
+    if source.deploy_type != "compose" {
+        return Err(AppError::ValidationError(format!(
+            "`{}` is a {} application, so it would never use a compose file. \
+             To serve a static site under this name use `deploy_static_site`.",
+            target.application_name, source.deploy_type
+        )));
+    }
+
     let store = ComposeFileStore::new(&state.data_dir, &target.application_id);
     let current = store.read_content().await.map_err(|error| {
         AppError::ValidationError(format!(
@@ -1042,6 +1053,7 @@ pub async fn propose_static_site(
     if let (Some(host), Some(https)) = (&host, https) {
         deployment::domains::validate(state, host, STATIC_PORT, https)?;
     }
+    let existing = existing_static_target(state, target, &name).await?;
 
     let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
     let new_project = target.project_id.is_empty();
@@ -1051,7 +1063,11 @@ pub async fn propose_static_site(
         if new_project {
             steps.push(format!("creates the project {project_name}"));
         }
-        steps.push(format!("creates the static application {name}"));
+        match &existing {
+            Some((_, true)) => steps.push(format!("replaces the site of {name}")),
+            Some((_, false)) => steps.push(format!("turns the empty application {name} into a static site")),
+            None => steps.push(format!("creates the static application {name}")),
+        }
         steps.push("deploys the uploaded site".into());
         if let Some(host) = &host {
             let scheme = if https == Some(true) { "https" } else { "http" };
@@ -1068,6 +1084,7 @@ pub async fn propose_static_site(
         host: host.clone(),
         https,
         upload_token_hash: super::upload::hash_token(&token),
+        application_id: existing.map(|(id, _)| id),
         ..arguments
     })
     .map_err(|error| AppError::InternalError(error.to_string()))?;
@@ -1093,6 +1110,55 @@ pub async fn propose_static_site(
         },
         token,
     ))
+}
+
+/// The application called `name` in the target environment, when a static
+/// site may go into it: an existing static site (its site is replaced), or one
+/// that was never deployed and has no repository or image (it becomes static).
+/// The flag says which. Anything else under that name is refused, since
+/// overwriting it would lose a working configuration.
+pub(super) async fn existing_static_target(
+    state: &SharedState,
+    target: &ActionTarget,
+    name: &str,
+) -> Result<Option<(String, bool)>, AppError> {
+    if target.project_id.is_empty() {
+        return Ok(None);
+    }
+    let detail = crate::cqrs::queries::project::get_project(
+        state,
+        &target.organization_id,
+        &target.project_id,
+    )
+    .await?;
+    let environment = detail
+        .environments
+        .iter()
+        .find(|environment| environment.id == target.environment_id)
+        .ok_or(AppError::EnvironmentNotFound)?;
+    let Some(application) = environment
+        .applications
+        .iter()
+        .find(|application| application.name.eq_ignore_ascii_case(name))
+    else {
+        return Ok(None);
+    };
+
+    let source = deployment::source::get(state, &application.id).await?;
+    if source.deploy_type == "static" {
+        return Ok(Some((application.id.clone(), true)));
+    }
+    let empty = source.git_url.is_none()
+        && source.image_url.is_none()
+        && deployment::history::list(state, &application.id).await?.is_empty();
+    if empty {
+        return Ok(Some((application.id.clone(), false)));
+    }
+    Err(AppError::ValidationError(format!(
+        "`{}` already has an application called `{name}`, set up as a {} deploy. \
+         Pick another name, or remove it in Litepod first.",
+        environment.name, source.deploy_type
+    )))
 }
 
 /// Stores a whole application from a template as one card: project (existing

@@ -652,6 +652,31 @@ pub async fn upload_artifact_handler(
     ))
 }
 
+pub async fn download_artifact_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppRead>,
+) -> Result<Response, AppError> {
+    let (filename, bytes, mime) =
+        deployment::download_artifact(&state, &app.application_id).await?;
+    let mut response = Response::new(axum::body::Body::from(bytes));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static(mime),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        axum::http::HeaderValue::from_str(&format!(
+            "attachment; filename=\"{}\"",
+            filename
+                .chars()
+                .map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' { c } else { '_' })
+                .collect::<String>()
+        ))
+        .map_err(|error| AppError::InternalError(error.to_string()))?,
+    );
+    Ok(response)
+}
+
 pub async fn delete_artifact_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::AppUpdate>,

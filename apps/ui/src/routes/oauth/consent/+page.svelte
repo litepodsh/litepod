@@ -81,7 +81,7 @@
 		</Card.Header>
 		<Card.Content class="flex flex-col gap-4">
 			{#if loading}
-				<p class="text-muted-foreground text-center text-sm">{t('common.loading')}</p>
+				<p class="text-muted-foreground text-center text-sm">{t('common.common.loading')}</p>
 			{:else if error}
 				<p class="text-destructive text-center text-sm font-medium">{error}</p>
 			{:else}
@@ -106,7 +106,7 @@
 						{t('organizations.oauth.deny')}
 					</Button>
 					<Button class="flex-1" disabled={submitting} onclick={() => decide(true)}>
-						{submitting ? t('common.loading') : t('organizations.oauth.approve')}
+						{submitting ? t('common.common.loading') : t('organizations.oauth.approve')}
 					</Button>
 				</div>
 			{/if}

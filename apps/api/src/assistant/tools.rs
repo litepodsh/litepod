@@ -203,7 +203,9 @@ const ACTION_HELP: &[(&str, &str)] = &[
     (
         "deploy_static_site",
         "`deploy_static_site` (one confirmation for the whole site: needs `project` - an existing \
-        one, or a new one created with it - and `name`, optionally `host` and `https`. Returns an \
+        one, or a new one created with it - and `name`, optionally `host` and `https`. A `name` that \
+        is already a static site gets the new site, and one that was never deployed and has no \
+        repository or image becomes this static site; any other existing `name` is refused. Returns an \
         `upload_url`: send the site there with `curl -T site.zip <upload_url>` (a ZIP with \
         index.html at its root, or one HTML file, up to 10 MB) before the person confirms. When the \
         upload URL cannot be reached, send the site in the call instead: `files` (path to text content, \
@@ -1612,6 +1614,7 @@ async fn static_site(
             https: arguments.get("https").and_then(|value| value.as_bool()),
             upload_token_hash: String::new(),
             reason,
+            application_id: None,
         },
     )
     .await

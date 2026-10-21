@@ -94,6 +94,7 @@
 		updateDomain,
 		uploadApplicationArtifact,
 		deleteApplicationArtifact,
+		applicationArtifactDownloadUrl,
 		updateApplication,
 		uploadApplicationIcon,
 		getContainerStatus,
@@ -2386,6 +2387,14 @@
 						{busy}
 						onUpload={upload}
 						onRemoveArtifact={removeArtifact}
+						artifactDownloadUrl={environment && deployment.artifact
+							? applicationArtifactDownloadUrl(
+									organizationId,
+									projectId,
+									environment.id,
+									applicationId,
+								)
+							: null}
 						onDeploy={deploy}
 						onStop={stop}
 						onStart={start}

@@ -224,6 +224,10 @@ pub struct StaticSite {
     pub upload_token_hash: String,
     #[serde(default)]
     pub reason: Option<String>,
+    /// An application of that name the site goes into instead of a new one:
+    /// one never deployed and with no source, or an existing static site.
+    #[serde(default)]
+    pub application_id: Option<String>,
 }
 
 /// Validated arguments for [`CREATE_FROM_TEMPLATE`]: a project (existing or

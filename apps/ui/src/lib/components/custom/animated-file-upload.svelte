@@ -4,6 +4,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { tick, untrack } from 'svelte';
 	import CheckIcon from '@lucide/svelte/icons/check';
+	import DownloadIcon from '@lucide/svelte/icons/download';
 	import FileArchiveIcon from '@lucide/svelte/icons/file-archive';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
@@ -25,6 +26,7 @@
 		currentFile = null,
 		allowDelete = true,
 		onDelete,
+		downloadUrl = null,
 	}: {
 		accept: string;
 		heading: string;
@@ -38,6 +40,8 @@
 		allowDelete?: boolean;
 		/** Perform the real removal. When omitted, deleting only clears the local selection. */
 		onDelete?: () => Promise<void>;
+		/** Where the uploaded `currentFile` can be downloaded from. Omit to hide the button. */
+		downloadUrl?: string | null;
 	} = $props();
 
 	const progressSteps = [8, 22, 41, 63, 79, 91, 100];
@@ -250,6 +254,10 @@
 						</div>
 					</div>
 					<div class="flex items-center justify-end gap-2 border-t bg-muted/30 px-4 py-3">
+						{#if downloadUrl && currentFile}
+							<Button variant="outline" size="sm" disabled={isBusy} href={downloadUrl} download
+								><DownloadIcon class="size-4" />{t('common.upload.download')}</Button>
+						{/if}
 						<Button variant="outline" size="sm" disabled={isBusy} onclick={() => input?.click()}
 							><RefreshCwIcon class="size-4" />{t('common.upload.replace')}</Button>
 						{#if allowDelete}

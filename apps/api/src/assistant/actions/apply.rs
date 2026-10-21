@@ -454,6 +454,7 @@ pub(super) async fn apply_lifecycle(
 /// Creates and deploys a proposed static site. Refused before anything is
 /// created when the agent has not uploaded yet; once something exists, a later
 /// failure removes what this confirm created, so a half-built site never stays.
+/// A card that names an existing application deploys into it instead.
 pub(super) async fn apply_static_site(
     state: &SharedState,
     actor: &AuthUser,
@@ -467,6 +468,10 @@ pub(super) async fn apply_static_site(
                 .into(),
         ));
     };
+
+    if site.application_id.is_some() {
+        return apply_static_site_existing(state, actor, stored, &site, filename, bytes).await;
+    }
 
     let organization_id = &stored.organization_id;
     let created_project = stored.project_id.is_empty();
@@ -486,66 +491,7 @@ pub(super) async fn apply_static_site(
             },
         )
         .await?;
-        let finished = async {
-            let current = deployment::source::get(state, &application.id).await?;
-            deployment::source::save(
-                state,
-                &application.id,
-                crate::dtos::deployment::UpdateSourceRequest {
-                    deploy_type: "static".into(),
-                    build_method: current.build_method,
-                    git_provider_id: None,
-                    git_url: None,
-                    git_branch: None,
-                    auto_deploy: Some(false),
-                    watch_paths: None,
-                    dockerfile_path: None,
-                    compose_file_path: None,
-                    compose_public_service: None,
-                    container_port: None,
-                    railpack_project_path: Some(".".into()),
-                    railpack_start_command: None,
-                    build_cpu_cores: None,
-                    build_memory_mib: None,
-                    build_swap_mib: None,
-                    image_url: None,
-                    registry_username: None,
-                    registry_password: None,
-                    restart_policy: None,
-                },
-            )
-            .await?;
-            deployment::save_artifact(state, &application.id, filename, bytes).await?;
-            let url = match &site.host {
-                Some(host) => Some(
-                    deployment::domains::create(
-                        state,
-                        &application.id,
-                        crate::dtos::deployment::CreateDomainRequest {
-                            certificate: Default::default(),
-                            host: host.clone(),
-                            port: super::propose::STATIC_PORT,
-                            https: site.https,
-                            is_primary: Some(true),
-                            server_id: None,
-                        },
-                    )
-                    .await?
-                    .url,
-                ),
-                None => None,
-            };
-            deployment::enqueue_for_application(
-                state,
-                &application.id,
-                ASSISTANT_TRIGGER,
-                Some(&actor.user_id),
-            )
-            .await?;
-            Ok::<_, AppError>(url)
-        }
-        .await;
-        match finished {
+        match publish_static_site(state, actor, &application.id, &site, filename, bytes).await {
             Ok(url) => Ok((application, url)),
             Err(error) => {
                 let _ = crate::cqrs::commands::project::delete_application(
@@ -586,6 +532,185 @@ pub(super) async fn apply_static_site(
         }),
         removed: None,
     })
+}
+
+/// Deploys the site into the application the card named. Checked again here,
+/// since it may have been deployed or reconfigured since the proposal. A
+/// failure puts back the source it had, so an empty application stays empty.
+async fn apply_static_site_existing(
+    state: &SharedState,
+    actor: &AuthUser,
+    stored: &StoredAction,
+    site: &StaticSite,
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<Applied, AppError> {
+    let target = ActionTarget {
+        organization_id: stored.organization_id.clone(),
+        project_id: stored.project_id.clone(),
+        project_name: site.project_name.clone(),
+        environment_id: stored.environment_id.clone(),
+        application_id: String::new(),
+        application_name: String::new(),
+    };
+    let found = super::propose::existing_static_target(state, &target, &site.name).await?;
+    let Some((application_id, _)) = found.filter(|(id, _)| Some(id) == site.application_id.as_ref())
+    else {
+        return Err(AppError::ValidationError(format!(
+            "`{}` changed since this was proposed. Ask the agent to propose it again.",
+            site.name
+        )));
+    };
+
+    let previous = deployment::source::get(state, &application_id).await?;
+    let url = match publish_static_site(state, actor, &application_id, site, filename, bytes).await
+    {
+        Ok(url) => url,
+        Err(error) => {
+            if previous.deploy_type != "static" {
+                let _ = deployment::source::save(state, &application_id, restore_source(previous))
+                    .await;
+            }
+            return Err(error);
+        }
+    };
+    super::upload::discard(state, &stored.id).await;
+
+    Ok(Applied {
+        audit_action: "application.deployed",
+        added: Some(match url {
+            Some(url) => format!("{} deploying, {url}", site.name),
+            None => format!("{} deploying ({application_id})", site.name),
+        }),
+        removed: None,
+    })
+}
+
+/// Makes `application_id` a static site with the uploaded files, serves it on
+/// the card's host, and queues the deploy. Returns the host's URL.
+async fn publish_static_site(
+    state: &SharedState,
+    actor: &AuthUser,
+    application_id: &str,
+    site: &StaticSite,
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<Option<String>, AppError> {
+    let current = deployment::source::get(state, application_id).await?;
+    deployment::source::save(
+        state,
+        application_id,
+        crate::dtos::deployment::UpdateSourceRequest {
+            deploy_type: "static".into(),
+            build_method: current.build_method,
+            git_provider_id: None,
+            git_url: None,
+            git_branch: None,
+            auto_deploy: Some(false),
+            watch_paths: None,
+            dockerfile_path: None,
+            compose_file_path: None,
+            compose_public_service: None,
+            container_port: None,
+            railpack_project_path: Some(".".into()),
+            railpack_start_command: None,
+            build_cpu_cores: None,
+            build_memory_mib: None,
+            build_swap_mib: None,
+            image_url: None,
+            registry_username: None,
+            registry_password: None,
+            restart_policy: None,
+        },
+    )
+    .await?;
+    deployment::save_artifact(state, application_id, filename, bytes).await?;
+
+    let url = match &site.host {
+        Some(host) => {
+            // Asking again for a host it already has fixes that domain up
+            // instead of failing on the duplicate.
+            let existing = deployment::domains::list(state, application_id)
+                .await?
+                .into_iter()
+                .find(|domain| domain.host.eq_ignore_ascii_case(host));
+            let domain = match existing {
+                Some(domain)
+                    if domain.port == super::propose::STATIC_PORT
+                        && Some(domain.https) == site.https
+                        && domain.is_primary =>
+                {
+                    domain
+                }
+                Some(domain) => {
+                    deployment::domains::update(
+                        state,
+                        application_id,
+                        &domain.id,
+                        crate::dtos::deployment::UpdateDomainRequest {
+                            certificate: Default::default(),
+                            host: None,
+                            port: Some(super::propose::STATIC_PORT),
+                            https: site.https,
+                            is_primary: Some(true),
+                            server_id: None,
+                        },
+                    )
+                    .await?
+                }
+                None => {
+                    deployment::domains::create(
+                        state,
+                        application_id,
+                        crate::dtos::deployment::CreateDomainRequest {
+                            certificate: Default::default(),
+                            host: host.clone(),
+                            port: super::propose::STATIC_PORT,
+                            https: site.https,
+                            is_primary: Some(true),
+                            server_id: None,
+                        },
+                    )
+                    .await?
+                }
+            };
+            Some(domain.url)
+        }
+        None => None,
+    };
+    deployment::enqueue_for_application(state, application_id, ASSISTANT_TRIGGER, Some(&actor.user_id))
+        .await?;
+    Ok(url)
+}
+
+/// The update that puts a source back the way `previous` read it. Secrets are
+/// never read back, which is fine here: only an application with no
+/// repository or image is ever converted, so it has none.
+fn restore_source(
+    previous: crate::dtos::deployment::SourceConfigDto,
+) -> crate::dtos::deployment::UpdateSourceRequest {
+    crate::dtos::deployment::UpdateSourceRequest {
+        deploy_type: previous.deploy_type,
+        build_method: previous.build_method,
+        git_provider_id: previous.git_provider_id,
+        git_url: previous.git_url,
+        git_branch: previous.git_branch,
+        auto_deploy: Some(previous.auto_deploy),
+        watch_paths: previous.watch_paths,
+        dockerfile_path: previous.dockerfile_path,
+        compose_file_path: previous.compose_file_path,
+        compose_public_service: previous.compose_public_service,
+        container_port: previous.container_port,
+        railpack_project_path: Some(previous.railpack_project_path),
+        railpack_start_command: previous.railpack_start_command,
+        build_cpu_cores: previous.build_cpu_cores,
+        build_memory_mib: previous.build_memory_mib,
+        build_swap_mib: previous.build_swap_mib,
+        image_url: previous.image_url,
+        registry_username: None,
+        registry_password: None,
+        restart_policy: Some(previous.restart_policy),
+    }
 }
 
 /// The project and environment a create lands in: the stored ones, or a new
