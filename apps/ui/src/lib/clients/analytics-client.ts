@@ -56,6 +56,8 @@ export type Analytics = {
 	protocols: TopEntry[];
 	/** Browser family, `bot`, `tool` (curl, SDKs), `other` or `unknown`. */
 	clients: TopEntry[];
+	/** Named agents behind `bot` requests (Googlebot, GPTBot, ...), busiest first. */
+	bots: TopEntry[];
 	/** Referer hosts other than the site itself. */
 	referrers: TopEntry[];
 	/** Every country with traffic, busiest first. */
@@ -99,6 +101,8 @@ export type VisitorEntry = {
 	client: string;
 	/** `ios`, `android`, `windows`, `macos`, `linux`, `chromeos`, `other` or `unknown`. */
 	os: string;
+	/** Named agent for bots and scripts (Googlebot, curl/8.7.1, ...); empty for browsers. */
+	agent: string;
 	requests: number;
 	errors: number;
 	bytes_out: number;

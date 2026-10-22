@@ -139,6 +139,17 @@
 				tone: entry.key === 'bot' || entry.key === 'tool' ? 'info' : undefined,
 			})),
 		});
+		if (data.bots.length) {
+			out.push({
+				title: t('analytics.panel.top_bots'),
+				rows: data.bots.slice(0, 6).map((entry) => ({
+					key: entry.key,
+					label: entry.key,
+					value: entry.requests,
+					tone: 'info' as const,
+				})),
+			});
+		}
 		out.push({
 			title: t('analytics.panel.methods'),
 			mono: true,

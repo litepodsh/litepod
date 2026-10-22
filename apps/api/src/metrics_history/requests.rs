@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS request_visitors (
     application_id VARCHAR NOT NULL,
     visitor BIGINT NOT NULL
 );
--- One row per (minute, application, client IP, browser, OS), bounded per minute.
+-- One row per (minute, application, client IP, browser, OS, agent), bounded per minute.
 -- Unlike request_visitors this keeps the IP itself, plus where it geolocates to.
 CREATE TABLE IF NOT EXISTS request_clients (
     ts TIMESTAMP NOT NULL,
@@ -116,8 +116,13 @@ CREATE TABLE IF NOT EXISTS request_clients (
     city VARCHAR,
     requests BIGINT NOT NULL,
     errors BIGINT NOT NULL,
-    bytes_out BIGINT NOT NULL
-);";
+    bytes_out BIGINT NOT NULL,
+    -- Named agent for bots and scripts (see `agent_label`); empty for browsers.
+    -- Added after the table shipped; rows from before keep the empty string.
+    agent VARCHAR DEFAULT ''
+);
+ALTER TABLE request_clients ADD COLUMN IF NOT EXISTS agent VARCHAR DEFAULT '';
+";
 
 /// Tables `apply_retention` prunes alongside `container_samples`.
 pub const TABLES: [&str; 5] = [
@@ -244,6 +249,8 @@ struct AccessLine {
     ip: Option<String>,
     /// See [`os_family`].
     os: &'static str,
+    /// See [`agent_label`]; empty for mainstream browsers.
+    agent: String,
     /// Filled in by `ingest`, once the host is known to belong to an application.
     geo: Geo,
 }
@@ -314,6 +321,93 @@ fn os_family(user_agent: &str) -> &'static str {
     }
 }
 
+/// Named agent behind a User-Agent: the canonical name of a well-known bot or tool,
+/// or its first product token (`Name/1.2`) when unknown. Empty for mainstream
+/// browsers, whose family the `client` column already carries.
+fn agent_label(user_agent: &str, client: &str) -> String {
+    if matches!(client, "chrome" | "safari" | "firefox" | "edge" | "opera") {
+        return String::new();
+    }
+    // Canonical names for bots whose product token is not what people know them by,
+    // or that bury it after browser boilerplate (mobile Googlebot).
+    const KNOWN: [(&str, &str); 36] = [
+        ("googlebot", "Googlebot"),
+        ("google-inspectiontool", "Google-InspectionTool"),
+        ("storebot-google", "GoogleStoreBot"),
+        ("bingbot", "bingbot"),
+        ("bingpreview", "BingPreview"),
+        ("yandexbot", "YandexBot"),
+        ("yandeximages", "YandexImages"),
+        ("duckduckbot", "DuckDuckBot"),
+        ("baiduspider", "Baiduspider"),
+        ("bytespider", "Bytespider"),
+        ("applebot", "Applebot"),
+        ("petalbot", "PetalBot"),
+        ("semrushbot", "SemrushBot"),
+        ("ahrefsbot", "AhrefsBot"),
+        ("mj12bot", "MJ12bot"),
+        ("dotbot", "DotBot"),
+        ("gptbot", "GPTBot"),
+        ("chatgpt-user", "ChatGPT-User"),
+        ("oai-searchbot", "OAI-SearchBot"),
+        ("claudebot", "ClaudeBot"),
+        ("claude-web", "Claude-Web"),
+        ("anthropic-ai", "Anthropic-AI"),
+        ("perplexitybot", "PerplexityBot"),
+        ("cohere-ai", "Cohere-AI"),
+        ("ccbot", "CCBot"),
+        ("amazonbot", "AmazonBot"),
+        ("meta-externalagent", "Meta-ExternalAgent"),
+        ("facebookexternalhit", "facebookexternalhit"),
+        ("twitterbot", "Twitterbot"),
+        ("linkedinbot", "LinkedInBot"),
+        ("slackbot", "Slackbot"),
+        ("discordbot", "Discordbot"),
+        ("telegrambot", "TelegramBot"),
+        ("uptimerobot", "UptimeRobot"),
+        ("pingdom", "Pingdom"),
+        ("lighthouse", "Lighthouse"),
+    ];
+    let ua = user_agent.to_ascii_lowercase();
+    if let Some((_, name)) = KNOWN.iter().find(|(needle, _)| ua.contains(needle)) {
+        return (*name).to_owned();
+    }
+    // Product tokens (`Name/1.2`) minus the browser boilerplate; a bot-ish name wins
+    // over whatever comes first, since crawlers sometimes pose as browsers.
+    const SKIP: [&str; 8] = [
+        "mozilla",
+        "applewebkit",
+        "khtml",
+        "gecko",
+        "like",
+        "compatible",
+        "version",
+        "mobile",
+    ];
+    let tokens: Vec<(&str, &str)> = user_agent
+        .split([' ', ';'])
+        .map(|token| {
+            let token = token.trim_matches(|c: char| c == '(' || c == ')' || c == ',');
+            (token.split('/').next().unwrap_or(""), token)
+        })
+        .filter(|(name, _)| {
+            !name.is_empty() && !SKIP.iter().any(|skip| name.eq_ignore_ascii_case(skip))
+        })
+        .collect();
+    let botish = |(name, _): &(&str, &str)| {
+        let name = name.to_ascii_lowercase();
+        ["bot", "crawl", "spider", "slurp", "headless", "monitor", "uptime"]
+            .iter()
+            .any(|needle| name.contains(needle))
+    };
+    tokens
+        .iter()
+        .find(|token| botish(token))
+        .or_else(|| tokens.first())
+        .map(|(_, token)| token.chars().take(40).collect())
+        .unwrap_or_default()
+}
+
 fn visitor_id(day: i64, ip: &str, user_agent: &str) -> i64 {
     use sha2::{Digest, Sha256};
     // Validated at startup in main.rs; the salt keeps the hash from mapping back to an IP.
@@ -364,6 +458,7 @@ fn parse_line(line: &str, now_ms: i64) -> Option<AccessLine> {
     let header = |name: &str| request["headers"][name][0].as_str().unwrap_or("");
     let user_agent = header("User-Agent");
     let client = client_family(user_agent);
+    let agent = agent_label(user_agent, client);
     let method = request["method"].as_str().unwrap_or("");
     let method = METHODS
         .into_iter()
@@ -404,6 +499,7 @@ fn parse_line(line: &str, now_ms: i64) -> Option<AccessLine> {
         visitor,
         ip: ip.map(str::to_owned),
         os: os_family(user_agent),
+        agent,
         geo: Geo::default(),
     })
 }
@@ -443,7 +539,7 @@ type RollupKey = (i64, Owner, Option<String>, String, i64);
 type PathKey = (i64, Owner, String);
 type DimensionKey = (i64, Owner, &'static str, String);
 type VisitorKey = (i64, Owner, i64);
-type ClientKey = (i64, Owner, String, &'static str, &'static str);
+type ClientKey = (i64, Owner, String, &'static str, &'static str, String);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 struct ClientRollup {
@@ -584,7 +680,7 @@ impl Aggregator {
             self.visitors.insert((minute, owner.clone(), visitor));
         }
         if let Some(ip) = line.ip {
-            let key = (minute, owner.clone(), ip, line.client, line.os);
+            let key = (minute, owner.clone(), ip, line.client, line.os, line.agent);
             if self.clients.len() < MAX_VISITOR_KEYS || self.clients.contains_key(&key) {
                 let client = self.clients.entry(key).or_insert_with(|| ClientRollup {
                     visitor: line.visitor,
@@ -624,8 +720,8 @@ impl Aggregator {
         let clients = top_per_group(
             self.clients
                 .drain()
-                .map(|((minute, owner, ip, client, os), rollup)| {
-                    ((minute, owner), (ip, client, os), rollup)
+                .map(|((minute, owner, ip, client, os, agent), rollup)| {
+                    ((minute, owner), (ip, client, os, agent), rollup)
                 }),
             CLIENTS_PER_APP_MINUTE,
             |rollup| rollup.requests,
@@ -633,8 +729,8 @@ impl Aggregator {
         Drained {
             clients: clients
                 .into_iter()
-                .map(|((minute, owner), (ip, client, os), rollup)| {
-                    ((minute, owner, ip, client, os), rollup)
+                .map(|((minute, owner), (ip, client, os, agent), rollup)| {
+                    ((minute, owner, ip, client, os, agent), rollup)
                 })
                 .collect(),
             rollups: self.rollups.drain().collect(),
@@ -760,7 +856,7 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
     }
     appender.flush()?;
     let mut appender = conn.appender("request_clients")?;
-    for ((minute, owner, ip, client, os), r) in &batch.clients {
+    for ((minute, owner, ip, client, os, agent), r) in &batch.clients {
         appender.append_row(params![
             ts(*minute),
             owner.organization_id,
@@ -775,6 +871,7 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
             r.requests,
             r.errors,
             r.bytes_out,
+            agent
         ])?;
     }
     appender.flush()
@@ -889,6 +986,8 @@ pub struct AnalyticsDto {
     pub protocols: Vec<TopEntry>,
     /// Browser family, `bot`, `tool` (curl, SDKs), `other` or `unknown`.
     pub clients: Vec<TopEntry>,
+    /// Named agents behind `bot` traffic (see `agent_label`), busiest first.
+    pub bots: Vec<TopEntry>,
     /// Referer hosts other than the site itself.
     pub referrers: Vec<TopEntry>,
     /// Every country with traffic, busiest first.
@@ -923,6 +1022,8 @@ pub struct VisitorEntry {
     /// Latest browser family seen from this IP; see `clients`.
     pub client: String,
     pub os: String,
+    /// Latest named agent seen from this IP (bots and scripts); see `bots`.
+    pub agent: String,
     pub requests: i64,
     pub errors: i64,
     pub bytes_out: i64,
@@ -999,6 +1100,7 @@ fn analytics(
         methods: Vec::new(),
         protocols: Vec::new(),
         clients: Vec::new(),
+        bots: Vec::new(),
         referrers: Vec::new(),
         countries: Vec::new(),
         recent_visitors: Vec::new(),
@@ -1208,7 +1310,8 @@ fn analytics(
 
     let mut statement = conn.prepare(&format!(
         "SELECT ip, application_id, arg_max(country, ts), arg_max(region, ts), arg_max(city, ts),
-                arg_max(client, ts), arg_max(os, ts), sum(requests), sum(errors), sum(bytes_out),
+                arg_max(client, ts), arg_max(os, ts), arg_max(agent, ts),
+                sum(requests), sum(errors), sum(bytes_out),
                 epoch_ms(min(ts)), epoch_ms(max(ts)) AS last_seen
          FROM request_clients WHERE {filter}
          GROUP BY ip, application_id ORDER BY last_seen DESC, ip LIMIT {RECENT_VISITORS}"
@@ -1223,11 +1326,29 @@ fn analytics(
                 city: row.get(4)?,
                 client: row.get(5)?,
                 os: row.get(6)?,
-                requests: row.get(7)?,
-                errors: row.get(8)?,
-                bytes_out: row.get(9)?,
-                first_seen: row.get(10)?,
-                last_seen: row.get(11)?,
+                agent: row.get(7)?,
+                requests: row.get(8)?,
+                errors: row.get(9)?,
+                bytes_out: row.get(10)?,
+                first_seen: row.get(11)?,
+                last_seen: row.get(12)?,
+            })
+        })?
+        .collect::<duckdb::Result<_>>()?;
+
+    let mut statement = conn.prepare(&format!(
+        "SELECT agent, sum(requests) AS n, sum(errors) FROM request_clients
+         WHERE {filter} AND agent <> '' AND client = 'bot'
+         GROUP BY agent ORDER BY n DESC, agent LIMIT {TOP_LIMIT}"
+    ))?;
+    dto.bots = statement
+        .query_map(params_from_iter(values.iter()), |row| {
+            Ok(TopEntry {
+                key: row.get(0)?,
+                requests: row.get(1)?,
+                errors: row.get(2)?,
+                bytes_out: None,
+                avg_ms: None,
             })
         })?
         .collect::<duckdb::Result<_>>()?;
@@ -1662,6 +1783,7 @@ mod tests {
             visitor: Some(1),
             ip: Some("1.2.3.4".into()),
             os: "macos",
+            agent: String::new(),
             geo: Geo {
                 country: Some("MX".into()),
                 region: Some("Jalisco".into()),
@@ -1834,8 +1956,98 @@ mod tests {
         // Self-referrals are not referrers; bots are not visitors.
         let bot = parse_line(&raw("1.2.3.4", "Googlebot/2.1", "https://shop.test/a"), 0).unwrap();
         assert_eq!(bot.client, "bot");
+        assert_eq!(bot.agent, "Googlebot");
         assert_eq!(bot.referrer, None);
         assert_eq!(bot.visitor, None);
+    }
+
+    #[test]
+    fn names_agents() {
+        for (ua, client, agent) in [
+            ("Googlebot/2.1", "bot", "Googlebot"),
+            ("Mozilla/5.0 (compatible; bingbot/2.0)", "bot", "bingbot"),
+            // Mobile Googlebot hides behind an iPhone Safari User-Agent.
+            (
+                "Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1 (compatible; Googlebot/2.1)",
+                "bot",
+                "Googlebot",
+            ),
+            (
+                "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
+                "bot",
+                "AhrefsBot",
+            ),
+            ("HeadlessChrome/130.0", "bot", "HeadlessChrome/130.0"),
+            // Unknown bots fall back to their first product token.
+            (
+                "Mozilla/5.0 (compatible; SomeCrawler/3.0; +https://example.com/bot)",
+                "bot",
+                "SomeCrawler/3.0",
+            ),
+            ("curl/8.7.1", "tool", "curl/8.7.1"),
+            ("python-requests/2.31.0", "tool", "python-requests/2.31.0"),
+            // Browsers are identified by their family already.
+            (
+                "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/130.0 Safari/537.36",
+                "chrome",
+                "",
+            ),
+            ("", "unknown", ""),
+        ] {
+            assert_eq!(agent_label(ua, client), agent, "{ua}");
+        }
+    }
+
+    #[test]
+    fn ranks_bot_agents() {
+        let conn = db();
+        let base = (NOW - 10 * MINUTE_MS) / MINUTE_MS * MINUTE_MS;
+        let mut aggregator = Aggregator::default();
+        let mut record = |ip: &str, client: &'static str, agent: &str| {
+            let mut line = line(base, "a.test", "/", 200, 5.0);
+            line.ip = Some(ip.into());
+            line.client = client;
+            line.agent = agent.into();
+            line.visitor = None;
+            line.geo = Geo::default();
+            aggregator.record(line, owner("app"), None);
+        };
+        record("1.1.1.1", "bot", "Googlebot");
+        record("2.2.2.2", "bot", "Googlebot");
+        record("3.3.3.3", "bot", "GPTBot");
+        record("9.9.9.9", "tool", "curl/8.7.1");
+        insert(&conn, &aggregator.drain()).unwrap();
+
+        let dto = analytics(
+            &conn,
+            "org",
+            &["app".into()],
+            AnalyticsRange::Hour,
+            false,
+            NOW,
+        )
+        .unwrap();
+        let bots: Vec<_> = dto
+            .bots
+            .iter()
+            .map(|entry| (entry.key.as_str(), entry.requests))
+            .collect();
+        // Tools and browsers stay out of the bot ranking.
+        assert_eq!(bots, [("Googlebot", 2), ("GPTBot", 1)]);
+        let agents: Vec<_> = dto
+            .recent_visitors
+            .iter()
+            .map(|v| (v.ip.as_str(), v.agent.as_str()))
+            .collect();
+        assert_eq!(
+            agents,
+            [
+                ("1.1.1.1", "Googlebot"),
+                ("2.2.2.2", "Googlebot"),
+                ("3.3.3.3", "GPTBot"),
+                ("9.9.9.9", "curl/8.7.1"),
+            ]
+        );
     }
 
     #[test]
@@ -1984,6 +2196,37 @@ mod tests {
             )
             .unwrap();
         assert_eq!(old, (0.0, 0));
+    }
+
+    #[test]
+    fn adds_agent_column_to_an_old_clients_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE request_clients (ts TIMESTAMP NOT NULL, organization_id VARCHAR NOT NULL,
+                application_id VARCHAR NOT NULL, ip VARCHAR NOT NULL, visitor BIGINT,
+                client VARCHAR NOT NULL, os VARCHAR NOT NULL, country VARCHAR, region VARCHAR,
+                city VARCHAR, requests BIGINT NOT NULL, errors BIGINT NOT NULL, bytes_out BIGINT NOT NULL);
+             INSERT INTO request_clients VALUES (TIMESTAMP '2026-01-01', 'org', 'app', '1.2.3.4', NULL,
+                'bot', 'other', NULL, NULL, NULL, 3, 0, 10);",
+        )
+        .unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        let mut aggregator = Aggregator::default();
+        let mut bot = line(NOW, "a.test", "/", 200, 5.0);
+        bot.client = "bot";
+        bot.agent = "Googlebot".into();
+        bot.visitor = None;
+        aggregator.record(bot, owner("app"), None);
+        insert(&conn, &aggregator.drain()).unwrap();
+        let agents: Vec<String> = conn
+            .prepare("SELECT agent FROM request_clients ORDER BY ts")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        // Rows from before the column existed keep the empty string.
+        assert_eq!(agents, ["", "Googlebot"]);
     }
 
     #[test]
