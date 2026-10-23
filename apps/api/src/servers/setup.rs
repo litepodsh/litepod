@@ -937,22 +937,75 @@ pub async fn restart_server(server: &ServerRecord) -> Result<MaintenanceOutcome,
     Ok(maintenance_outcome("restart_server", started, run))
 }
 
+/// Build leftovers older than this are removed; a younger one may belong to a
+/// build still running.
+const STALE_BUILD_DIR_DAYS: &str = "+1";
+
+/// Frees the disk a server accumulates: unused images, build cache, the
+/// per-deploy Railpack workspaces and the journal. Containers and volumes are
+/// never touched, so a stopped application can still be started.
 pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, AppError> {
     let started = std::time::Instant::now();
     let ssh_user = server.ssh_user.as_deref().unwrap_or_default();
-    let mut command = server
-        .podman_mode
-        .podman_prefix(ssh_user)
-        .iter()
-        .map(OsString::from)
-        .collect::<Vec<_>>();
-    command.extend(
-        ["podman", "image", "prune", "-a", "-f"]
+    let podman = |args: &[&str]| {
+        let mut command = server
+            .podman_mode
+            .podman_prefix(ssh_user)
             .iter()
-            .map(OsString::from),
-    );
-    let run = run_maintenance_command(server, command).await?;
-    Ok(maintenance_outcome("prune_images", started, run))
+            .map(OsString::from)
+            .collect::<Vec<_>>();
+        command.push(OsString::from("podman"));
+        command.extend(args.iter().map(OsString::from));
+        command
+    };
+    let mut run = run_maintenance_command(server, podman(&["image", "prune", "-a", "-f"])).await?;
+    let mut stdout = std::mem::take(&mut run.stdout);
+    let mut stderr = std::mem::take(&mut run.stderr);
+    let mut success = run.exit_code == 0;
+
+    let builder =
+        run_maintenance_command(server, podman(&["builder", "prune", "-a", "-f"])).await?;
+    append_output(&mut stdout, &builder.stdout);
+    append_output(&mut stderr, &builder.stderr);
+    success &= builder.exit_code == 0;
+
+    // Failed or canceled builds leave their workspace behind on a remote server,
+    // where nothing else removes it. Best effort: a missing directory or journal
+    // is not a failed prune.
+    let workspaces = run_maintenance_command(
+        server,
+        maintenance_command(
+            &[],
+            &[
+                "sh",
+                "-c",
+                &format!(
+                    "d=\"$HOME/.local/share/litepod/apps\"; \
+                     find \"$d\" -mindepth 3 -maxdepth 3 -path '*/railpack/*' -mtime {STALE_BUILD_DIR_DAYS} -exec rm -rf {{}} + 2>/dev/null; \
+                     find \"$d\" -mindepth 2 -maxdepth 2 -name 'railpack-builder-*' -mtime {STALE_BUILD_DIR_DAYS} -exec rm -rf {{}} + 2>/dev/null; \
+                     true"
+                ),
+            ],
+        ),
+    )
+    .await?;
+    append_output(&mut stderr, &workspaces.stderr);
+    let _ = run_maintenance_command(
+        server,
+        maintenance_command(
+            PodmanMode::privilege_prefix(ssh_user),
+            &["journalctl", "--vacuum-size=200M"],
+        ),
+    )
+    .await;
+
+    Ok(MaintenanceOutcome {
+        action: "prune_images".into(),
+        success,
+        stdout: clamp_output_limit(&stdout, MAINTENANCE_OUTPUT_LIMIT),
+        stderr: clamp_output_limit(&stderr, MAINTENANCE_OUTPUT_LIMIT),
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
 }
 
 pub async fn restart_podman(server: &ServerRecord) -> Result<MaintenanceOutcome, AppError> {

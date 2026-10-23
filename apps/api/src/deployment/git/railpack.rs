@@ -210,6 +210,20 @@ pub(crate) async fn cleanup_run(state: &SharedState, application_id: &str, run_i
                     ])
                     .await;
             }
+            // A remote build staged its inputs and output under the SSH user's
+            // home, where nothing else would ever remove them.
+            if runtime.is_remote() {
+                let root = format!(".local/share/litepod/apps/{application_id}");
+                let _ = runtime
+                    .remote_command(&[
+                        std::ffi::OsString::from("rm"),
+                        std::ffi::OsString::from("-rf"),
+                        std::ffi::OsString::from(format!("{root}/railpack/{run_id}")),
+                        std::ffi::OsString::from(format!("{root}/railpack-builder-{run_id}")),
+                        std::ffi::OsString::from(format!("{root}/railpack-builder-{run_id}.tar")),
+                    ])
+                    .await;
+            }
             // `--time 0` skips the 10s SIGTERM grace (buildkit ignores it) and
             // the removals run together, so a cancel does not wait on each one.
             futures_util::future::join_all(
