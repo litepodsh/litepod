@@ -93,6 +93,25 @@ pub(crate) async fn reconcile_caddy_basicauth(state: &SharedState, domain_id: &s
     let Ok(domain) = domains::get_by_id(state, domain_id).await else {
         return;
     };
+    // A remote application's routes live on its server, not in the central
+    // Caddy: the edge fragment (or private-relay route) is rebuilt from the
+    // database, which now carries the authentication block.
+    if !domain.is_local
+        && matches!(
+            domains::application_uses_local_caddy(state, &domain.application_id).await,
+            Ok(false)
+        )
+    {
+        if let Err(error) = crate::servers::ingress::sync_domain(state, &domain).await {
+            tracing::warn!(
+                domain_id,
+                host = %domain.host,
+                %error,
+                "could not reconcile remote route after basicauth change"
+            );
+        }
+        return;
+    }
     let Ok(Some((container_name, container_port))) =
         domains::caddy_target(state, &domain.application_id, &domain).await
     else {

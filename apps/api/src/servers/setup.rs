@@ -203,7 +203,7 @@ sync_routes() {
 
     # Render every desired fragment into a scratch dir first. Any malformed
     # token aborts here, before the live directory is touched at all.
-    while read -r id host port https provider certificate rest; do
+    while read -r id host port https provider certificate auth rest; do
         [ -n "$id" ] || continue
         case "$id" in ''|*[!0-9a-f-]*) exit 64 ;; esac
         case "$host" in ''|*[!A-Za-z0-9.:-]*) exit 64 ;; esac
@@ -225,8 +225,22 @@ sync_routes() {
             automatic:*.test|automatic:*.TEST) tls='	tls internal
 ' ;;
         esac
-        printf '%s {\n%b%b\treverse_proxy 127.0.0.1:%s\n}\n' "$host" "$tls" "$log_block" "$port" \
-            > "$staging/$id.caddy"
+        # Optional base64 `basic_auth` block, spliced in ahead of reverse_proxy
+        # so the upstream is never dialed for an unauthenticated request.
+        auth_block=''
+        case "${auth:--}" in
+            -) ;;
+            *[!A-Za-z0-9+/=]*) exit 64 ;;
+            *)
+                auth_block=$(printf '%s' "$auth" | base64 -d) || exit 64
+                [ -n "$auth_block" ] || exit 64
+                ;;
+        esac
+        {
+            printf '%s {\n%b%b' "$host" "$tls" "$log_block"
+            if [ -n "$auth_block" ]; then printf '%s\n' "$auth_block"; fi
+            printf '\treverse_proxy 127.0.0.1:%s\n}\n' "$port"
+        } > "$staging/$id.caddy"
     done < "$manifest"
 
     # Two manifest lines for one host would adapt to two site blocks for one
@@ -317,6 +331,7 @@ case "${1:-}" in
     sync-routes) [ "$#" -eq 2 ] || exit 64; sync_routes "$2" ;;
     sync-routes-check) exit 0 ;;
     certificates-check) exit 0 ;;
+    basic-auth-check) exit 0 ;;
     install-certificate) [ "$#" -eq 3 ] || exit 64; install_certificate "$2" "$3" ;;
     health) caddy validate --config "$caddyfile" --adapter caddyfile; systemctl is-active --quiet caddy ;;
     *) exit 64 ;;
@@ -1724,6 +1739,35 @@ mod tests {
             std::fs::read_to_string(dir.join("routes.d/aaaa.caddy")).unwrap(),
             secure
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_routes_splices_basic_auth_ahead_of_reverse_proxy() {
+        use base64::Engine;
+        let dir =
+            std::env::temp_dir().join(format!("litepod-serverctl-auth-{}", uuid::Uuid::now_v7()));
+        let block = "\tbasic_auth bcrypt \"Private\" {\n\t\t\"admin\" $2a$12$hash\n\t}\n";
+        let token = base64::engine::general_purpose::STANDARD.encode(block);
+        let out = run_sync(
+            &dir,
+            0,
+            &format!("aaaa api.example.com 42000 true automatic - {token}\n"),
+        );
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let fragment = std::fs::read_to_string(dir.join("routes.d/aaaa.caddy")).unwrap();
+        assert!(fragment.contains(block), "{fragment}");
+        assert!(fragment.find("basic_auth").unwrap() < fragment.find("reverse_proxy").unwrap());
+        let failed = run_sync(
+            &dir,
+            0,
+            "aaaa api.example.com 42000 true automatic - not*base64\n",
+        );
+        assert!(!failed.status.success());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

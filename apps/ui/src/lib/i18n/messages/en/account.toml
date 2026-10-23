@@ -454,8 +454,8 @@ description = "Litepod sends an anonymous ping once a day so the project can cou
 instance_id = "Instance ID"
 env_locked = "Telemetry is turned off by the LITEPOD_TELEMETRY environment variable on this server."
 ok = "OK"
-notice_description = "This server sends an anonymous ping to status.litepod.sh once a day with a random instance ID and the Litepod version. Nothing else is sent: no domains, emails, app names or IP addresses. To turn it off, go to Settings and disable it, or go to System > System settings and disable telemetry there."
-notice_title = "Anonymous install counter"
+notice_description = "We don't collect telemetry or usage data. Once a day, this server sends a tiny anonymous ping (a random ID and the Litepod version) to status.litepod.sh, just so we know your instance is alive. No domains, emails, app names or IP addresses are sent. You can turn it off anytime in System > System settings"
+notice_title = "Thanks for installing Litepod"
 title = "Telemetry"
 what_is_sent = "Only a random instance ID and the Litepod version are sent. No domains, emails, app names or IP addresses."
 
