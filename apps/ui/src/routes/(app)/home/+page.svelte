@@ -288,7 +288,7 @@
 					{:else if latest.length === 0}
 						<p class="p-6 text-sm text-muted-foreground">{t('common.home.no_applications')}</p>
 					{:else}
-						<AppsTable apps={latest} organizationId={organization.id} bind:failedApplicationIds />
+						<AppsTable apps={latest} bind:failedApplicationIds />
 					{/if}
 				</section>
 			</div>

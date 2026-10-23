@@ -206,9 +206,13 @@ pub async fn regenerate_recovery_codes(
     })
 }
 
-/// Revoke every session for the user, including the current one.
-/// Returns the number of sessions revoked.
+/// Revoke every session for the user, including the current one. MCP agent
+/// grants go too: their tokens and their session records close together.
+/// Returns the number of browser sessions revoked.
 pub async fn revoke_all_sessions(state: &SharedState, user_id: &str) -> Result<u64, AppError> {
+    let _ = crate::git::repositories::oauth::revoke_all_grants_for_user(state, user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
     crate::git::repositories::db::retry_on_stale_snapshot(|| async {
         let conn = crate::git::repositories::db::get_conn(state).await;
         sqlx::query("DELETE FROM sessions WHERE user_id = ?1")
@@ -221,13 +225,17 @@ pub async fn revoke_all_sessions(state: &SharedState, user_id: &str) -> Result<u
     .await
 }
 
-/// Revoke every session for the user except the one making the request.
-/// Returns the number of sessions revoked.
+/// Revoke every session for the user except the one making the request. MCP
+/// agent grants are never the current session, so they all go as well.
+/// Returns the number of browser sessions revoked.
 pub async fn revoke_other_sessions(
     state: &SharedState,
     user_id: &str,
     keep_token: &str,
 ) -> Result<u64, AppError> {
+    let _ = crate::git::repositories::oauth::revoke_all_grants_for_user(state, user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
     repositories::session::revoke_all_for_user_except(state, user_id, Some(keep_token))
         .await
         .map_err(Into::into)

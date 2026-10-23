@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SkeletonRows from '#lib/components/custom/skeleton-rows.svelte';
 	import SettingsSection from '#lib/components/projects/settings-section.svelte';
-	import { toneBadge, toneDot } from '#lib/utils/status-tone.js';
+	import { toneBadge, toneDot, type StatusTone } from '#lib/utils/status-tone.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -16,8 +16,10 @@
 		revokeSession,
 		revokeAllSessions,
 		revokeOtherSessions,
+		type SessionDto
 	} from '#lib/clients/account-client.js';
 	import SessionDevice from './session-device.svelte';
+	import AgentIcon from '#lib/components/icons/agent-icon.svelte';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	const sessionsResource = new UseAsyncResource(
@@ -30,11 +32,39 @@
 
 	onMount(() => sessionsResource.load());
 
+	/** A session row is open until it expires or its grant is closed. */
+	function isExpired(session: SessionDto): boolean {
+		return new Date(session.expires_at + 'Z').getTime() < Date.now();
+	}
+	function isClosed(session: SessionDto): boolean {
+		return session.kind === 'mcp' && (session.closed_at !== null || isExpired(session));
+	}
+
+	function badgeFor(session: SessionDto): { tone: StatusTone; label: string } {
+		if (isClosed(session)) return { tone: 'neutral', label: t('account.sessions.closed') };
+		if (isExpired(session)) return { tone: 'danger', label: t('account.common.expired') };
+		if (session.is_current) return { tone: 'ok', label: t('account.sessions.current') };
+		if (session.kind === 'mcp') return { tone: 'ok', label: t('account.sessions.mcp_open') };
+		return { tone: 'neutral', label: t('account.sessions.active') };
+	}
+
 	async function handleRevoke(id: string) {
-		if (!confirm(t('account.sessions.revoke_confirm'))) return;
+		const session = sessions.find((s) => s.id === id);
+		const confirmKey =
+			session?.kind === 'mcp'
+				? 'account.sessions.revoke_mcp_confirm'
+				: 'account.sessions.revoke_confirm';
+		if (!confirm(t(confirmKey))) return;
 		try {
 			await revokeSession(id);
-			sessionsResource.data = sessions.filter((s) => s.id !== id);
+			if (session?.kind === 'mcp') {
+				// The record stays as history, now marked closed.
+				sessionsResource.data = sessions.map((s) =>
+					s.id === id ? { ...s, closed_at: new Date().toISOString().slice(0, 19).replace('T', ' ') } : s,
+				);
+			} else {
+				sessionsResource.data = sessions.filter((s) => s.id !== id);
+			}
 			toast.success(t('account.sessions.revoked'));
 		} catch (err) {
 			toastError(err, t('account.sessions.revoke_failed'));
@@ -46,7 +76,14 @@
 		revokingOthers = true;
 		try {
 			await revokeOtherSessions();
-			sessionsResource.data = sessions.filter((s) => s.is_current);
+			// Other devices vanish; agent grants stay listed, marked closed.
+			sessionsResource.data = sessions
+				.filter((s) => s.is_current || s.kind === 'mcp')
+				.map((s) =>
+					s.kind === 'mcp'
+						? { ...s, closed_at: new Date().toISOString().slice(0, 19).replace('T', ' ') }
+						: s,
+				);
 			toast.success(t('account.sessions.others_revoked'));
 		} catch (err) {
 			toastError(err, t('account.sessions.revoke_others_failed'));
@@ -74,7 +111,7 @@
 	{#snippet aside()}
 		{#if sessions.length > 0}
 			<div class="mt-3 flex flex-wrap items-center gap-2">
-				{#if sessions.some((s) => !s.is_current)}
+				{#if sessions.some((s) => !s.is_current && !isClosed(s))}
 					<Button
 						variant="outline"
 						size="sm"
@@ -122,23 +159,29 @@
 	{:else}
 		<ul class="flex flex-col gap-1.5">
 			{#each sessions as session (session.id)}
-				{@const expired = new Date(session.expires_at + 'Z').getTime() < Date.now()}
-				{@const tone = expired ? 'danger' : session.is_current ? 'ok' : 'neutral'}
+				{@const badge = badgeFor(session)}
 				<li
 					class="flex flex-col gap-2 rounded-[10px] border border-foreground/9 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
 					<div class="flex min-w-0 flex-col gap-1">
 						<div class="flex flex-wrap items-center gap-2">
-							<SessionDevice userAgent={session.user_agent} />
+							{#if session.kind === 'mcp'}
+								<div class="flex items-center gap-2">
+									<AgentIcon agent={session.agent} class="size-4" />
+									<span class="text-sm">
+										{t('account.sessions.mcp_connection', {
+											client: session.client_name ?? t('account.sessions.mcp_unknown_client')
+										})}
+									</span>
+								</div>
+							{:else}
+								<SessionDevice userAgent={session.user_agent} />
+							{/if}
 							<span
 								class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium {toneBadge(
-									tone,
+									badge.tone,
 								)}">
-								<span class="size-1.5 rounded-full {toneDot(tone)}"></span>
-								{expired
-									? t('account.common.expired')
-									: session.is_current
-										? t('account.sessions.current')
-										: t('account.sessions.active')}
+								<span class="size-1.5 rounded-full {toneDot(badge.tone)}"></span>
+								{badge.label}
 							</span>
 						</div>
 						<dl class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -162,15 +205,24 @@
 									</dd>
 								</div>
 							{/if}
-							<div class="flex items-center gap-1">
-								<dt>{t('account.sessions.expires')}</dt>
-								<dd class="tabular-nums">
-									{new Date(session.expires_at + 'Z').toLocaleString()}
-								</dd>
-							</div>
+							{#if session.closed_at}
+								<div class="flex items-center gap-1">
+									<dt>{t('account.sessions.closed_at')}</dt>
+									<dd class="tabular-nums">
+										{new Date(session.closed_at + 'Z').toLocaleString()}
+									</dd>
+								</div>
+							{:else}
+								<div class="flex items-center gap-1">
+									<dt>{t('account.sessions.expires')}</dt>
+									<dd class="tabular-nums">
+										{new Date(session.expires_at + 'Z').toLocaleString()}
+									</dd>
+								</div>
+							{/if}
 						</dl>
 					</div>
-					{#if !session.is_current}
+					{#if !session.is_current && !isClosed(session)}
 						<Button
 							variant="ghost"
 							size="sm"

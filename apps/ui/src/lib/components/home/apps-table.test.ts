@@ -1,14 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
-import { expect, it, vi } from 'vitest';
+import { expect, it } from 'vitest';
 import AppsTable from './apps-table.svelte';
 import type { OrganizationApp } from '#lib/utils/organization-apps.js';
-
-vi.mock('#lib/clients/project-client.js', () => ({
-	listApplicationLogTargets: vi.fn(async () => [
-		{ container_name: 'web', service: 'web', status: 'running' },
-		{ container_name: 'db', service: 'db', status: 'exited' },
-	]),
-}));
 
 const app = {
 	application: {
@@ -39,14 +32,27 @@ const app = {
 		},
 	],
 	deployedAt: Date.now() - 60_000,
+	containers: { running: 1, total: 2 },
 	href: '/projects/p1/environments/e1/applications/a1',
 } as unknown as OrganizationApp;
 
 it('shows project, primary domain, extra domains and running/total containers', async () => {
-	render(AppsTable, { apps: [app], organizationId: 'o1' });
+	render(AppsTable, { apps: [app] });
 	expect(screen.getByText('umami').closest('a')?.getAttribute('href')).toBe(app.href);
 	expect(screen.getByText('tools')).toBeTruthy();
 	expect(screen.getAllByText('stats.example.com').length).toBeGreaterThan(0);
 	expect(screen.getByText('+1')).toBeTruthy();
-	expect(await screen.findByText('1/2')).toBeTruthy();
+	expect(screen.getByText('1/2')).toBeTruthy();
+});
+
+it('keeps the container cell empty when the application server was unreachable', () => {
+	const unreachable = {
+		...app,
+		application: { ...app.application, id: 'a2', name: 'ghost' },
+		containers: null,
+		domains: [],
+	} as unknown as OrganizationApp;
+	render(AppsTable, { apps: [unreachable] });
+	expect(screen.getByText('ghost')).toBeTruthy();
+	expect(screen.queryByText('0/2')).toBeNull();
 });

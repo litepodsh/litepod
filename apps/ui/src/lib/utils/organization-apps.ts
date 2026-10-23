@@ -1,25 +1,21 @@
 import {
-	getDeployment,
-	getProject,
-	listProjects,
-	type ApplicationDto,
-	type DeploymentDto,
-	type DomainDto,
-	type EnvironmentDto,
-	type ProjectDto,
-} from '#lib/clients/project-client.js';
+	listOrganizationAppsSummary,
+	type AppSummaryDomainDto,
+	type AppSummaryDto,
+} from '#lib/clients/organization-client.js';
 import type { StatusTone } from '#lib/utils/status-tone.js';
 
 /** One application with everything the org-wide lists show about it. */
 export type OrganizationApp = {
-	application: ApplicationDto;
-	project: ProjectDto;
-	environment: Pick<EnvironmentDto, 'id' | 'name' | 'is_production'>;
-	/** `null` when the deployment could not be read. */
-	status: DeploymentDto['status'] | null;
-	domains: DomainDto[];
+	application: AppSummaryDto['application'];
+	project: AppSummaryDto['project'];
+	environment: AppSummaryDto['environment'];
+	status: string | null;
+	domains: AppSummaryDomainDto[];
 	/** Last successful deploy, epoch ms; `null` when never deployed or unreadable. */
-	deployedAt?: number | null;
+	deployedAt: number | null;
+	/** Running/total containers; `null` when the application's server was unreachable. */
+	containers: { running: number; total: number } | null;
 	href: string;
 };
 
@@ -28,40 +24,23 @@ export function applicationHref(projectId: string, environmentId: string, applic
 }
 
 /**
- * Every application in every environment of the organization.
- * ponytail: one request per project plus one per app; replace with an
- * org-level endpoint when organizations grow past a few dozen apps.
+ * Every application in every environment of the organization, in one request.
+ * This used to fan out one `getDeployment` call per application — a 35-request
+ * burst that the global rate limit answered with 429s, so most rows lost their
+ * status, domains and deploy date.
  */
 export async function loadOrganizationApps(organizationId: string): Promise<OrganizationApp[]> {
-	const projects = await listProjects(organizationId);
-	const details = await Promise.all(projects.map((p) => getProject(organizationId, p.id)));
-	const rows = details.flatMap(({ project, environments }) =>
-		environments.flatMap((environment) =>
-			environment.applications.map((application) => ({ application, project, environment })),
-		),
-	);
-	const deployments = await Promise.allSettled(
-		rows.map(({ project, environment, application }) =>
-			getDeployment(organizationId, project.id, environment.id, application.id),
-		),
-	);
-	return rows.map(({ application, project, environment }, index) => {
-		const deployment = deployments[index];
-		const ok = deployment.status === 'fulfilled';
-		return {
-			application,
-			project,
-			environment: {
-				id: environment.id,
-				name: environment.name,
-				is_production: environment.is_production,
-			},
-			status: ok ? deployment.value.status : null,
-			domains: ok ? deployment.value.domains : [],
-			deployedAt: ok ? deployment.value.deployed_at : null,
-			href: applicationHref(project.id, environment.id, application.id),
-		};
-	});
+	const summary = await listOrganizationAppsSummary(organizationId);
+	return summary.map((app) => ({
+		application: app.application,
+		project: app.project,
+		environment: app.environment,
+		status: app.status,
+		domains: app.domains,
+		deployedAt: app.deployed_at,
+		containers: app.containers,
+		href: applicationHref(app.project.id, app.environment.id, app.application.id),
+	}));
 }
 
 export function statusTone(status: OrganizationApp['status']): StatusTone {
@@ -78,7 +57,7 @@ export function statusTone(status: OrganizationApp['status']): StatusTone {
 	}
 }
 
-export function primaryDomain(domains: DomainDto[]): DomainDto | undefined {
+export function primaryDomain(domains: AppSummaryDomainDto[]): AppSummaryDomainDto | undefined {
 	return domains.find((domain) => domain.is_primary) ?? domains[0];
 }
 

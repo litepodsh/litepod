@@ -26,6 +26,7 @@ pub mod mcp;
 pub mod notifications;
 pub mod oauth;
 pub mod onboarding;
+pub mod organization_apps;
 pub mod organizations;
 pub mod permissions;
 pub mod personal_access_tokens;

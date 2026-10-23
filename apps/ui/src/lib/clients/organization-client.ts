@@ -149,3 +149,51 @@ export async function removeMember(organizationId: string, userId: string): Prom
 		method: 'DELETE',
 	});
 }
+
+/** A domain as the organization-wide lists show it: enough to link and label a host. */
+export type AppSummaryDomainDto = {
+	id: string;
+	host: string;
+	port: number;
+	https: boolean;
+	is_primary: boolean;
+	/** Fully resolved address, e.g. `https://ghost.example.com`. */
+	url: string;
+	/** Name of the saved certificate the domain uses, when it uses one. */
+	certificate_name: string | null;
+};
+
+/** One application with everything the organization-wide lists render about it. */
+export type AppSummaryDto = {
+	application: {
+		id: string;
+		name: string;
+		template_kind: string | null;
+		catalog_icon_url: string | null;
+		icon_url: string | null;
+		created_at: number;
+		updated_at: number;
+	};
+	project: { id: string; name: string };
+	environment: { id: string; name: string; is_production: boolean };
+	status: string;
+	/** Last successful deploy, epoch ms; `null` when never deployed. */
+	deployed_at: number | null;
+	domains: AppSummaryDomainDto[];
+	/** `null` when the application's server could not be reached. */
+	containers: { running: number; total: number } | null;
+};
+
+/**
+ * Every application of the organization in one request. The lists used to fan
+ * out one deployment call per application, which the global rate limit turned
+ * into blank rows for all but the first handful.
+ */
+export async function listOrganizationAppsSummary(
+	organizationId: string,
+): Promise<AppSummaryDto[]> {
+	const response = await api<AppSummaryDto[]>(
+		`/api/v1/organizations/${organizationId}/apps/summary`,
+	);
+	return response.data ?? [];
+}

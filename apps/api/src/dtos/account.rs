@@ -64,7 +64,9 @@ pub struct RegenerateCodesRequest {
     pub code: String,
 }
 
-/// Session info returned by GET /api/v1/account/sessions
+/// Session info returned by GET /api/v1/account/sessions.
+/// `kind` is "device" for a signed-in browser or "mcp" for an agent connected
+/// over MCP OAuth; the MCP-only fields stay `None` on device sessions.
 #[derive(Serialize, ToSchema)]
 pub struct SessionDto {
     pub id: String,
@@ -72,4 +74,9 @@ pub struct SessionDto {
     pub expires_at: String,
     pub is_current: bool,
     pub user_agent: Option<String>,
+    pub kind: String,
+    pub client_name: Option<String>,
+    pub agent: Option<String>,
+    /// When an MCP grant was revoked or expired. `None` while it is open.
+    pub closed_at: Option<String>,
 }

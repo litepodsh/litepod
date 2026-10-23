@@ -178,7 +178,8 @@ pub async fn take_refresh(state: &SharedState, token: &str) -> Result<Option<Ref
 }
 
 /// Everything one approval produced, across rotations: its refresh tokens and
-/// the access tokens behind them. Used when a code is replayed.
+/// the access tokens behind them. Used when a code is replayed, and whenever a
+/// grant is revoked. The session record is marked closed with them.
 pub async fn revoke_by_code(state: &SharedState, code_digest: &str) -> Result<(), String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     sqlx::query(
@@ -195,5 +196,135 @@ pub async fn revoke_by_code(state: &SharedState, code_digest: &str) -> Result<()
     .execute(&conn)
     .await
     .map_err(|e| e.to_string())?;
+    close_session(state, code_digest).await
+}
+
+/// One row of the account's session list for an MCP agent grant.
+pub struct McpSessionRow {
+    pub id: String,
+    pub client_name: String,
+    pub agent: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub closed_at: Option<String>,
+}
+
+/// Records one session per OAuth grant, keyed by `code_digest`: created on the
+/// first token exchange, and moved forward on every rotation so `expires_at`
+/// shows the rolling expiry the grant really has.
+pub async fn record_session(
+    state: &SharedState,
+    code_digest: &str,
+    client_id: &str,
+    user_id: &str,
+    organization_id: &str,
+    client_name: &str,
+    agent: &str,
+    expires_at: &str,
+) -> Result<(), String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query(
+        "INSERT INTO mcp_oauth_sessions (id, code_digest, client_id, user_id, organization_id, client_name, agent, expires_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+         ON CONFLICT(code_digest) DO UPDATE SET expires_at = excluded.expires_at",
+    )
+    .bind(uuid::Uuid::now_v7().to_string())
+    .bind(code_digest)
+    .bind(client_id)
+    .bind(user_id)
+    .bind(organization_id)
+    .bind(client_name)
+    .bind(agent)
+    .bind(expires_at)
+    .execute(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Marks a grant's session record closed. Idempotent.
+pub async fn close_session(state: &SharedState, code_digest: &str) -> Result<(), String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query(
+        "UPDATE mcp_oauth_sessions SET closed_at = strftime('%Y-%m-%d %H:%M:%S', 'now') WHERE code_digest = ?1 AND closed_at IS NULL",
+    )
+    .bind(code_digest)
+    .execute(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Every session record for one user, newest first. Closed rows are kept: they
+/// are the history of which agents had access and when.
+pub async fn list_sessions(
+    state: &SharedState,
+    user_id: &str,
+) -> Result<Vec<McpSessionRow>, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let rows = sqlx::query(
+        "SELECT id, client_name, agent, created_at, expires_at, closed_at FROM mcp_oauth_sessions WHERE user_id = ?1 ORDER BY created_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(rows
+        .iter()
+        .map(|row| McpSessionRow {
+            id: row.try_get(0).unwrap_or_default(),
+            client_name: row.try_get(1).unwrap_or_default(),
+            agent: row.try_get(2).unwrap_or_default(),
+            created_at: row.try_get(3).unwrap_or_default(),
+            expires_at: row.try_get(4).unwrap_or_default(),
+            closed_at: row.try_get(5).unwrap_or(None),
+        })
+        .collect())
+}
+
+/// The grant behind one session record, when the id is the user's.
+pub async fn take_grant(
+    state: &SharedState,
+    session_id: &str,
+    user_id: &str,
+) -> Result<Option<String>, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let row = sqlx::query(
+        "SELECT code_digest FROM mcp_oauth_sessions WHERE id = ?1 AND user_id = ?2",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .fetch_optional(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(row.map(|row| row.try_get(0).unwrap_or_default()))
+}
+
+/// Revokes every MCP grant the user has: the tokens behind each one and the
+/// session record itself. Returns how many records were closed.
+pub async fn revoke_all_grants_for_user(state: &SharedState, user_id: &str) -> Result<u64, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query(
+        "UPDATE personal_access_tokens SET revoked_at = strftime('%Y-%m-%d %H:%M:%S', 'now') WHERE revoked_at IS NULL AND id IN (SELECT access_token_id FROM oauth_refresh_tokens WHERE user_id = ?1)",
+    )
+    .bind(user_id)
+    .execute(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    sqlx::query(
+        "UPDATE oauth_refresh_tokens SET revoked_at = strftime('%Y-%m-%d %H:%M:%S', 'now') WHERE user_id = ?1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    let closed = sqlx::query(
+        "UPDATE mcp_oauth_sessions SET closed_at = strftime('%Y-%m-%d %H:%M:%S', 'now') WHERE user_id = ?1 AND closed_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(&conn)
+    .await
+    .map_err(|e| e.to_string())?
+    .rows_affected();
+    Ok(closed)
 }
