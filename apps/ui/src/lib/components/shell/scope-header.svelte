@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import SearchableDropdown from '#lib/components/custom/searchable-dropdown.svelte';
 	import LitepodMark from '#lib/components/custom/litepod-mark.svelte';
+	import { branding, brandName } from '#lib/ee/branding/branding.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Kbd from '#lib/components/ui/kbd/kbd.svelte';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
@@ -102,9 +103,13 @@
 	<div class="shell-col flex h-full min-w-0 items-center gap-1.5 px-3 sm:px-5">
 		<a
 			href="/home"
-			aria-label="Litepod"
+			aria-label={brandName()}
 			class="grid size-8 shrink-0 place-items-center rounded-lg transition-colors hover:bg-muted">
-			<LitepodMark class="size-6" />
+			{#if branding.logo_url}
+				<img src={branding.logo_url} alt={brandName()} class="size-6 object-contain" />
+			{:else}
+				<LitepodMark class="size-6" />
+			{/if}
 		</a>
 
 		<nav aria-label={t('menu.header.scope')} class="flex min-w-0 items-center">

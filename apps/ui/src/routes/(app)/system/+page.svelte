@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brandedTitle } from '#lib/ee/branding/branding.svelte.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -14,9 +15,10 @@
 	import InstanceSettingsPanel from '#lib/components/system/instance-settings-panel.svelte';
 	import BuildsPanel from '#lib/components/system/builds-panel.svelte';
 	import RateLimitPanel from '#lib/components/system/rate-limit-panel.svelte';
+	import BrandingPanel from '#lib/ee/branding/branding-panel.svelte';
 	import CertificatesSettings from '#lib/components/custom/certificates-settings.svelte';
 	import SystemStatusSection from '#lib/components/home/system-status-section.svelte';
-	import { getMe } from '#lib/clients/auth-client.js';
+	import { getMe, getRegistrationStatus } from '#lib/clients/auth-client.js';
 	import { getSelectedOrganizationId } from '#lib/utils/selected-organization.js';
 	import { toast } from '#lib/utils/toast.js';
 	import { tabIndexFromKeydown } from '#lib/utils/tab-shortcut.js';
@@ -30,6 +32,7 @@
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import CpuIcon from '@lucide/svelte/icons/cpu';
 	import GaugeIcon from '@lucide/svelte/icons/gauge';
+	import PaletteIcon from '@lucide/svelte/icons/palette';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	/** Every section `?tab=` may name; anything else lands on System info. */
@@ -39,6 +42,7 @@
 		'certificates',
 		'builds',
 		'rate-limit',
+		'branding',
 		'containers',
 		'caddy',
 		'maintenance',
@@ -56,6 +60,8 @@
 			.catch(() => {});
 
 	let authorized = $state(false);
+	// White-label is an enterprise, self-hosted feature: cloud has no endpoint for it.
+	let isCloud = $state(true);
 	let activeTab = $state(tabFromUrl());
 
 	const tabItems = $derived([
@@ -64,6 +70,9 @@
 		{ value: 'certificates', label: t('account.certificates.title'), icon: ShieldCheckIcon },
 		{ value: 'builds', label: t('account.settings.tabs.builds'), icon: CpuIcon },
 		{ value: 'rate-limit', label: t('account.settings.tabs.rate_limit'), icon: GaugeIcon },
+		...(isCloud
+			? []
+			: [{ value: 'branding', label: t('account.settings.tabs.branding'), icon: PaletteIcon }]),
 		...(organizationId
 			? [
 					{ value: 'containers', label: t('menu.navigation.containers'), icon: ContainerIcon },
@@ -110,12 +119,16 @@
 			goto('/login');
 			return;
 		}
+		isCloud = await getRegistrationStatus().then(
+			(status) => status.is_cloud,
+			() => true,
+		);
 		authorized = true;
 	});
 </script>
 
 <svelte:head>
-	<title>{t('operations.system.system')} · litepod</title>
+	<title>{brandedTitle(t('operations.system.system'))}</title>
 </svelte:head>
 
 <svelte:window onkeydown={handleTabShortcut} />
@@ -173,6 +186,8 @@
 					<BuildsPanel />
 				{:else if visibleTab === 'rate-limit'}
 					<RateLimitPanel />
+				{:else if visibleTab === 'branding'}
+					<BrandingPanel />
 				{:else if visibleTab === 'maintenance'}
 					<MaintenancePanel />
 				{:else if visibleTab === 'debug'}

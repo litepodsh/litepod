@@ -61,6 +61,23 @@ title = "Copias de seguridad"
 toggle_visibility = "Alternar visibilidad"
 weekly = "Semanal"
 
+[branding]
+description = "Reemplaza el nombre, el logo y el favicon que muestra esta instancia. Deja un campo vacío para usar los de Litepod."
+favicon = "URL del favicon"
+favicon_hint = "Icono de la pestaña del navegador. Un .png, .svg o .ico servido por http(s), o una ruta de esta instancia."
+logo = "URL del logo"
+logo_hint = "Se muestra en la cabecera y en la página de inicio de sesión. Una imagen cuadrada se ve mejor."
+name = "Nombre"
+name_hint = "Reemplaza «litepod» en los títulos de página. Hasta 40 caracteres."
+title = "Marca"
+
+[branding.errors]
+load = "No se pudo cargar la marca"
+save = "No se pudo guardar la marca"
+
+[branding.success]
+saved = "Marca guardada"
+
 [certificates]
 add = "Agregar certificado"
 assigned_domains = "Dominios asignados"
@@ -328,6 +345,7 @@ restart_triggered = "Se activó el reinicio de {target}"
 task_history_saved = "Se guardó la retención del historial de tareas"
 
 [settings.tabs]
+branding = "Marca"
 builds = "Configuración de compilaciones"
 general = "General"
 organizations = "Organizaciones"

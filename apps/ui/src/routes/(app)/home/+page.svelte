@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brandedTitle } from '#lib/ee/branding/branding.svelte.js';
 	import { onMount } from 'svelte';
 	import BoxIcon from '@lucide/svelte/icons/box';
 	import GlobeIcon from '@lucide/svelte/icons/globe';
@@ -114,7 +115,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('common.home.home')} · litepod</title>
+	<title>{brandedTitle(t('common.home.home'))}</title>
 </svelte:head>
 
 {#snippet legend(tone: StatusTone, label: string, square = false)}

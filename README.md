@@ -170,6 +170,13 @@ Local setup, Podman machine sizing and staging deploys are documented in [`apps/
 
 Found a vulnerability? Please follow [SECURITY.md](SECURITY.md) and do not open a public issue.
 
+## Enterprise features
+
+Code in `ee/` directories needs a [Litepod Enterprise subscription](LICENSE_EE.md) to run in production. It is for self-hosted instances only, and does not exist on Litepod Cloud. See [`apps/api/src/ee`](apps/api/src/ee/README.md) and [`apps/ui/src/lib/ee`](apps/ui/src/lib/ee/README.md) for the full list.
+
+- **Single sign-on** — OIDC and SAML per organization, group-to-role mappings, verified domains and SCIM provisioning.
+- **White-label** — set your own name, logo and favicon for the panel, the login page and the browser tab, from System → Branding.
+
 ## License
 
 Litepod is licensed under the [Apache License 2.0](LICENSE), except for code in directories named `ee/`, which is covered by the [Litepod Enterprise License](LICENSE_EE.md).

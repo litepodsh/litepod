@@ -61,6 +61,23 @@ title = "Backups"
 toggle_visibility = "Toggle visibility"
 weekly = "Weekly"
 
+[branding]
+description = "Replace the name, logo and favicon this instance shows. Leave a field empty to use Litepod's."
+favicon = "Favicon URL"
+favicon_hint = "Browser tab icon. A .png, .svg or .ico served over http(s), or a path on this instance."
+logo = "Logo URL"
+logo_hint = "Shown in the header and on the login page. A square image works best."
+name = "Name"
+name_hint = "Replaces “litepod” in page titles. Up to 40 characters."
+title = "Branding"
+
+[branding.errors]
+load = "Could not load the branding"
+save = "Could not save the branding"
+
+[branding.success]
+saved = "Branding saved"
+
 [certificates]
 add = "Add certificate"
 assigned_domains = "Assigned domains"
@@ -328,6 +345,7 @@ restart_triggered = "{target} restart triggered"
 task_history_saved = "Task history retention saved"
 
 [settings.tabs]
+branding = "Branding"
 builds = "Build Configuration"
 general = "General"
 organizations = "Organizations"

@@ -26,7 +26,7 @@ use crate::security::middleware::request_context::request_context_middleware;
 use crate::security::middleware::sentry_transaction::sentry_transaction_middleware;
 use crate::state::state::SharedState;
 use crate::{
-    ee::handler::sso,
+    ee::handler::{branding, sso},
     handler::{
         access, account, application_network_probe, application_network_stats,
         application_networks, assistant, auth, backup, billing, caddy_console, catalog_templates,
@@ -1270,8 +1270,18 @@ pub(crate) fn sso_routes_for_edition(state: SharedState) -> Router<SharedState> 
     if state.is_cloud {
         Router::new()
     } else {
-        sso_routes(state)
+        sso_routes(state.clone()).merge(branding_routes(state))
     }
+}
+
+/// White-label: public read for the login page, sysadmin-only write.
+fn branding_routes(state: SharedState) -> Router<SharedState> {
+    let manage = Router::new()
+        .route("/api/v1/settings/branding", put(branding::update_handler))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+    Router::new()
+        .route("/api/v1/branding", get(branding::get_handler))
+        .merge(manage)
 }
 
 /// SSO login, org SSO management and SCIM.

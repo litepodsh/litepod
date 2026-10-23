@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brandedTitle } from '#lib/ee/branding/branding.svelte.js';
 	import { onMount } from 'svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
@@ -25,7 +26,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('organizations.list.title')} · litepod</title>
+	<title>{brandedTitle(t('organizations.list.title'))}</title>
 </svelte:head>
 
 <div class="flex flex-col gap-5 px-4 py-6 sm:px-6">
