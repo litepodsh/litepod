@@ -793,7 +793,9 @@ secret_token = "El token con el que el IdP se autentica al llamar a SCIM. Se mue
 
 [switcher]
 all = "Todas las organizaciones"
+no_match = "Ninguna organización coincide"
 none = "No hay organizaciones"
+search = "Buscar organizaciones…"
 
 [tasks]
 add = "Agregar programación"

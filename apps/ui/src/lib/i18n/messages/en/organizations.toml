@@ -793,7 +793,9 @@ secret_token = "The token the IdP authenticates with when calling SCIM. Shown on
 
 [switcher]
 all = "All organizations"
+no_match = "No organization matches"
 none = "No organizations"
+search = "Search organizations…"
 
 [tasks]
 add = "Add Schedule"

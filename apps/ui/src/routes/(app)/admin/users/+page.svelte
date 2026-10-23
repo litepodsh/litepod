@@ -7,6 +7,7 @@
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import * as Empty from '#lib/components/ui/empty/index.js';
 	import { listUsersWithOrgs, type UserWithOrgs } from '#lib/clients/auth-client.js';
+	import UserDisableDialog from '#lib/components/admin/user-disable-dialog.svelte';
 	import { toast } from '#lib/utils/toast.js';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import UsersIcon from '@lucide/svelte/icons/users';
@@ -15,6 +16,7 @@
 	let users = $state<UserWithOrgs[]>([]);
 	let loading = $state(true);
 	let query = $state('');
+	let toggling = $state<UserWithOrgs | null>(null);
 
 	function message(error: unknown) {
 		return error instanceof Error ? error.message : t('operations.users.request_failed');
@@ -23,7 +25,10 @@
 	async function refresh() {
 		loading = true;
 		try {
-			users = await listUsersWithOrgs();
+			// Newest sign-ups first, whatever order the API answers in.
+			users = (await listUsersWithOrgs()).sort(
+				(a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
+			);
 		} catch (error) {
 			toast.error(message(error));
 		} finally {
@@ -58,7 +63,11 @@
 	function formatDate(iso: string) {
 		if (!iso) return '—';
 		const d = new Date(iso);
-		return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
+		return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+	}
+
+	function applyDisabled(userId: string, disabled: boolean) {
+		users = users.map((user) => (user.id === userId ? { ...user, disabled } : user));
 	}
 </script>
 
@@ -119,12 +128,16 @@
 						<th class="p-3 font-medium">{t('operations.users.email')}</th>
 						<th class="p-3 font-medium">{t('operations.users.joined')}</th>
 						<th class="p-3 font-medium">{t('operations.users.organizations')}</th>
+						<th class="p-3 font-medium">{t('operations.users.status')}</th>
+						<th class="p-3"></th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each filtered as user (user.id)}
 						<tr class="border-b last:border-0">
-							<td class="p-3 font-medium">{user.name}</td>
+							<td class="p-3 font-medium">
+								<a href="/admin/users/{user.id}" class="hover:underline">{user.name}</a>
+							</td>
 							<td class="text-muted-foreground p-3">{user.email}</td>
 							<td class="text-muted-foreground p-3">{formatDate(user.created_at)}</td>
 							<td class="p-3">
@@ -141,6 +154,25 @@
 									</div>
 								{/if}
 							</td>
+							<td class="p-3">
+								<Badge variant={user.disabled ? 'destructive' : 'secondary'}>
+									{user.disabled
+										? t('operations.users.status_disabled')
+										: t('operations.users.status_active')}
+								</Badge>
+							</td>
+							<td class="p-3 text-right">
+								{#if !user.is_sysadmin}
+									<Button
+										size="sm"
+										variant={user.disabled ? 'outline' : 'destructive'}
+										onclick={() => (toggling = user)}>
+										{user.disabled
+											? t('organizations.members.enable_action')
+											: t('organizations.members.disable_action')}
+									</Button>
+								{/if}
+							</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -151,3 +183,5 @@
 		</p>
 	{/if}
 </div>
+
+<UserDisableDialog bind:user={toggling} onChanged={applyDisabled} />

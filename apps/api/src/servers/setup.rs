@@ -972,21 +972,20 @@ pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, A
     // Failed or canceled builds leave their workspace behind on a remote server,
     // where nothing else removes it. Best effort: a missing directory or journal
     // is not a failed prune.
+    let script = format!(
+        "d=\"$HOME/.local/share/litepod/apps\"; \
+         find \"$d\" -mindepth 3 -maxdepth 3 -path '*/railpack/*' -mtime {STALE_BUILD_DIR_DAYS} -exec rm -rf {{}} + 2>/dev/null; \
+         find \"$d\" -mindepth 2 -maxdepth 2 -name 'railpack-builder-*' -mtime {STALE_BUILD_DIR_DAYS} -exec rm -rf {{}} + 2>/dev/null; \
+         true"
+    );
+    // Rootless builders leave files owned by a subordinate uid, which only a
+    // process inside the user's namespace may delete.
     let workspaces = run_maintenance_command(
         server,
-        maintenance_command(
-            &[],
-            &[
-                "sh",
-                "-c",
-                &format!(
-                    "d=\"$HOME/.local/share/litepod/apps\"; \
-                     find \"$d\" -mindepth 3 -maxdepth 3 -path '*/railpack/*' -mtime {STALE_BUILD_DIR_DAYS} -exec rm -rf {{}} + 2>/dev/null; \
-                     find \"$d\" -mindepth 2 -maxdepth 2 -name 'railpack-builder-*' -mtime {STALE_BUILD_DIR_DAYS} -exec rm -rf {{}} + 2>/dev/null; \
-                     true"
-                ),
-            ],
-        ),
+        match server.podman_mode {
+            PodmanMode::Rootless => podman(&["unshare", "sh", "-c", &script]),
+            PodmanMode::Rootful => maintenance_command(&[], &["sh", "-c", &script]),
+        },
     )
     .await?;
     append_output(&mut stderr, &workspaces.stderr);

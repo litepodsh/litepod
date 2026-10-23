@@ -174,6 +174,9 @@ export type UserWithOrgs = {
 	email: string;
 	name: string;
 	created_at: string;
+	/** Locked out by a SysAdmin. */
+	disabled: boolean;
+	is_sysadmin: boolean;
 	organizations: UserOrganizationMembership[];
 };
 
