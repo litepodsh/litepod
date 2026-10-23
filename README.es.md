@@ -175,7 +175,7 @@ El entorno local, el dimensionamiento de la máquina Podman y los despliegues de
 El código en directorios `ee/` necesita una [suscripción Litepod Enterprise](LICENSE_EE.md) para usarse en producción. Es solo para instancias self-hosted y no existe en Litepod Cloud. La lista completa está en [`apps/api/src/ee`](apps/api/src/ee/README.md) y [`apps/ui/src/lib/ee`](apps/ui/src/lib/ee/README.md).
 
 - **Inicio de sesión único (SSO)** — OIDC y SAML por organización, mapeo de grupos a roles, dominios verificados y aprovisionamiento SCIM.
-- **Marca blanca** — define tu propio nombre, logo y favicon para el panel, la página de login y la pestaña del navegador, desde Sistema → Marca.
+- **Personalización de marca** — define tu propio nombre, logo y favicon para el panel, la página de login y la pestaña del navegador, desde Sistema → Marca.
 
 ## Licencia
 
