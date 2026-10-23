@@ -45,6 +45,7 @@ const publicEdgeServer: Server = {
 		caddy_version: '2.8',
 		swap_bytes: null,
 		swap_recommended: false,
+			helper: null,
 		capacity: { cpu_cores: 2, memory_bytes: 1, disk_free_bytes: 1 },
 	},
 	last_error: null,
