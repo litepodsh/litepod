@@ -170,6 +170,14 @@ running = "Ejecutando"
 scheduled = "Programado"
 title = "Mantenimiento: {name}"
 
+[helper]
+explanation = "El script que litepod instaló en este servidor es la v{installed}; este litepod necesita la v{latest}. Algunas funciones, como la autenticación básica en dominios, no funcionarán hasta actualizarlo. Actualizar solo reemplaza ese script."
+failed = "No se pudo actualizar el script del servidor"
+title = "El script del servidor está desactualizado"
+update = "Actualizar script"
+updated_toast = "Script del servidor actualizado en {name}"
+updating = "Actualizando…"
+
 [swap]
 create = "Sí, créalo por mí"
 created_toast = "Archivo swap de 4 GiB creado en {name}"

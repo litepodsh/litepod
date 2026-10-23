@@ -79,6 +79,7 @@ fn dto_with_count(
             .map(|count| count.get() as f64);
         facts.memory_bytes = local_memory_bytes();
     }
+    let helper = crate::dtos::server::helper_dto(server.ingress_mode, &server.kind, &facts);
     ServerDto {
         id: server.id,
         kind: server.kind,
@@ -97,6 +98,7 @@ fn dto_with_count(
             server.public_address
         },
         facts: ServerFactsDto {
+            helper,
             swap_recommended: setup::swap_recommended(&facts),
             os: facts.os,
             version: facts.version,
@@ -922,6 +924,57 @@ pub async fn maintenance_check_disk_handler(
     let organization_id = org.organization_id;
     let server = maintenance_server(&state, &organization_id, &server_id).await?;
     Ok(ok(maintenance_dto(setup::check_disk(&server).await?)))
+}
+
+/// Reinstalls `serverctl` from this build and records the version it now reports. Nothing else
+/// on the server changes, so unlike Repair it is safe to run on a server that is serving traffic.
+pub async fn maintenance_update_helper_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    // The extractor covers `organization_id`.
+    Path((_, server_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    let server = maintenance_server(&state, &organization_id, &server_id).await?;
+    if !matches!(server.ingress_mode, IngressMode::PublicEdge) {
+        return Err(AppError::ValidationError(
+            "Only public-edge servers run the Caddy helper".into(),
+        ));
+    }
+    let started = std::time::Instant::now();
+    let installed = setup::install_caddy_helper(&server).await;
+    let version = crate::servers::helper::installed_version(&server).await;
+    let mut facts = from_str::<ServerFacts>(&server.facts_json).unwrap_or_default();
+    facts.helper_version = version;
+    let facts_json = serde_json::to_string(&facts)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    repository::set_facts_and_state(&state, &server.id, &facts_json, server.state).await?;
+    if installed.is_ok() {
+        // Routes that were refused for want of a newer helper can be written now.
+        let _guard = crate::servers::ingress::lock_reconciliation().await;
+        if let Err(error) = crate::servers::ingress::sync_server_routes(&state, &server).await {
+            tracing::warn!(server = %server.name, %error, "could not sync routes after the helper update");
+        }
+    }
+    Ok(ok(match installed {
+        Ok(()) => ServerMaintenanceResultDto {
+            action: "update-helper".into(),
+            success: version == Some(crate::servers::helper::HELPER_VERSION),
+            stdout: format!(
+                "serverctl is now v{}",
+                version.map_or("?".to_string(), |v| v.to_string())
+            ),
+            stderr: String::new(),
+            duration_ms: started.elapsed().as_millis() as u64,
+        },
+        Err(error) => ServerMaintenanceResultDto {
+            action: "update-helper".into(),
+            success: false,
+            stdout: String::new(),
+            stderr: crate::servers::ssh::redact(&error.to_string()),
+            duration_ms: started.elapsed().as_millis() as u64,
+        },
+    }))
 }
 
 pub async fn maintenance_create_swap_handler(

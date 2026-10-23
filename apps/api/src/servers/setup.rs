@@ -23,6 +23,10 @@ pub struct ServerFacts {
     pub memory_bytes: Option<u64>,
     pub disk_free_bytes: Option<u64>,
     pub swap_bytes: Option<u64>,
+    /// Version of the `serverctl` script on a public-edge server; `Some(0)` is a copy too
+    /// old to report one. `None` when there is no script or it could not be asked.
+    #[serde(default)]
+    pub helper_version: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,8 +91,10 @@ fn credentials(server: &ServerRecord) -> Result<(&str, &str, Option<&str>), AppE
     ))
 }
 
-const CADDY_HELPER: &str = r#"#!/bin/sh
+pub(crate) const CADDY_HELPER: &str = r#"#!/bin/sh
 set -eu
+
+helper_version=1
 
 routes=/etc/litepod/caddy/routes.d
 caddyfile=/etc/caddy/Caddyfile
@@ -332,6 +338,7 @@ case "${1:-}" in
     sync-routes-check) exit 0 ;;
     certificates-check) exit 0 ;;
     basic-auth-check) exit 0 ;;
+    version) [ "$#" -eq 1 ] || exit 64; echo "$helper_version" ;;
     install-certificate) [ "$#" -eq 3 ] || exit 64; install_certificate "$2" "$3" ;;
     health) caddy validate --config "$caddyfile" --adapter caddyfile; systemctl is-active --quiet caddy ;;
     *) exit 64 ;;
@@ -425,7 +432,7 @@ async fn install_root_file(
     Ok(())
 }
 
-async fn install_caddy_helper(server: &ServerRecord) -> Result<(), AppError> {
+pub(crate) async fn install_caddy_helper(server: &ServerRecord) -> Result<(), AppError> {
     install_root_file(
         server,
         CADDY_HELPER,
@@ -649,6 +656,11 @@ async fn collect_facts(server: &ServerRecord) -> Result<(ServerFacts, ServerStat
         .await
         .ok()
         .and_then(|value| value.trim().parse().ok());
+    let helper_version = if matches!(server.ingress_mode, IngressMode::PublicEdge) {
+        super::helper::installed_version(server).await
+    } else {
+        None
+    };
     Ok((
         ServerFacts {
             os: os_value(&os_release, "ID="),
@@ -660,6 +672,7 @@ async fn collect_facts(server: &ServerRecord) -> Result<(ServerFacts, ServerStat
             memory_bytes: memory,
             disk_free_bytes: disk,
             swap_bytes: swap,
+            helper_version,
         },
         state,
     ))

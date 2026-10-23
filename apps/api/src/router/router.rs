@@ -379,6 +379,7 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/restart-podman", post(servers::maintenance_restart_podman_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/check-disk", post(servers::maintenance_check_disk_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/create-swap", post(servers::maintenance_create_swap_handler))
+        .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/update-helper", post(servers::maintenance_update_helper_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/test-deploy", post(servers::test_deploy_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/setup", post(servers::setup_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/repair", post(servers::repair_handler))
@@ -1280,7 +1281,10 @@ pub(crate) fn sso_routes_for_edition(state: SharedState) -> Router<SharedState> 
 fn branding_routes(state: SharedState) -> Router<SharedState> {
     let manage = Router::new()
         .route("/api/v1/settings/branding", put(branding::update_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
     Router::new()
         .route("/api/v1/branding", get(branding::get_handler))
         .merge(manage)

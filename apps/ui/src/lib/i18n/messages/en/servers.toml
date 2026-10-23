@@ -170,6 +170,14 @@ running = "Running"
 scheduled = "Scheduled"
 title = "Maintenance: {name}"
 
+[helper]
+explanation = "The script litepod installed on this server is v{installed}; this litepod needs v{latest}. Some features, like basic authentication on domains, will not work until it is updated. Updating only replaces that script."
+failed = "Could not update the server script"
+title = "Server script is out of date"
+update = "Update script"
+updated_toast = "Server script updated on {name}"
+updating = "Updating…"
+
 [swap]
 create = "Yes, create it for me"
 created_toast = "4 GiB swap file created on {name}"

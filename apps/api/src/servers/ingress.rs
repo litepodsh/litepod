@@ -476,9 +476,13 @@ pub async fn sync_server_routes(
             .await?
             .map(|payload| crate::deployment::basic_auth::edge_token(&payload));
         if auth.is_some() && !(certificates_supported && basic_auth_supported) {
-            return Err(AppError::ValidationError(
-                "Repair this server to enable basic authentication".into(),
-            ));
+            let installed = crate::servers::helper::installed_version(server)
+                .await
+                .map_or("unknown".to_string(), |version| format!("v{version}"));
+            return Err(AppError::ValidationError(format!(
+                "Basic authentication needs a newer server script (installed: {installed}, latest: v{}). Open Servers and choose Update script",
+                crate::servers::helper::HELPER_VERSION
+            )));
         }
         if !certificates_supported {
             if certificate.certificate_provider != "automatic" || !domain.https {

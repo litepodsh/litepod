@@ -34,6 +34,15 @@ export type Server = {
 		swap_bytes: number | null;
 		/** No swap and 16 GiB of RAM or less; the UI offers to create a swap file. */
 		swap_recommended: boolean;
+		/** The `serverctl` script on a public-edge server; `null` when its version is unknown. */
+		helper: {
+			/** `0` is a copy too old to report a version. */
+			installed: number;
+			latest: number;
+			outdated: boolean;
+			/** What the installed copy is missing, oldest release first. */
+			changes: { version: number; summary: string; changes: string[] }[];
+		} | null;
 		capacity: {
 			cpu_cores: number | null;
 			memory_bytes: number | null;
@@ -273,6 +282,12 @@ export function createServerSwap(
 	id: string,
 ): Promise<ServerMaintenanceResult> {
 	return runMaintenance(organizationId, id, 'create-swap');
+}
+export function updateServerHelper(
+	organizationId: string,
+	id: string,
+): Promise<ServerMaintenanceResult> {
+	return runMaintenance(organizationId, id, 'update-helper');
 }
 export async function listServerApplications(
 	organizationId: string,

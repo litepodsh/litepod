@@ -494,7 +494,18 @@ pub async fn delete_user(
     if result.rows_affected() == 0 {
         return Err(AppError::ResourceNotFound);
     }
-    for domain_id in fetch_protected_domain_ids(state, &auth_id).await? {
+    let protected = fetch_protected_domain_ids(state, &auth_id).await?;
+    // With no users left nothing is protected: Caddy already serves these
+    // routes open, so drop the selection and let the checkboxes say so.
+    if fetch_users(state, &auth_id).await?.is_empty() && !protected.is_empty() {
+        let conn = crate::git::repositories::db::get_conn(state).await;
+        sqlx::query("DELETE FROM application_basic_auth_domains WHERE auth_id = ?1")
+            .bind(&auth_id)
+            .execute(&conn)
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    }
+    for domain_id in protected {
         super::reconcile_caddy_basicauth(state, &domain_id).await;
     }
     Ok(())
@@ -604,7 +615,10 @@ fn caddyfile_quote(value: &str) -> String {
 /// edge helper splices it in ahead of `reverse_proxy`, mirroring the
 /// `authentication` handler `authentication_handle` prepends on central Caddy.
 pub(crate) fn caddyfile_block(payload: &BasicAuthPayload) -> String {
-    let mut block = format!("\tbasic_auth bcrypt {} {{\n", caddyfile_quote(&payload.realm));
+    let mut block = format!(
+        "\tbasic_auth bcrypt {} {{\n",
+        caddyfile_quote(&payload.realm)
+    );
     for (username, hash) in &payload.accounts {
         block.push_str(&format!("\t\t{} {}\n", caddyfile_quote(username), hash));
     }

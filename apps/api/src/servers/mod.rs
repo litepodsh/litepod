@@ -3,6 +3,7 @@ pub mod bootstrap;
 pub mod distro;
 pub mod geoip;
 pub mod groups;
+pub mod helper;
 pub mod ingress;
 pub mod model;
 pub mod monitor;

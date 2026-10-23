@@ -22,6 +22,7 @@
 	import CellChart from '#lib/components/custom/cell-chart.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import OsIcon from '#lib/components/os-icon.svelte';
+	import ServerHelperNotice from './server-helper-notice.svelte';
 	import ServerSwapNotice from './server-swap-notice.svelte';
 	import { getServerMetricsHistory, totalSeries } from '#lib/clients/container-metrics-client.js';
 	import { getSelectedOrganizationId } from '#lib/utils/selected-organization.js';
@@ -496,6 +497,13 @@
 				</div>
 			{/each}
 		</dl>
+	{/if}
+
+	{#if isRemote && canManage && server.facts.helper?.outdated}
+		<ServerHelperNotice
+			organizationId={server.organization_id ?? getSelectedOrganizationId() ?? ''}
+			{server}
+			onUpdated={() => onHealthcheck(server)} />
 	{/if}
 
 	{#if isRemote && canManage && server.state === 'ready' && server.facts.swap_recommended}

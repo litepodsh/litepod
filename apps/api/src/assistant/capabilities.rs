@@ -13,6 +13,7 @@ pub const RESOURCES: &[&str] = &[
     "applications",
     "environment",
     "deployments",
+    "wait_deployment",
     "deployment_logs",
     "containers",
     "container_logs",

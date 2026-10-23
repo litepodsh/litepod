@@ -229,6 +229,31 @@ async fn write_compose(
     Ok(())
 }
 
+/// The compose service a domain on `port` must be routed to, or `None` when
+/// the application is not a compose one. A compose application only serves a
+/// host through a route naming a service and its container port; a domain
+/// without one has no upstream and the browser gets a certificate error.
+async fn compose_route_target(
+    state: &SharedState,
+    application_id: &str,
+    port: i64,
+) -> Result<Option<(String, u16)>, AppError> {
+    let source = deployment::source::get(state, application_id).await?;
+    if source.build_method != "compose" {
+        return Ok(None);
+    }
+    let Ok(port) = u16::try_from(port) else {
+        return Ok(None);
+    };
+    let compose = ComposeFileStore::new(&state.data_dir, application_id)
+        .read_content()
+        .await
+        .map_err(AppError::InternalError)?;
+    let service = crate::deployment::compose_standalone::service_for_port(&compose, port)
+        .or(source.compose_public_service);
+    Ok(service.map(|service| (service, port)))
+}
+
 pub(super) async fn apply_create_application(
     state: &SharedState,
     stored: &StoredAction,
@@ -366,6 +391,18 @@ pub(super) async fn apply_add_domain(
         },
     )
     .await?;
+    if let Some((service, container_port)) =
+        compose_route_target(state, &stored.application_id, port).await?
+    {
+        crate::deployment::compose::proxy_routes::save(
+            state,
+            &stored.application_id,
+            &domain.id,
+            &service,
+            container_port,
+        )
+        .await?;
+    }
 
     Ok(Applied {
         audit_action: "domain.created",
@@ -1037,8 +1074,8 @@ pub(super) async fn apply_deploy_compose(
                 deployment::save_environment(state, &application.id, "runtime", &env).await?;
             }
             let url = match (&arguments.host, arguments.port) {
-                (Some(host), Some(port)) => Some(
-                    deployment::domains::create(
+                (Some(host), Some(port)) => {
+                    let domain = deployment::domains::create(
                         state,
                         &application.id,
                         crate::dtos::deployment::CreateDomainRequest {
@@ -1050,9 +1087,22 @@ pub(super) async fn apply_deploy_compose(
                             server_id: None,
                         },
                     )
-                    .await?
-                    .url,
-                ),
+                    .await?;
+                    // The deploy that follows pushes every route to Caddy.
+                    if let Some((service, container_port)) =
+                        compose_route_target(state, &application.id, port).await?
+                    {
+                        crate::deployment::compose::proxy_routes::upsert(
+                            state,
+                            &application.id,
+                            &domain.id,
+                            &service,
+                            container_port,
+                        )
+                        .await?;
+                    }
+                    Some(domain.url)
+                }
                 _ => None,
             };
             deployment::enqueue_for_application(

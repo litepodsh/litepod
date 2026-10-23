@@ -212,10 +212,7 @@ fn advise(matches: &[CatalogMatch], query: Option<&str>) -> (Option<String>, Vec
 
     // A hit on the name, the id or a tag is the template itself. Anything
     // weaker - the description, the words in it - is a suggestion.
-    let strong: Vec<&CatalogMatch> = matches
-        .iter()
-        .filter(|found| found.score >= 70)
-        .collect();
+    let strong: Vec<&CatalogMatch> = matches.iter().filter(|found| found.score >= 70).collect();
 
     if strong.len() == 1 {
         let found = strong[0];
@@ -330,7 +327,13 @@ fn squash(text: &str) -> String {
 mod tests {
     use super::*;
 
-    fn template(id: &str, name: &str, description: &str, tags: &[&str], categories: &[&str]) -> CatalogTemplate {
+    fn template(
+        id: &str,
+        name: &str,
+        description: &str,
+        tags: &[&str],
+        categories: &[&str],
+    ) -> CatalogTemplate {
         CatalogTemplate {
             id: id.into(),
             name: name.into(),
@@ -356,7 +359,13 @@ mod tests {
 
     #[test]
     fn the_id_and_the_name_are_the_template_itself() {
-        let kuma = template("uptime-kuma", "Uptime Kuma", "monitoring", &[], &["monitoring"]);
+        let kuma = template(
+            "uptime-kuma",
+            "Uptime Kuma",
+            "monitoring",
+            &[],
+            &["monitoring"],
+        );
         assert_eq!(score_of(&kuma, Some("uptime-kuma")), (100, "exact"));
         assert_eq!(score_of(&kuma, Some("Uptime Kuma")), (100, "exact"));
         assert_eq!(score_of(&kuma, Some("uptime")), (90, "id"));
@@ -443,7 +452,10 @@ mod tests {
     async fn the_real_catalog_ranks_the_template_it_is_asked_for_first() {
         let client = CatalogClient::new().unwrap();
         let found = search(&client, Some("uptime"), None).await.unwrap();
-        assert_eq!(found.matches.first().map(|found| found.id.as_str()), Some("uptime-kuma"));
+        assert_eq!(
+            found.matches.first().map(|found| found.id.as_str()),
+            Some("uptime-kuma")
+        );
         // `checkmate` is an uptime monitor too, so this is a question, not a
         // template to pick by itself.
         assert!(found.note.unwrap().contains("Ask the user"));
@@ -455,9 +467,11 @@ mod tests {
 
         let found = search(&client, None, Some("monitoring")).await.unwrap();
         assert!(!found.matches.is_empty());
-        assert!(found
-            .matches
-            .iter()
-            .all(|found| found.categories.iter().any(|category| category == "monitoring")));
+        assert!(found.matches.iter().all(|found| {
+            found
+                .categories
+                .iter()
+                .any(|category| category == "monitoring")
+        }));
     }
 }

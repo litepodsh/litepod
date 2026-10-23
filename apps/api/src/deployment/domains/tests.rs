@@ -1752,3 +1752,61 @@ async fn generate_with_secondary_keeps_the_primary() {
     assert_eq!(domains.iter().filter(|d| d.is_primary).count(), 1);
     cleanup(path);
 }
+
+#[tokio::test]
+async fn deleting_the_last_basic_auth_user_unprotects_the_domains() {
+    use crate::deployment::basic_auth;
+
+    let (state, path) = test_state(false).await;
+    let domain = create(
+        &state,
+        "application-1",
+        CreateDomainRequest {
+            server_id: None,
+            certificate: Default::default(),
+            host: "app.example.com".into(),
+            port: 80,
+            https: None,
+            is_primary: None,
+        },
+    )
+    .await
+    .unwrap();
+    let first = basic_auth::add_user(
+        &state,
+        "application-1",
+        "alice".into(),
+        "password-one".into(),
+    )
+    .await
+    .unwrap();
+    let second = basic_auth::add_user(&state, "application-1", "bob".into(), "password-two".into())
+        .await
+        .unwrap();
+    basic_auth::update(
+        &state,
+        "application-1",
+        UpdateBasicAuthRequest {
+            enabled: Some(true),
+            realm: None,
+            protected_domain_ids: Some(vec![domain.id.clone()]),
+        },
+    )
+    .await
+    .unwrap();
+
+    basic_auth::delete_user(&state, "application-1", &first.id)
+        .await
+        .unwrap();
+    let config = basic_auth::get(&state, "application-1").await.unwrap();
+    assert_eq!(config.protected_domain_ids, vec![domain.id.clone()]);
+
+    basic_auth::delete_user(&state, "application-1", &second.id)
+        .await
+        .unwrap();
+    let config = basic_auth::get(&state, "application-1").await.unwrap();
+    assert!(config.users.is_empty());
+    assert!(config.protected_domain_ids.is_empty());
+
+    let _ = std::fs::remove_file(path);
+}

@@ -27,10 +27,11 @@ pub struct UpdateTelemetryRequest {
 
 async fn load(state: &SharedState) -> Result<TelemetryDto, AppError> {
     let id = instance_id(&state.db).await.map_err(db_err)?;
-    let row = sqlx::query("SELECT enabled, notice_acknowledged FROM instance_telemetry WHERE id = 1")
-        .fetch_one(&state.db)
-        .await
-        .map_err(db_err)?;
+    let row =
+        sqlx::query("SELECT enabled, notice_acknowledged FROM instance_telemetry WHERE id = 1")
+            .fetch_one(&state.db)
+            .await
+            .map_err(db_err)?;
     Ok(TelemetryDto {
         enabled: row.get::<i64, _>(0) != 0,
         env_locked: env_disabled(),
@@ -71,7 +72,11 @@ pub async fn update_handler(
         None,
         &user,
         "settings.telemetry_updated",
-        Some(if request.enabled { "enabled" } else { "disabled" }),
+        Some(if request.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }),
     )
     .await;
     Ok(ok(load(&state).await?))

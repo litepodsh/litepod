@@ -396,9 +396,11 @@ fn agent_label(user_agent: &str, client: &str) -> String {
         .collect();
     let botish = |(name, _): &(&str, &str)| {
         let name = name.to_ascii_lowercase();
-        ["bot", "crawl", "spider", "slurp", "headless", "monitor", "uptime"]
-            .iter()
-            .any(|needle| name.contains(needle))
+        [
+            "bot", "crawl", "spider", "slurp", "headless", "monitor", "uptime",
+        ]
+        .iter()
+        .any(|needle| name.contains(needle))
     };
     tokens
         .iter()

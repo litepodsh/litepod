@@ -1367,6 +1367,64 @@ async fn a_compose_app_is_created_like_a_catalog_template() {
     cleanup_database(&path);
 }
 
+#[tokio::test]
+async fn a_compose_app_with_a_host_routes_it_to_the_service() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let target = ActionTarget::project("organization-a", "", "");
+    let compose = "services:\n  web:\n    image: docker.io/library/nginx:1\n    restart: unless-stopped\n    expose:\n      - \"3000\"\n";
+    let action = propose_deploy_compose(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        ComposeApp {
+            project_name: "analytics".into(),
+            name: "web".into(),
+            server_id: "local".into(),
+            compose: compose.into(),
+            port: Some(3000),
+            host: Some("site.example.com".into()),
+            https: Some(true),
+            ..ComposeApp::default()
+        },
+    )
+    .await
+    .unwrap();
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    let project = crate::cqrs::queries::project::list_projects(&state, "organization-a")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|project| project.name == "analytics")
+        .unwrap();
+    let detail = crate::cqrs::queries::project::get_project(&state, "organization-a", &project.id)
+        .await
+        .unwrap();
+    let created = detail
+        .environments
+        .iter()
+        .flat_map(|environment| environment.applications.iter())
+        .find(|application| application.name == "web")
+        .unwrap();
+    let domains = deployment::domains::list(&state, &created.id)
+        .await
+        .unwrap();
+    let routes = deployment::compose::proxy_routes::list(&state, &created.id)
+        .await
+        .unwrap();
+    assert_eq!(routes.len(), 1, "the domain must name a service and port");
+    assert_eq!(routes[0].domain_id, domains[0].id);
+    assert_eq!(routes[0].service, "web");
+    assert_eq!(routes[0].container_port, 3000);
+
+    cleanup_database(&path);
+}
+
 #[test]
 fn every_stored_proposal_is_an_allowed_action() {
     for tool in [

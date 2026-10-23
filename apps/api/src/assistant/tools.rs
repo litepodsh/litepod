@@ -78,6 +78,15 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
         "`deployments` (the last runs, newest first; needs `application`)",
     ),
     (
+        "wait_deployment",
+        "`wait_deployment` (blocks up to `timeout_seconds`, 45 by default and 55 at most, until the application \
+        has no deploy queued or running; needs `application`. Use it after `redeploy`, `start`, `create_from_template`, \
+        `deploy_compose` or `deploy_static_site` instead of polling `applications`. It returns `finished`, the final \
+        `status`, the `error` and the application's domains with their `route_health`. When `finished` is false the deploy \
+        is still going: call it again. When `status` is `failed`, tell the user and point them to the deployment in the \
+        Litepod portal; read `deployment_logs` with `level: error` only if they want the cause)",
+    ),
+    (
         "deployment_logs",
         "`deployment_logs` (the tail of one run; needs `application`, optionally `run` and `level`)",
     ),
@@ -291,7 +300,8 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                         "template": { "type": "string", "description": "A template id from `get templates`." },
                         "query": { "type": "string", "description": "Search text for `templates`: a name, a tag or what the app does, e.g. `uptime`." },
                         "category": { "type": "string", "description": "Category filter for `templates`, e.g. `monitoring`. One of the categories `get templates` lists." },
-                        "scope": { "type": "string", "enum": ["runtime", "build"] }
+                        "scope": { "type": "string", "enum": ["runtime", "build"] },
+                        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 55, "description": "How long `wait_deployment` may block before it answers `finished: false`." }
                     },
                     "required": ["resource"],
                     "additionalProperties": false
@@ -844,6 +854,14 @@ async fn get(
                 })),
                 Err(error) => ToolOutcome::failure(error.to_string()),
             }
+        }
+
+        "wait_deployment" => {
+            let resolved = match resolve(state, organization_id, arguments).await {
+                Ok(resolved) => resolved,
+                Err(outcome) => return *outcome,
+            };
+            wait_deployment(state, &resolved, arguments).await
         }
 
         "deployments" => {
@@ -2022,6 +2040,82 @@ async fn applications_in(
         })),
         None => ToolOutcome::data(json!({ "applications": applications })),
     }
+}
+
+/// Blocks until the application has no deploy queued, building or deploying, or
+/// until the timeout, so an agent does not have to poll `applications`. The
+/// timeout stays under common MCP client limits; `finished: false` means ask again.
+async fn wait_deployment(
+    state: &SharedState,
+    resolved: &Resolved,
+    arguments: &serde_json::Value,
+) -> ToolOutcome {
+    let seconds = arguments
+        .get("timeout_seconds")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(45)
+        .clamp(1, 55);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    let application_id = &resolved.target.application_id;
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let finished = loop {
+        let active: i64 = match sqlx::query_scalar(
+            "SELECT COUNT(*) FROM deployment_jobs WHERE application_id = ?1 AND status IN ('queued', 'building', 'deploying')",
+        )
+        .bind(application_id)
+        .fetch_one(&conn)
+        .await
+        {
+            Ok(active) => active,
+            Err(error) => return ToolOutcome::failure(error.to_string()),
+        };
+        if active == 0 {
+            break true;
+        }
+        if std::time::Instant::now() >= deadline {
+            break false;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    };
+
+    let row: Option<(String, Option<String>)> = match sqlx::query_as(
+        "SELECT status, last_error FROM application_deployments WHERE application_id = ?1",
+    )
+    .bind(application_id)
+    .fetch_optional(&conn)
+    .await
+    {
+        Ok(row) => row,
+        Err(error) => return ToolOutcome::failure(error.to_string()),
+    };
+    let (status, error) = row.unwrap_or_else(|| ("not_deployed".into(), None));
+    let domains: Vec<_> = deployment::domains::list(state, application_id)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|domain| {
+            json!({
+                "host": domain.host,
+                "url": domain.url,
+                "route_health": domain.route_health,
+            })
+        })
+        .collect();
+    let next = if !finished {
+        "Still deploying: call `wait_deployment` again."
+    } else if status == "failed" {
+        "The deploy failed. Tell the user to open the deployment in the Litepod portal."
+    } else {
+        "Done."
+    };
+    ToolOutcome::data(json!({
+        "application": resolved.target.application_name,
+        "finished": finished,
+        "status": status,
+        "error": error,
+        "domains": domains,
+        "next": next,
+    }))
 }
 
 /// `application_id -> (status, last_error)` for every deployed application in

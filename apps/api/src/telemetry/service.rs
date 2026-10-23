@@ -39,10 +39,12 @@ pub(super) async fn instance_id(pool: &sqlx::SqlitePool) -> Result<String, sqlx:
     }
     let id = uuid::Uuid::now_v7().simple().to_string();
     // `IS NULL` keeps a concurrent first call from replacing the id the other one stored.
-    sqlx::query("UPDATE instance_telemetry SET instance_id = ?1 WHERE id = 1 AND instance_id IS NULL")
-        .bind(&id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE instance_telemetry SET instance_id = ?1 WHERE id = 1 AND instance_id IS NULL",
+    )
+    .bind(&id)
+    .execute(pool)
+    .await?;
     sqlx::query_scalar("SELECT instance_id FROM instance_telemetry WHERE id = 1")
         .fetch_one(pool)
         .await
@@ -57,7 +59,8 @@ async fn stored_enabled(pool: &sqlx::SqlitePool) -> Result<bool, sqlx::Error> {
 
 async fn ping(state: &SharedState) -> Result<(), Box<dyn std::error::Error>> {
     let id = instance_id(&state.db).await?;
-    let base = std::env::var("LITEPOD_TELEMETRY_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
+    let base =
+        std::env::var("LITEPOD_TELEMETRY_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
     let url = format!("{}{ALIVE_PATH}", base.trim_end_matches('/'));
     reqwest::Client::builder()
         .timeout(TIMEOUT)

@@ -23,6 +23,53 @@ pub struct ServerFactsDto {
     /// No swap and 16 GiB of RAM or less; the UI offers to create a swap file.
     pub swap_recommended: bool,
     pub capacity: CapacityDto,
+    /// The `serverctl` script on a public-edge server, when its version is known.
+    pub helper: Option<ServerHelperDto>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ServerHelperDto {
+    /// `0` is a copy too old to report a version.
+    pub installed: u32,
+    pub latest: u32,
+    pub outdated: bool,
+    /// What the installed copy is missing, oldest release first. Empty when up to date.
+    pub changes: Vec<ServerHelperReleaseDto>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ServerHelperReleaseDto {
+    pub version: u32,
+    pub summary: String,
+    pub changes: Vec<String>,
+}
+
+pub fn helper_dto(
+    ingress_mode: IngressMode,
+    kind: &str,
+    facts: &ServerFacts,
+) -> Option<ServerHelperDto> {
+    use crate::servers::helper;
+    if kind != "ssh" || !matches!(ingress_mode, IngressMode::PublicEdge) {
+        return None;
+    }
+    let installed = facts.helper_version?;
+    Some(ServerHelperDto {
+        installed,
+        latest: helper::HELPER_VERSION,
+        outdated: helper::is_outdated(installed),
+        changes: helper::releases_after(installed)
+            .map(|release| ServerHelperReleaseDto {
+                version: release.version,
+                summary: release.summary.to_owned(),
+                changes: release
+                    .changes
+                    .iter()
+                    .map(|line| (*line).to_owned())
+                    .collect(),
+            })
+            .collect(),
+    })
 }
 
 /// An application that keeps a server from being removed. Named by project and environment
