@@ -9,9 +9,13 @@ use std::time::Duration;
 
 use crate::state::state::SharedState;
 
-const DEFAULT_URL: &str = "https://status.litepod.sh/alive";
+const DEFAULT_BASE_URL: &str = "https://status.litepod.sh";
+const ALIVE_PATH: &str = "/alive";
+/// Wait after boot before the first ping, so startup work is not competing with it.
 const FIRST_PING_DELAY: Duration = Duration::from_secs(60);
+/// Time between pings after the first one: once every 24 hours.
 const INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+/// Give up on a single ping request after 10 seconds.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Operator override that wins over the stored setting.
@@ -53,7 +57,8 @@ async fn stored_enabled(pool: &sqlx::SqlitePool) -> Result<bool, sqlx::Error> {
 
 async fn ping(state: &SharedState) -> Result<(), Box<dyn std::error::Error>> {
     let id = instance_id(&state.db).await?;
-    let url = std::env::var("LITEPOD_TELEMETRY_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
+    let base = std::env::var("LITEPOD_TELEMETRY_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
+    let url = format!("{}{ALIVE_PATH}", base.trim_end_matches('/'));
     reqwest::Client::builder()
         .timeout(TIMEOUT)
         .build()?

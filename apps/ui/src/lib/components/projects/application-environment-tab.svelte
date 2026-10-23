@@ -273,17 +273,58 @@
 		}
 		const applyTheme = () => {
 			const dark = document.documentElement.classList.contains('dark');
-			// Paint the editor with the card surface so it sits in the panel, not on it.
-			const surface = getComputedStyle(document.documentElement)
-				.getPropertyValue('--lp-surface')
-				.trim();
+			const styles = getComputedStyle(document.documentElement);
+			const token = (name: string) => styles.getPropertyValue(name).trim();
+			const isHex = (value: string) => /^#[0-9a-f]{6}$/i.test(value);
+			// Same recipe as the read-only `.env` view: `bg-muted/60` laid over the card.
+			const mix = (top: string, bottom: string, amount: number) => {
+				const channel = (hex: string, at: number) => parseInt(hex.slice(at, at + 2), 16);
+				return (
+					'#' +
+					[1, 3, 5]
+						.map((at) =>
+							Math.round(channel(top, at) * amount + channel(bottom, at) * (1 - amount))
+								.toString(16)
+								.padStart(2, '0'),
+						)
+						.join('')
+				);
+			};
+			const [surface, deep, ink, muted, info] = [
+				'--lp-surface',
+				'--lp-deep',
+				'--lp-ink',
+				'--lp-muted',
+				'--lp-info',
+			].map(token);
+			const palette = [surface, deep, ink, muted, info].every(isHex);
+			const well = palette ? mix(deep, surface, 0.6) : undefined;
 			monaco.editor.defineTheme('litepod-environment', {
 				base: dark ? 'vs-dark' : 'vs',
 				inherit: true,
-				rules: [],
-				colors: /^#[0-9a-f]{6}$/i.test(surface)
-					? { 'editor.background': surface, 'editorGutter.background': surface }
-					: {},
+				rules: palette
+					? [
+						{ token: '', foreground: ink.slice(1) },
+						{ token: 'variable', foreground: info.slice(1) },
+						{ token: 'delimiter', foreground: muted.slice(1) },
+						{ token: 'string', foreground: ink.slice(1) },
+						{ token: 'comment', foreground: muted.slice(1), fontStyle: 'italic' },
+					]
+					: [],
+				colors:
+					palette && well
+						? {
+								'editor.background': well,
+								'editor.foreground': ink,
+								'editorGutter.background': well,
+								'editorLineNumber.foreground': mix(muted, well, 0.7),
+								'editorLineNumber.activeForeground': ink,
+								'editor.lineHighlightBackground': mix(ink, well, 0.04),
+								'editor.lineHighlightBorder': well,
+								'editorCursor.foreground': ink,
+								'editorIndentGuide.background1': well,
+							}
+						: {},
 			});
 			monaco.editor.setTheme('litepod-environment');
 		};
@@ -297,6 +338,21 @@
 				theme: 'litepod-environment',
 				fontFamily: "'Commit Mono', 'CommitMono Nerd Font Mono', monospace",
 				fontLigatures: false,
+				// Geometry of the read-only `.env` view (12.5px / 1.75) so toggling Edit
+				// changes the cursor, not the layout.
+				fontSize: 12.5,
+				lineHeight: 22,
+				padding: { top: 12, bottom: 12 },
+				lineNumbersMinChars: 3,
+				lineDecorationsWidth: 8,
+				glyphMargin: false,
+				folding: false,
+				scrollBeyondLastLine: false,
+				renderLineHighlight: 'none',
+				overviewRulerLanes: 0,
+				overviewRulerBorder: false,
+				hideCursorInOverviewRuler: true,
+				scrollbar: { useShadows: false, verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
 				ariaLabel: t('projects.application_env_tab.editor_aria'),
 				readOnly: true,
 			});
@@ -554,7 +610,7 @@
 		{#if !editing}
 			<EnvFileView vars={currentVars} reveal={revealed} domains={linkedDomains} {view} />
 		{/if}
-		<div class:hidden={!editing} class="relative min-h-80 bg-card">
+		<div class:hidden={!editing} class="lp-well relative min-h-80 bg-muted/60">
 			<div bind:this={element} class="absolute inset-0"></div>
 			{#if !editor}<textarea
 					class="absolute inset-0 bg-muted p-3 font-mono text-sm"

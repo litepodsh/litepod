@@ -453,11 +453,10 @@ tokens = "Tokens"
 description = "Litepod envía un ping anónimo una vez al día para que el proyecto pueda contar las instalaciones autoalojadas."
 instance_id = "ID de instancia"
 env_locked = "La telemetría está desactivada por la variable de entorno LITEPOD_TELEMETRY en este servidor."
-keep_on = "Mantenerla activa"
-notice_description = "Este servidor envía un ping anónimo a status.litepod.sh una vez al día con un ID de instancia aleatorio y la versión de Litepod. No se envía nada más: ni dominios, ni correos, ni nombres de apps, ni direcciones IP. Puedes desactivarlo aquí o más tarde en Sistema > Telemetría."
+ok = "OK"
+notice_description = "Este servidor envía un ping anónimo a status.litepod.sh una vez al día con un ID de instancia aleatorio y la versión de Litepod. No se envía nada más: ni dominios, ni correos, ni nombres de apps, ni direcciones IP. Para desactivarlo, ve a Ajustes y desactívalo, o ve a Sistema > Ajustes del sistema y desactiva la telemetría desde allí."
 notice_title = "Contador anónimo de instalaciones"
 title = "Telemetría"
-turn_off = "Desactivarla"
 what_is_sent = "Solo se envía un ID de instancia aleatorio y la versión de Litepod. Ni dominios, ni correos, ni nombres de apps, ni direcciones IP."
 
 [telemetry.errors]
