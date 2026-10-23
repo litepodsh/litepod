@@ -63,6 +63,11 @@ pub struct ContainerStatusDto {
     pub status: String,
     pub label: String,
     pub container_name: Option<String>,
+    /// Release-independent name other containers on `litepod-network` can dial.
+    /// `container_name` changes on every redeploy; this one does not.
+    pub internal_host: Option<String>,
+    /// Container port the application listens on, when litepod knows it.
+    pub internal_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

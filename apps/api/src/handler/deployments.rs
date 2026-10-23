@@ -1720,8 +1720,19 @@ pub async fn get_container_status_handler(
             status: "not_deployed".into(),
             label: "Not deployed".into(),
             container_name: None,
+            internal_host: None,
+            internal_port: None,
         }));
     };
+    let internal_host = deployment::identity(&state, &application_id)
+        .await
+        .ok()
+        .map(|(name, _)| name);
+    let internal_port = deployment::runtime_endpoints::get(&state, &application_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|endpoint| endpoint.container_port);
 
     // "We could not ask" is a different fact from "Podman does not know", and only the
     // first one means the container may well still be up on an unreachable server.
@@ -1730,6 +1741,8 @@ pub async fn get_container_status_handler(
             status: "unavailable".into(),
             label: "Unavailable".into(),
             container_name: Some(cn),
+            internal_host,
+            internal_port,
         }));
     };
 
@@ -1738,6 +1751,8 @@ pub async fn get_container_status_handler(
         label: container_status_label(&status).into(),
         status,
         container_name: Some(cn),
+        internal_host,
+        internal_port,
     }))
 }
 

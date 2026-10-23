@@ -29,7 +29,8 @@
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
-	import InfoIcon from '@lucide/svelte/icons/info';
+	import CopyIcon from '@lucide/svelte/icons/copy';
+import InfoIcon from '@lucide/svelte/icons/info';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -39,6 +40,8 @@
 		service: string | null;
 		status: string;
 		ports: string[];
+		/** Release-independent `http://host[:port]` other containers can dial. */
+		internalUrl?: string;
 		/** Replica server for a group-targeted application; absent otherwise. */
 		serverId?: string;
 	};
@@ -97,6 +100,9 @@
 							service: null,
 							status: containerStatus.status,
 							ports: [],
+							internalUrl: containerStatus.internal_host
+								? `http://${containerStatus.internal_host}${containerStatus.internal_port ? `:${containerStatus.internal_port}` : ''}`
+								: undefined,
 						},
 					]
 				: [],
@@ -290,6 +296,13 @@
 		return typeof created === 'string' ? created : '';
 	}
 
+	function copyInternalUrl(url: string) {
+		navigator.clipboard
+			.writeText(url)
+			.then(() => toast.success(t('projects.application_containers.internal_url_copied')))
+			.catch(() => toast.error(t('projects.application_containers.internal_url_copy_failed')));
+	}
+
 	function numberField(detail: Record<string, unknown>, keys: string[]): number | null {
 		for (const key of keys) {
 			const value = detail[key];
@@ -364,6 +377,14 @@
 							})}</span>
 					{:else}
 						<span>{t('projects.application_containers.inspect_hint')}</span>
+					{/if}
+					{#if row.internalUrl}
+						<button
+							type="button"
+							class="inline-flex items-center gap-1 rounded font-mono hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+							title={t('projects.application_containers.internal_url_label')}
+							onclick={() => copyInternalUrl(row.internalUrl!)}
+							><CopyIcon class="size-3" />{row.internalUrl}</button>
 					{/if}
 					{#if metric && metric.cpu_percent !== null}
 						<span>CPU {formatCpu(metric.cpu_percent)}</span>

@@ -1602,6 +1602,8 @@ export type ContainerStatusDto = {
 	status: string;
 	label: string;
 	container_name: string | null;
+	internal_host: string | null;
+	internal_port: number | null;
 };
 
 export type ApplicationLogTargetDto = {
