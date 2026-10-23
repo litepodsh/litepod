@@ -299,7 +299,7 @@
 										<b class="font-mono font-medium text-foreground/80"
 											>{#if run.duration_ms}{formatDuration(
 													run.duration_ms,
-												)}{:else if isActiveStatus(status)}<LiveTimer
+												)}{:else if isActiveStatus(status) && status !== 'queued'}<LiveTimer
 													startedAt={run.started_at} />{:else}-{/if}</b>
 										·
 										<time
