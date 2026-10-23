@@ -56,12 +56,30 @@ export type Analytics = {
 	protocols: TopEntry[];
 	/** Browser family, `bot`, `tool` (curl, SDKs), `other` or `unknown`. */
 	clients: TopEntry[];
+	/** Named agents behind `bot` requests (Googlebot, GPTBot, ...), busiest first. */
+	bots: TopEntry[];
 	/** Referer hosts other than the site itself. */
 	referrers: TopEntry[];
 	/** Every country with traffic, busiest first. */
 	countries: CountryEntry[];
 	/** The 100 most recently seen client IPs. */
 	recent_visitors: VisitorEntry[];
+	/** Slowest by average response time, slowest first. */
+	slow_hosts: SlowEntry[];
+	slow_paths: SlowEntry[];
+	/** Organization view only. */
+	slow_applications: SlowEntry[];
+};
+
+export type SlowEntry = {
+	/** Host, path or application id, depending on the list. */
+	key: string;
+	/** The path's application (organization view, `slow_paths` only). */
+	application_id?: string;
+	requests: number;
+	avg_ms: number | null;
+	p95_ms: number | null;
+	max_ms: number | null;
 };
 
 export type CountryEntry = {
@@ -83,6 +101,8 @@ export type VisitorEntry = {
 	client: string;
 	/** `ios`, `android`, `windows`, `macos`, `linux`, `chromeos`, `other` or `unknown`. */
 	os: string;
+	/** Named agent for bots and scripts (Googlebot, curl/8.7.1, ...); empty for browsers. */
+	agent: string;
 	requests: number;
 	errors: number;
 	bytes_out: number;

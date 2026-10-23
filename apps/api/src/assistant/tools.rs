@@ -115,8 +115,11 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
     ),
     (
         "templates",
-        "`templates` (what can be deployed from a template: the internal databases and the catalog; \
-        optionally `query` to search the catalog, e.g. `uptime`)",
+        "`templates` (the internal databases and the Litepod catalog at templates.litepod.sh; \
+        search it with `query` (a name, a tag or what the app does, e.g. `uptime`, `email`, \
+        `database`) and narrow it with `category`, e.g. `monitoring`. It also lists every \
+        category. When the answer is not obvious - several templates match, or none does - \
+        ask the user which one they want instead of choosing one)",
     ),
     (
         "template",
@@ -286,7 +289,8 @@ pub fn definitions_with(direct: &[&str]) -> Vec<ToolDefinition> {
                         "container": { "type": "string", "description": "One container name from `get containers`. Omit to read every container of the application." },
                         "level": { "type": "string", "enum": ["error", "warning", "info"], "description": "Only lines of this level. `error` is the fastest way to find why a deploy failed." },
                         "template": { "type": "string", "description": "A template id from `get templates`." },
-                        "query": { "type": "string", "description": "Search text for `templates`." },
+                        "query": { "type": "string", "description": "Search text for `templates`: a name, a tag or what the app does, e.g. `uptime`." },
+                        "category": { "type": "string", "description": "Category filter for `templates`, e.g. `monitoring`. One of the categories `get templates` lists." },
                         "scope": { "type": "string", "enum": ["runtime", "build"] }
                     },
                     "required": ["resource"],
@@ -940,7 +944,13 @@ async fn get(
             }
         }
 
-        "templates" => templates(string_of(arguments, "query")).await,
+        "templates" => {
+            templates(
+                string_of(arguments, "query"),
+                string_of(arguments, "category"),
+            )
+            .await
+        }
 
         "template" => {
             let Some(template) = string_of(arguments, "template") else {
@@ -1019,7 +1029,7 @@ async fn get(
         }
 
         other => ToolOutcome::failure(format!(
-            "`{other}` is not a resource. Use organizations, projects, applications, environment, deployments, deployment_logs, containers, container_logs, source, domains, servers, git_providers or compose."
+            "`{other}` is not a resource. Use organizations, projects, applications, environment, deployments, deployment_logs, containers, container_logs, source, domains, servers, git_providers, compose, templates or template."
         )),
     }
 }
@@ -1610,41 +1620,57 @@ async fn compose_app(
     }
 }
 
-/// Internal database templates, then the catalog (searched by `query`). A
-/// catalog that cannot be reached still leaves the databases to offer.
-async fn templates(query: Option<String>) -> ToolOutcome {
-    use crate::templates::catalog_templates::{CatalogClient, CatalogQuery};
+/// Internal database templates, then the catalog searched by `query`.
+///
+/// The catalog is searched the way an agent needs it: ranked, with the
+/// templates worth putting to the user as a question. A catalog that cannot
+/// be reached still leaves the databases to offer.
+async fn templates(query: Option<String>, category: Option<String>) -> ToolOutcome {
+    use crate::templates::catalog_templates::{CatalogClient, search::search};
 
+    let internal = actions::INTERNAL_TEMPLATES;
+    let mut candidates: Vec<String> = Vec::new();
     let catalog = match CatalogClient::new() {
-        Ok(client) => client
-            .list(&CatalogQuery {
-                q: query,
-                category: None,
-                limit: Some(100),
-            })
+        Ok(client) => search(&client, query.as_deref(), category.as_deref())
             .await
-            .map(|templates| {
-                templates
-                    .into_iter()
-                    .map(|template| {
-                        json!({
-                            "id": template.id,
-                            "name": template.name,
-                            "description": template.description,
-                            "categories": template.categories,
-                        })
-                    })
-                    .collect::<Vec<_>>()
+            .map(|found| {
+                candidates = found.candidates.clone();
+                found
             })
             .map_err(|error| error.to_string()),
         Err(error) => Err(error.to_string()),
     };
-    let mut result = json!({ "internal": actions::INTERNAL_TEMPLATES });
+    let mut result = json!({ "internal": internal });
     match catalog {
-        Ok(catalog) => result["catalog"] = json!(catalog),
-        Err(error) => result["catalog_error"] = json!(error),
+        Ok(found) => {
+            result["catalog"] = json!(
+                found
+                    .matches
+                    .iter()
+                    .map(|template| template.to_json())
+                    .collect::<Vec<_>>()
+            );
+            result["categories"] = json!(found.categories);
+            if let Some(note) = found.note {
+                result["note"] = json!(note);
+            }
+            if !found.candidates.is_empty() {
+                result["candidates"] = json!(found.candidates);
+            }
+        }
+        Err(error) => {
+            result["catalog_error"] = json!(error);
+            result["note"] = json!(
+                "The Litepod catalog could not be reached, so no template could be searched. \
+                 Say so, and ask the user whether they want to deploy their own compose file."
+            );
+        }
     }
-    ToolOutcome::data(result)
+    let mut outcome = ToolOutcome::data(result);
+    // The templates worth asking about, as buttons in the panel: the user
+    // picks the one they meant instead of retyping the sentence.
+    outcome.choices = candidates;
+    outcome
 }
 
 async fn template_detail(template: &str) -> ToolOutcome {

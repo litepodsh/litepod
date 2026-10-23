@@ -72,6 +72,7 @@
 				(!needle ||
 					visitor.ip.toLowerCase().includes(needle) ||
 					place(visitor).toLowerCase().includes(needle) ||
+					visitor.agent.toLowerCase().includes(needle) ||
 					clientLabel(visitor.client).toLowerCase().includes(needle)),
 		);
 	});
@@ -232,7 +233,10 @@
 									</span>
 									<span class="min-w-0">
 										<span class="block">{clientLabel(visitor.client)}</span>
-										{#if systemLabel(visitor.os)}
+										{#if visitor.agent}
+											<span class="block truncate text-xs text-muted-foreground"
+												>{visitor.agent}</span>
+										{:else if systemLabel(visitor.os)}
 											<span class="block text-xs text-muted-foreground">{systemLabel(visitor.os)}</span>
 										{/if}
 									</span>

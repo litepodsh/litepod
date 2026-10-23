@@ -1,44 +1,19 @@
 <script lang="ts">
-	import { SvelteMap } from 'svelte/reactivity';
 	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 	import ApplicationIcon from '#lib/components/projects/application-icon.svelte';
-	import { listApplicationLogTargets } from '#lib/clients/project-client.js';
 	import { primaryDomain, statusTone, type OrganizationApp } from '#lib/utils/organization-apps.js';
 	import { toneClass, toneDot } from '#lib/utils/status-tone.js';
-	import { isRunning } from '#lib/utils/container-status.js';
 	import { relativeTime } from '#lib/utils/relative-time.js';
 	import { i18n, t } from '#lib/i18n/index.svelte.js';
 
 	/** The home "Apps" table: app, project, domains, containers, status and last deploy. */
 	let {
 		apps,
-		organizationId,
 		failedApplicationIds = $bindable(new Set<string>()),
 	}: {
 		apps: OrganizationApp[];
-		organizationId: string;
 		failedApplicationIds?: Set<string>;
 	} = $props();
-
-	/** Running / total containers per application id; missing while loading or when unreadable. */
-	const containers = new SvelteMap<string, { running: number; total: number } | null>();
-
-	$effect(() => {
-		// ponytail: one request per visible row; the table shows a handful of apps.
-		for (const app of apps) {
-			const id = app.application.id;
-			if (containers.has(id)) continue;
-			containers.set(id, null);
-			listApplicationLogTargets(organizationId, app.project.id, app.environment.id, id)
-				.then((targets) =>
-					containers.set(id, {
-						running: targets.filter((target) => isRunning(target.status)).length,
-						total: targets.length,
-					}),
-				)
-				.catch(() => {});
-		}
-	});
 
 	function statusLabel(status: OrganizationApp['status']) {
 		return status ? t(`common.org_apps.status_${status}`) : t('common.org_apps.status_unknown');
@@ -59,7 +34,7 @@
 	</div>
 	{#each apps as app (app.application.id)}
 		{@const domain = primaryDomain(app.domains)}
-		{@const count = containers.get(app.application.id)}
+		{@const count = app.containers}
 		<div class="row body" role="row" data-testid="apps-table-row">
 			<span role="cell" class="flex min-w-0 items-center gap-2.5">
 				<span class="lp-inset grid size-7 shrink-0 place-items-center rounded-lg bg-muted">

@@ -24,6 +24,13 @@ export type SessionDto = {
 	expires_at: string;
 	is_current: boolean;
 	user_agent: string | null;
+	/** "device" for a signed-in browser, "mcp" for an agent grant. */
+	kind: 'device' | 'mcp';
+	client_name: string | null;
+	/** Detected agent: claude | chatgpt | hermes | other. */
+	agent: string | null;
+	/** Set when an MCP grant died; null while it is open. */
+	closed_at: string | null;
 };
 
 export async function getAccount(): Promise<AccountProfile> {

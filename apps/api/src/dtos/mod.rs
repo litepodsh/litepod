@@ -10,6 +10,7 @@ pub mod git_provider;
 pub mod health_check;
 pub mod invitation;
 pub mod organization;
+pub mod organization_apps;
 pub mod personal_access_token;
 pub mod project;
 pub mod response;

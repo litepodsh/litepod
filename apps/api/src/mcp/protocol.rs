@@ -31,6 +31,10 @@ const DISCOVER_TTL_MS: u64 = 3_600_000;
 
 pub const INSTRUCTIONS: &str = "Litepod deploys and runs applications for this organization. \
     Use `get` to read; start with `resource: projects` when you have not seen a name yet. \
+    Before you deploy an app of your own, search the template catalog with `get` and \
+    `resource: templates` and `query`: the Litepod catalog has maintained templates with \
+    their secrets and domains worked out, and when it has one, offer it and ask the user \
+    which template they want instead of choosing for them. \
     Use `exec` to change something: every action happens immediately and returns its result. \
     For `deploy_static_site`, send the site inline with `files` or `zip_base64` so it deploys in the same call.";
 

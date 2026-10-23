@@ -30,8 +30,8 @@ impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            global_per_second: 20,
-            global_burst: 40,
+            global_per_second: 40,
+            global_burst: 80,
             auth_per_second: 5,
             auth_burst: 10,
             auth_max_attempts: 5,

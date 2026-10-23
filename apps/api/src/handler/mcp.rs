@@ -372,4 +372,30 @@ mod tests {
         assert_eq!(reply["error"]["code"], -32601);
         crate::testing::cleanup_database(&path);
     }
+
+    #[tokio::test]
+    async fn get_templates_always_offers_the_internal_databases() {
+        let (router, path) = router("editor", true).await;
+        let params = json!({ "name": "get", "arguments": { "resource": "templates" } });
+        let (_, reply) = send(&router, "organization-a", call(7, "tools/call", params)).await;
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("postgres"), "{text}");
+        crate::testing::cleanup_database(&path);
+    }
+
+    /// The real catalog, when the network is there.
+    #[tokio::test]
+    #[ignore = "needs the network"]
+    async fn get_templates_searches_the_catalog_and_asks_when_it_is_ambiguous() {
+        let (router, path) = router("editor", true).await;
+        let params = json!({
+            "name": "get",
+            "arguments": { "resource": "templates", "query": "uptime" }
+        });
+        let (_, reply) = send(&router, "organization-a", call(8, "tools/call", params)).await;
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("uptime-kuma"), "{text}");
+        assert!(text.contains("Ask the user"), "{text}");
+        crate::testing::cleanup_database(&path);
+    }
 }

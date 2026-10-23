@@ -643,6 +643,8 @@ async fn refresh(state: &SharedState, request: &TokenRequest) -> Response {
         return invalid_grant("refresh_token was issued to another client");
     }
     if expired(&row.expires_at) {
+        // The grant is over: its session record closes with it.
+        let _ = repo::close_session(state, &row.code_digest).await;
         return invalid_grant("refresh_token expired");
     }
     mint(
@@ -664,8 +666,26 @@ fn server_error(error: &str) -> Response {
     )
 }
 
+/// Which agent a client is, for the session record's icon. The client name is
+/// self-declared at registration; the redirect hosts are not, so both count.
+pub fn agent_for(client_name: &str, redirect_uris: &[String]) -> &'static str {
+    let name = client_name.to_lowercase();
+    let hosts = redirect_uris.join(" ").to_lowercase();
+    let blob = format!("{name} {hosts}");
+    if blob.contains("claude") || blob.contains("anthropic") {
+        "claude"
+    } else if blob.contains("chatgpt") || blob.contains("openai") {
+        "chatgpt"
+    } else if blob.contains("hermes") {
+        "hermes"
+    } else {
+        "other"
+    }
+}
+
 /// A personal access token pinned to the organization's MCP route, plus the
-/// refresh token that stands behind it.
+/// refresh token that stands behind it. Each grant also gets one session record
+/// for the account's session list, which tracks the rolling refresh expiry.
 async fn mint(
     state: &SharedState,
     client_id: &str,
@@ -673,11 +693,12 @@ async fn mint(
     organization_id: &str,
     code_digest: &str,
 ) -> Response {
-    let client_name = match repo::get_client(state, client_id).await {
-        Ok(Some(client)) => client.name,
+    let client = match repo::get_client(state, client_id).await {
+        Ok(Some(client)) => client,
         Ok(None) => return invalid_grant("Client no longer exists"),
         Err(error) => return server_error(&error),
     };
+    let client_name = &client.name;
     let access_token_id = uuid::Uuid::now_v7().to_string();
     let access_token = crate::utils::security::generate_token();
     let refresh_token = crate::utils::security::generate_token();
@@ -697,6 +718,7 @@ async fn mint(
     {
         return server_error(&error);
     }
+    let refresh_expires_at = timestamp(now + Duration::days(REFRESH_DAYS));
     if let Err(error) = repo::create_refresh(
         state,
         &repo::NewRefresh {
@@ -706,8 +728,22 @@ async fn mint(
             organization_id,
             access_token_id: &access_token_id,
             code_digest,
-            expires_at: &timestamp(now + Duration::days(REFRESH_DAYS)),
+            expires_at: &refresh_expires_at,
         },
+    )
+    .await
+    {
+        return server_error(&error);
+    }
+    if let Err(error) = repo::record_session(
+        state,
+        code_digest,
+        client_id,
+        user_id,
+        organization_id,
+        client_name,
+        agent_for(client_name, &client.redirect_uris),
+        &refresh_expires_at,
     )
     .await
     {
@@ -1254,6 +1290,100 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["error"], "invalid_grant");
         cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn a_grant_is_recorded_as_a_session_until_it_closes() {
+        let (state, path) = test_state().await;
+        enable_mcp(&state).await;
+        let app = app(state.clone());
+        let (client_id, code) = approved_code(&app).await;
+        let (_, tokens) = exchange(&app, &client_id, &code, VERIFIER).await;
+
+        // First token = one open session record, attributed to the right agent.
+        let sessions = crate::git::repositories::oauth::list_sessions(&state, "editor")
+            .await
+            .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].client_name, "Claude Code");
+        assert_eq!(sessions[0].agent, "claude");
+        assert!(sessions[0].closed_at.is_none());
+
+        // A refresh token past its expiry ends the grant: refused, record closed.
+        sqlx::query("UPDATE oauth_refresh_tokens SET expires_at = '2000-01-01 00:00:00'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        let form = [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", tokens["refresh_token"].as_str().unwrap()),
+            ("client_id", client_id.as_str()),
+        ];
+        let (status, _) = token(&app, &form).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let sessions = crate::git::repositories::oauth::list_sessions(&state, "editor")
+            .await
+            .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].closed_at.is_some());
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn a_rotation_keeps_the_session_record_open() {
+        let (state, path) = test_state().await;
+        enable_mcp(&state).await;
+        let app = app(state.clone());
+        let (client_id, code) = approved_code(&app).await;
+        let (_, tokens) = exchange(&app, &client_id, &code, VERIFIER).await;
+
+        let form = [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", tokens["refresh_token"].as_str().unwrap()),
+            ("client_id", client_id.as_str()),
+        ];
+        let (status, _) = token(&app, &form).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let sessions = crate::git::repositories::oauth::list_sessions(&state, "editor")
+            .await
+            .unwrap();
+        assert_eq!(sessions.len(), 1, "one grant = one record, across rotations");
+        assert!(sessions[0].closed_at.is_none());
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn a_replayed_code_closes_the_session_record() {
+        let (state, path) = test_state().await;
+        enable_mcp(&state).await;
+        let app = app(state.clone());
+        let (client_id, code) = approved_code(&app).await;
+        let (_, _) = exchange(&app, &client_id, &code, VERIFIER).await;
+        // The replay revokes the tokens and closes the record with them.
+        let (_, _) = exchange(&app, &client_id, &code, VERIFIER).await;
+        let sessions = crate::git::repositories::oauth::list_sessions(&state, "editor")
+            .await
+            .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].closed_at.is_some());
+        cleanup_database(&path);
+    }
+
+    #[test]
+    fn agent_detection_covers_the_known_hosts() {
+        assert_eq!(agent_for("Claude Code", &[]), "claude");
+        assert_eq!(
+            agent_for("whatever", &["https://claude.ai/api/mcp/auth_callback".into()]),
+            "claude"
+        );
+        assert_eq!(agent_for("ChatGPT", &[]), "chatgpt");
+        assert_eq!(
+            agent_for("whatever", &["https://chatgpt.com/connector/oauth/a".into()]),
+            "chatgpt"
+        );
+        assert_eq!(agent_for("Hermes", &[]), "hermes");
+        assert_eq!(agent_for("Some Tool", &["http://127.0.0.1:1234/cb".into()]), "other");
     }
 
     fn urlencoding(value: &str) -> String {

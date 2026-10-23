@@ -32,9 +32,9 @@ use crate::{
         application_networks, assistant, auth, backup, billing, caddy_console, catalog_templates,
         compose, containers, dashboard, database_backup, debug, deployments, git_providers,
         github_app, icons, invitations, maintenance, mcp, notifications, oauth, onboarding,
-        organizations, permissions, personal_access_tokens, podman_console, projects, runtime,
-        scheduled_tasks, server_groups, servers, sessions, settings, system, templates, users,
-        webhooks,
+        organization_apps, organizations, permissions, personal_access_tokens, podman_console,
+        projects, runtime, scheduled_tasks, server_groups, servers, sessions, settings, system,
+        templates, users, webhooks,
     },
     podman::terminal,
 };
@@ -87,6 +87,7 @@ const METRICS_ALLOWED_PATHS: &[&str] = &[
     organizations::upload_icon_handler,
     projects::list_projects_handler,
     dashboard::organization_dashboard_handler,
+    organization_apps::list_organization_apps_handler,
     permissions::my_permissions_handler,
     access::catalog_handler,
     access::list_roles_handler,
@@ -611,6 +612,10 @@ pub fn create_router(state: SharedState) -> Router {
             get(projects::list_projects_handler).post(projects::create_project_handler),
         )
         .route("/api/v1/organizations/{organization_id}/dashboard", get(dashboard::organization_dashboard_handler))
+        .route(
+            "/api/v1/organizations/{organization_id}/apps/summary",
+            get(organization_apps::list_organization_apps_handler),
+        )
         .route("/api/v1/organizations/{organization_id}/me/permissions", get(permissions::my_permissions_handler))
         .route("/api/v1/organizations/{organization_id}/permissions/catalog", get(access::catalog_handler))
         .route(

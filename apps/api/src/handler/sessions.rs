@@ -63,6 +63,9 @@ pub async fn revoke_all_sessions_handler(
     Extension(auth_user): Extension<AuthUser>,
     jar: CookieJar,
 ) -> Result<impl IntoResponse, AppError> {
+    let _ = crate::git::repositories::oauth::revoke_all_grants_for_user(&state, &auth_user.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
     let _ = session::revoke_all_for_user(&state, &auth_user.user_id)
         .await
         .map_err(AppError::DatabaseError)?;
@@ -117,7 +120,34 @@ pub async fn delete_session_handler(
             use sqlx::Row;
             row.try_get::<String, _>(0).unwrap_or_default()
         }
-        None => return Err(AppError::ValidationError("Session not found".into())),
+        None => {
+            // Not a browser session: an MCP agent grant revokes as a whole —
+            // its tokens and its session record close together.
+            let grant = crate::git::repositories::oauth::take_grant(
+                &state,
+                &session_id,
+                &auth_user.user_id,
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+            return match grant {
+                Some(code_digest) => {
+                    crate::git::repositories::oauth::revoke_by_code(&state, &code_digest)
+                        .await
+                        .map_err(AppError::DatabaseError)?;
+                    let _ = crate::security::security_events::record(
+                        &state,
+                        Some(&auth_user.user_id),
+                        &auth_user,
+                        "session.revoked",
+                        Some(&session_id),
+                    )
+                    .await;
+                    Ok(StatusCode::NO_CONTENT)
+                }
+                None => Err(AppError::ValidationError("Session not found".into())),
+            };
+        }
     };
 
     // The database holds digests now, so the caller's cookie has to be digested

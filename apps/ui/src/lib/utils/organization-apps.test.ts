@@ -1,8 +1,8 @@
 import { expect, it } from 'vitest';
 import { filterApps, primaryDomain, statusTone, type OrganizationApp } from './organization-apps';
-import type { DomainDto } from '#lib/clients/project-client.js';
+import type { AppSummaryDomainDto } from '#lib/clients/organization-client.js';
 
-const domain = (host: string, is_primary = false) => ({ host, is_primary }) as DomainDto;
+const domain = (host: string, is_primary = false) => ({ host, is_primary }) as AppSummaryDomainDto;
 const app = (name: string, project: string, updated_at: number, hosts: string[] = []) =>
 	({
 		application: { id: name, name, updated_at },

@@ -65,8 +65,23 @@ CREATE TABLE IF NOT EXISTS request_paths (
     path VARCHAR NOT NULL,
     requests BIGINT NOT NULL,
     errors BIGINT NOT NULL,
-    duration_sum_ms DOUBLE NOT NULL
+    duration_sum_ms DOUBLE NOT NULL,
+    -- Added after the table shipped; rows from before stay 0 (see the ALTERs below).
+    duration_max_ms DOUBLE DEFAULT 0,
+    lat_0 BIGINT DEFAULT 0, lat_1 BIGINT DEFAULT 0, lat_2 BIGINT DEFAULT 0,
+    lat_3 BIGINT DEFAULT 0, lat_4 BIGINT DEFAULT 0, lat_5 BIGINT DEFAULT 0,
+    lat_6 BIGINT DEFAULT 0, lat_7 BIGINT DEFAULT 0, lat_8 BIGINT DEFAULT 0
 );
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS duration_max_ms DOUBLE DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_0 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_1 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_2 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_3 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_4 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_5 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_6 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_7 BIGINT DEFAULT 0;
+ALTER TABLE request_paths ADD COLUMN IF NOT EXISTS lat_8 BIGINT DEFAULT 0;
 -- Bounded per-minute top values of one request attribute (method, protocol, client, referrer).
 CREATE TABLE IF NOT EXISTS request_dimensions (
     ts TIMESTAMP NOT NULL,
@@ -85,7 +100,7 @@ CREATE TABLE IF NOT EXISTS request_visitors (
     application_id VARCHAR NOT NULL,
     visitor BIGINT NOT NULL
 );
--- One row per (minute, application, client IP, browser, OS), bounded per minute.
+-- One row per (minute, application, client IP, browser, OS, agent), bounded per minute.
 -- Unlike request_visitors this keeps the IP itself, plus where it geolocates to.
 CREATE TABLE IF NOT EXISTS request_clients (
     ts TIMESTAMP NOT NULL,
@@ -101,8 +116,13 @@ CREATE TABLE IF NOT EXISTS request_clients (
     city VARCHAR,
     requests BIGINT NOT NULL,
     errors BIGINT NOT NULL,
-    bytes_out BIGINT NOT NULL
-);";
+    bytes_out BIGINT NOT NULL,
+    -- Named agent for bots and scripts (see `agent_label`); empty for browsers.
+    -- Added after the table shipped; rows from before keep the empty string.
+    agent VARCHAR DEFAULT ''
+);
+ALTER TABLE request_clients ADD COLUMN IF NOT EXISTS agent VARCHAR DEFAULT '';
+";
 
 /// Tables `apply_retention` prunes alongside `container_samples`.
 pub const TABLES: [&str; 5] = [
@@ -131,6 +151,9 @@ const FLUSH_EVERY: Duration = Duration::from_secs(60);
 /// raise or move to a sketch if real top-N accuracy matters.
 const MAX_PATH_KEYS: usize = 20_000;
 const PATHS_PER_APP_MINUTE: usize = 20;
+/// Kept on top of the busiest paths: the slowest of the rest, so a rarely hit but slow
+/// endpoint still makes "slowest endpoints".
+const SLOW_PATHS_PER_APP_MINUTE: usize = 10;
 /// shortcut: per-minute cap on distinct visitors held in memory; past it a minute's
 /// unique count undercounts. Raise or switch to a sketch for very high traffic.
 const MAX_VISITOR_KEYS: usize = 100_000;
@@ -226,6 +249,8 @@ struct AccessLine {
     ip: Option<String>,
     /// See [`os_family`].
     os: &'static str,
+    /// See [`agent_label`]; empty for mainstream browsers.
+    agent: String,
     /// Filled in by `ingest`, once the host is known to belong to an application.
     geo: Geo,
 }
@@ -296,6 +321,93 @@ fn os_family(user_agent: &str) -> &'static str {
     }
 }
 
+/// Named agent behind a User-Agent: the canonical name of a well-known bot or tool,
+/// or its first product token (`Name/1.2`) when unknown. Empty for mainstream
+/// browsers, whose family the `client` column already carries.
+fn agent_label(user_agent: &str, client: &str) -> String {
+    if matches!(client, "chrome" | "safari" | "firefox" | "edge" | "opera") {
+        return String::new();
+    }
+    // Canonical names for bots whose product token is not what people know them by,
+    // or that bury it after browser boilerplate (mobile Googlebot).
+    const KNOWN: [(&str, &str); 36] = [
+        ("googlebot", "Googlebot"),
+        ("google-inspectiontool", "Google-InspectionTool"),
+        ("storebot-google", "GoogleStoreBot"),
+        ("bingbot", "bingbot"),
+        ("bingpreview", "BingPreview"),
+        ("yandexbot", "YandexBot"),
+        ("yandeximages", "YandexImages"),
+        ("duckduckbot", "DuckDuckBot"),
+        ("baiduspider", "Baiduspider"),
+        ("bytespider", "Bytespider"),
+        ("applebot", "Applebot"),
+        ("petalbot", "PetalBot"),
+        ("semrushbot", "SemrushBot"),
+        ("ahrefsbot", "AhrefsBot"),
+        ("mj12bot", "MJ12bot"),
+        ("dotbot", "DotBot"),
+        ("gptbot", "GPTBot"),
+        ("chatgpt-user", "ChatGPT-User"),
+        ("oai-searchbot", "OAI-SearchBot"),
+        ("claudebot", "ClaudeBot"),
+        ("claude-web", "Claude-Web"),
+        ("anthropic-ai", "Anthropic-AI"),
+        ("perplexitybot", "PerplexityBot"),
+        ("cohere-ai", "Cohere-AI"),
+        ("ccbot", "CCBot"),
+        ("amazonbot", "AmazonBot"),
+        ("meta-externalagent", "Meta-ExternalAgent"),
+        ("facebookexternalhit", "facebookexternalhit"),
+        ("twitterbot", "Twitterbot"),
+        ("linkedinbot", "LinkedInBot"),
+        ("slackbot", "Slackbot"),
+        ("discordbot", "Discordbot"),
+        ("telegrambot", "TelegramBot"),
+        ("uptimerobot", "UptimeRobot"),
+        ("pingdom", "Pingdom"),
+        ("lighthouse", "Lighthouse"),
+    ];
+    let ua = user_agent.to_ascii_lowercase();
+    if let Some((_, name)) = KNOWN.iter().find(|(needle, _)| ua.contains(needle)) {
+        return (*name).to_owned();
+    }
+    // Product tokens (`Name/1.2`) minus the browser boilerplate; a bot-ish name wins
+    // over whatever comes first, since crawlers sometimes pose as browsers.
+    const SKIP: [&str; 8] = [
+        "mozilla",
+        "applewebkit",
+        "khtml",
+        "gecko",
+        "like",
+        "compatible",
+        "version",
+        "mobile",
+    ];
+    let tokens: Vec<(&str, &str)> = user_agent
+        .split([' ', ';'])
+        .map(|token| {
+            let token = token.trim_matches(|c: char| c == '(' || c == ')' || c == ',');
+            (token.split('/').next().unwrap_or(""), token)
+        })
+        .filter(|(name, _)| {
+            !name.is_empty() && !SKIP.iter().any(|skip| name.eq_ignore_ascii_case(skip))
+        })
+        .collect();
+    let botish = |(name, _): &(&str, &str)| {
+        let name = name.to_ascii_lowercase();
+        ["bot", "crawl", "spider", "slurp", "headless", "monitor", "uptime"]
+            .iter()
+            .any(|needle| name.contains(needle))
+    };
+    tokens
+        .iter()
+        .find(|token| botish(token))
+        .or_else(|| tokens.first())
+        .map(|(_, token)| token.chars().take(40).collect())
+        .unwrap_or_default()
+}
+
 fn visitor_id(day: i64, ip: &str, user_agent: &str) -> i64 {
     use sha2::{Digest, Sha256};
     // Validated at startup in main.rs; the salt keeps the hash from mapping back to an IP.
@@ -346,6 +458,7 @@ fn parse_line(line: &str, now_ms: i64) -> Option<AccessLine> {
     let header = |name: &str| request["headers"][name][0].as_str().unwrap_or("");
     let user_agent = header("User-Agent");
     let client = client_family(user_agent);
+    let agent = agent_label(user_agent, client);
     let method = request["method"].as_str().unwrap_or("");
     let method = METHODS
         .into_iter()
@@ -386,6 +499,7 @@ fn parse_line(line: &str, now_ms: i64) -> Option<AccessLine> {
         visitor,
         ip: ip.map(str::to_owned),
         os: os_family(user_agent),
+        agent,
         geo: Geo::default(),
     })
 }
@@ -411,6 +525,8 @@ struct PathRollup {
     requests: i64,
     errors: i64,
     duration_sum_ms: f64,
+    duration_max_ms: f64,
+    latency: [i64; 9],
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -423,7 +539,7 @@ type RollupKey = (i64, Owner, Option<String>, String, i64);
 type PathKey = (i64, Owner, String);
 type DimensionKey = (i64, Owner, &'static str, String);
 type VisitorKey = (i64, Owner, i64);
-type ClientKey = (i64, Owner, String, &'static str, &'static str);
+type ClientKey = (i64, Owner, String, &'static str, &'static str, String);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 struct ClientRollup {
@@ -484,6 +600,42 @@ fn top_per_group<G: Eq + std::hash::Hash + Clone, K: Ord, V>(
     out
 }
 
+fn latency_bucket(duration_ms: f64) -> usize {
+    LATENCY_BOUNDS_MS
+        .iter()
+        .position(|bound| duration_ms <= *bound)
+        .unwrap_or(LATENCY_BOUNDS_MS.len() - 1)
+}
+
+/// Per application and minute: the [`PATHS_PER_APP_MINUTE`] busiest paths plus the
+/// [`SLOW_PATHS_PER_APP_MINUTE`] slowest (by max duration) of the rest.
+fn keep_paths(rows: impl Iterator<Item = (PathKey, PathRollup)>) -> Vec<(PathKey, PathRollup)> {
+    let mut groups: HashMap<(i64, Owner), Vec<(String, PathRollup)>> = HashMap::new();
+    for ((minute, owner, path), rollup) in rows {
+        groups
+            .entry((minute, owner))
+            .or_default()
+            .push((path, rollup));
+    }
+    let mut out = Vec::new();
+    for ((minute, owner), mut rows) in groups {
+        rows.sort_by(|a, b| b.1.requests.cmp(&a.1.requests).then(a.0.cmp(&b.0)));
+        let mut rest = rows.split_off(rows.len().min(PATHS_PER_APP_MINUTE));
+        rest.sort_by(|a, b| {
+            b.1.duration_max_ms
+                .total_cmp(&a.1.duration_max_ms)
+                .then(a.0.cmp(&b.0))
+        });
+        rest.truncate(SLOW_PATHS_PER_APP_MINUTE);
+        out.extend(
+            rows.into_iter()
+                .chain(rest)
+                .map(|(path, rollup)| ((minute, owner.clone(), path), rollup)),
+        );
+    }
+    out
+}
+
 impl Aggregator {
     fn record(&mut self, line: AccessLine, owner: Owner, server_id: Option<&str>) {
         let minute = line.ts_ms.div_euclid(MINUTE_MS) * MINUTE_MS;
@@ -502,10 +654,7 @@ impl Aggregator {
         rollup.bytes_in += line.bytes_in;
         rollup.duration_sum_ms += line.duration_ms;
         rollup.duration_max_ms = rollup.duration_max_ms.max(line.duration_ms);
-        let bucket = LATENCY_BOUNDS_MS
-            .iter()
-            .position(|bound| line.duration_ms <= *bound)
-            .unwrap_or(LATENCY_BOUNDS_MS.len() - 1);
+        let bucket = latency_bucket(line.duration_ms);
         rollup.latency[bucket] += 1;
         let error = i64::from(line.status >= 500);
 
@@ -531,7 +680,7 @@ impl Aggregator {
             self.visitors.insert((minute, owner.clone(), visitor));
         }
         if let Some(ip) = line.ip {
-            let key = (minute, owner.clone(), ip, line.client, line.os);
+            let key = (minute, owner.clone(), ip, line.client, line.os, line.agent);
             if self.clients.len() < MAX_VISITOR_KEYS || self.clients.contains_key(&key) {
                 let client = self.clients.entry(key).or_insert_with(|| ClientRollup {
                     visitor: line.visitor,
@@ -552,17 +701,13 @@ impl Aggregator {
         path.requests += 1;
         path.errors += error;
         path.duration_sum_ms += line.duration_ms;
+        path.duration_max_ms = path.duration_max_ms.max(line.duration_ms);
+        path.latency[bucket] += 1;
     }
 
     /// Everything so far; partial minutes are fine because every query sums.
     fn drain(&mut self) -> Drained {
-        let paths = top_per_group(
-            self.paths
-                .drain()
-                .map(|((minute, owner, path), rollup)| ((minute, owner), path, rollup)),
-            PATHS_PER_APP_MINUTE,
-            |rollup| rollup.requests,
-        );
+        let paths = keep_paths(self.paths.drain());
         let dimensions = top_per_group(
             self.dimensions
                 .drain()
@@ -575,8 +720,8 @@ impl Aggregator {
         let clients = top_per_group(
             self.clients
                 .drain()
-                .map(|((minute, owner, ip, client, os), rollup)| {
-                    ((minute, owner), (ip, client, os), rollup)
+                .map(|((minute, owner, ip, client, os, agent), rollup)| {
+                    ((minute, owner), (ip, client, os, agent), rollup)
                 }),
             CLIENTS_PER_APP_MINUTE,
             |rollup| rollup.requests,
@@ -584,15 +729,12 @@ impl Aggregator {
         Drained {
             clients: clients
                 .into_iter()
-                .map(|((minute, owner), (ip, client, os), rollup)| {
-                    ((minute, owner, ip, client, os), rollup)
+                .map(|((minute, owner), (ip, client, os, agent), rollup)| {
+                    ((minute, owner, ip, client, os, agent), rollup)
                 })
                 .collect(),
             rollups: self.rollups.drain().collect(),
-            paths: paths
-                .into_iter()
-                .map(|((minute, owner), path, rollup)| ((minute, owner, path), rollup))
-                .collect(),
+            paths,
             dimensions: dimensions
                 .into_iter()
                 .map(|((minute, owner, dimension), value, counts)| {
@@ -668,6 +810,7 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
     appender.flush()?;
     let mut appender = conn.appender("request_paths")?;
     for ((minute, owner, path), r) in &batch.paths {
+        let l = &r.latency;
         appender.append_row(params![
             ts(*minute),
             owner.organization_id,
@@ -676,6 +819,16 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
             r.requests,
             r.errors,
             r.duration_sum_ms,
+            r.duration_max_ms,
+            l[0],
+            l[1],
+            l[2],
+            l[3],
+            l[4],
+            l[5],
+            l[6],
+            l[7],
+            l[8],
         ])?;
     }
     appender.flush()?;
@@ -703,7 +856,7 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
     }
     appender.flush()?;
     let mut appender = conn.appender("request_clients")?;
-    for ((minute, owner, ip, client, os), r) in &batch.clients {
+    for ((minute, owner, ip, client, os, agent), r) in &batch.clients {
         appender.append_row(params![
             ts(*minute),
             owner.organization_id,
@@ -718,6 +871,7 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
             r.requests,
             r.errors,
             r.bytes_out,
+            agent
         ])?;
     }
     appender.flush()
@@ -804,6 +958,19 @@ pub struct TopEntry {
     pub avg_ms: Option<f64>,
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+pub struct SlowEntry {
+    /// Host, path or application id, depending on the list.
+    pub key: String,
+    /// The path's application (organization view, `slow_paths` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub application_id: Option<String>,
+    pub requests: i64,
+    pub avg_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+    pub max_ms: Option<f64>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct AnalyticsDto {
     pub range: AnalyticsRange,
@@ -819,12 +986,19 @@ pub struct AnalyticsDto {
     pub protocols: Vec<TopEntry>,
     /// Browser family, `bot`, `tool` (curl, SDKs), `other` or `unknown`.
     pub clients: Vec<TopEntry>,
+    /// Named agents behind `bot` traffic (see `agent_label`), busiest first.
+    pub bots: Vec<TopEntry>,
     /// Referer hosts other than the site itself.
     pub referrers: Vec<TopEntry>,
     /// Every country with traffic, busiest first.
     pub countries: Vec<CountryEntry>,
     /// The most recently seen client IPs.
     pub recent_visitors: Vec<VisitorEntry>,
+    /// Slowest by average response time, slowest first.
+    pub slow_hosts: Vec<SlowEntry>,
+    pub slow_paths: Vec<SlowEntry>,
+    /// Organization view only.
+    pub slow_applications: Vec<SlowEntry>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -848,6 +1022,8 @@ pub struct VisitorEntry {
     /// Latest browser family seen from this IP; see `clients`.
     pub client: String,
     pub os: String,
+    /// Latest named agent seen from this IP (bots and scripts); see `bots`.
+    pub agent: String,
     pub requests: i64,
     pub errors: i64,
     pub bytes_out: i64,
@@ -924,9 +1100,13 @@ fn analytics(
         methods: Vec::new(),
         protocols: Vec::new(),
         clients: Vec::new(),
+        bots: Vec::new(),
         referrers: Vec::new(),
         countries: Vec::new(),
         recent_visitors: Vec::new(),
+        slow_hosts: Vec::new(),
+        slow_paths: Vec::new(),
+        slow_applications: Vec::new(),
     };
     if applications.is_empty() {
         return Ok(dto);
@@ -1130,7 +1310,8 @@ fn analytics(
 
     let mut statement = conn.prepare(&format!(
         "SELECT ip, application_id, arg_max(country, ts), arg_max(region, ts), arg_max(city, ts),
-                arg_max(client, ts), arg_max(os, ts), sum(requests), sum(errors), sum(bytes_out),
+                arg_max(client, ts), arg_max(os, ts), arg_max(agent, ts),
+                sum(requests), sum(errors), sum(bytes_out),
                 epoch_ms(min(ts)), epoch_ms(max(ts)) AS last_seen
          FROM request_clients WHERE {filter}
          GROUP BY ip, application_id ORDER BY last_seen DESC, ip LIMIT {RECENT_VISITORS}"
@@ -1145,14 +1326,68 @@ fn analytics(
                 city: row.get(4)?,
                 client: row.get(5)?,
                 os: row.get(6)?,
-                requests: row.get(7)?,
-                errors: row.get(8)?,
-                bytes_out: row.get(9)?,
-                first_seen: row.get(10)?,
-                last_seen: row.get(11)?,
+                agent: row.get(7)?,
+                requests: row.get(8)?,
+                errors: row.get(9)?,
+                bytes_out: row.get(10)?,
+                first_seen: row.get(11)?,
+                last_seen: row.get(12)?,
             })
         })?
         .collect::<duckdb::Result<_>>()?;
+
+    let mut statement = conn.prepare(&format!(
+        "SELECT agent, sum(requests) AS n, sum(errors) FROM request_clients
+         WHERE {filter} AND agent <> '' AND client = 'bot'
+         GROUP BY agent ORDER BY n DESC, agent LIMIT {TOP_LIMIT}"
+    ))?;
+    dto.bots = statement
+        .query_map(params_from_iter(values.iter()), |row| {
+            Ok(TopEntry {
+                key: row.get(0)?,
+                requests: row.get(1)?,
+                errors: row.get(2)?,
+                bytes_out: None,
+                avg_ms: None,
+            })
+        })?
+        .collect::<duckdb::Result<_>>()?;
+
+    // Grouped by application too, so the same path in two apps stays two rows.
+    let slowest = |table: &str, column: &str, with_app: bool| -> duckdb::Result<Vec<SlowEntry>> {
+        let mut statement = conn.prepare(&format!(
+            "SELECT {column}, application_id, sum(requests),
+                    sum(duration_sum_ms) / sum(requests) AS avg_ms, max(duration_max_ms),
+                    sum(lat_0), sum(lat_1), sum(lat_2), sum(lat_3), sum(lat_4),
+                    sum(lat_5), sum(lat_6), sum(lat_7), sum(lat_8)
+             FROM {table} WHERE {filter}
+             GROUP BY {column}, application_id
+             ORDER BY avg_ms DESC NULLS LAST, {column} LIMIT {TOP_LIMIT}"
+        ))?;
+        statement
+            .query_map(params_from_iter(values.iter()), |row| {
+                let max_ms: Option<f64> = row.get(4)?;
+                let mut latency = [0i64; 9];
+                for (index, slot) in latency.iter_mut().enumerate() {
+                    *slot = row.get::<_, Option<i64>>(5 + index)?.unwrap_or(0);
+                }
+                Ok(SlowEntry {
+                    key: row.get(0)?,
+                    application_id: with_app.then(|| row.get(1)).transpose()?,
+                    requests: row.get(2)?,
+                    avg_ms: row.get(3)?,
+                    // Path rows from before the max and histogram columns carry 0s.
+                    p95_ms: p95(&latency, max_ms.unwrap_or(0.0)),
+                    max_ms: max_ms.filter(|max| *max > 0.0),
+                })
+            })?
+            .collect()
+    };
+    dto.slow_hosts = slowest("request_rollups", "host", false)?;
+    dto.slow_paths = slowest("request_paths", "path", with_applications)?;
+    if with_applications {
+        dto.slow_applications = slowest("request_rollups", "application_id", false)?;
+    }
     Ok(dto)
 }
 
@@ -1548,6 +1783,7 @@ mod tests {
             visitor: Some(1),
             ip: Some("1.2.3.4".into()),
             os: "macos",
+            agent: String::new(),
             geo: Geo {
                 country: Some("MX".into()),
                 region: Some("Jalisco".into()),
@@ -1720,8 +1956,98 @@ mod tests {
         // Self-referrals are not referrers; bots are not visitors.
         let bot = parse_line(&raw("1.2.3.4", "Googlebot/2.1", "https://shop.test/a"), 0).unwrap();
         assert_eq!(bot.client, "bot");
+        assert_eq!(bot.agent, "Googlebot");
         assert_eq!(bot.referrer, None);
         assert_eq!(bot.visitor, None);
+    }
+
+    #[test]
+    fn names_agents() {
+        for (ua, client, agent) in [
+            ("Googlebot/2.1", "bot", "Googlebot"),
+            ("Mozilla/5.0 (compatible; bingbot/2.0)", "bot", "bingbot"),
+            // Mobile Googlebot hides behind an iPhone Safari User-Agent.
+            (
+                "Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1 (compatible; Googlebot/2.1)",
+                "bot",
+                "Googlebot",
+            ),
+            (
+                "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
+                "bot",
+                "AhrefsBot",
+            ),
+            ("HeadlessChrome/130.0", "bot", "HeadlessChrome/130.0"),
+            // Unknown bots fall back to their first product token.
+            (
+                "Mozilla/5.0 (compatible; SomeCrawler/3.0; +https://example.com/bot)",
+                "bot",
+                "SomeCrawler/3.0",
+            ),
+            ("curl/8.7.1", "tool", "curl/8.7.1"),
+            ("python-requests/2.31.0", "tool", "python-requests/2.31.0"),
+            // Browsers are identified by their family already.
+            (
+                "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/130.0 Safari/537.36",
+                "chrome",
+                "",
+            ),
+            ("", "unknown", ""),
+        ] {
+            assert_eq!(agent_label(ua, client), agent, "{ua}");
+        }
+    }
+
+    #[test]
+    fn ranks_bot_agents() {
+        let conn = db();
+        let base = (NOW - 10 * MINUTE_MS) / MINUTE_MS * MINUTE_MS;
+        let mut aggregator = Aggregator::default();
+        let mut record = |ip: &str, client: &'static str, agent: &str| {
+            let mut line = line(base, "a.test", "/", 200, 5.0);
+            line.ip = Some(ip.into());
+            line.client = client;
+            line.agent = agent.into();
+            line.visitor = None;
+            line.geo = Geo::default();
+            aggregator.record(line, owner("app"), None);
+        };
+        record("1.1.1.1", "bot", "Googlebot");
+        record("2.2.2.2", "bot", "Googlebot");
+        record("3.3.3.3", "bot", "GPTBot");
+        record("9.9.9.9", "tool", "curl/8.7.1");
+        insert(&conn, &aggregator.drain()).unwrap();
+
+        let dto = analytics(
+            &conn,
+            "org",
+            &["app".into()],
+            AnalyticsRange::Hour,
+            false,
+            NOW,
+        )
+        .unwrap();
+        let bots: Vec<_> = dto
+            .bots
+            .iter()
+            .map(|entry| (entry.key.as_str(), entry.requests))
+            .collect();
+        // Tools and browsers stay out of the bot ranking.
+        assert_eq!(bots, [("Googlebot", 2), ("GPTBot", 1)]);
+        let agents: Vec<_> = dto
+            .recent_visitors
+            .iter()
+            .map(|v| (v.ip.as_str(), v.agent.as_str()))
+            .collect();
+        assert_eq!(
+            agents,
+            [
+                ("1.1.1.1", "Googlebot"),
+                ("2.2.2.2", "Googlebot"),
+                ("3.3.3.3", "GPTBot"),
+                ("9.9.9.9", "curl/8.7.1"),
+            ]
+        );
     }
 
     #[test]
@@ -1769,6 +2095,138 @@ mod tests {
         assert_eq!(log["writer"]["address"], "litepod-api:6514");
         assert_eq!(log["writer"]["soft_start"], true);
         assert_eq!(log["include"][0], "http.log.access.litepod_access");
+    }
+
+    #[test]
+    fn ranks_slowest_hosts_and_paths() {
+        let conn = db();
+        let base = (NOW - 10 * MINUTE_MS) / MINUTE_MS * MINUTE_MS;
+        let mut aggregator = Aggregator::default();
+        // More busy paths than a minute keeps; the one slow, rare path must survive.
+        for index in 0..PATHS_PER_APP_MINUTE + 5 {
+            for _ in 0..3 {
+                aggregator.record(
+                    line(base, "a.test", &format!("/busy/{index}"), 200, 5.0),
+                    owner("app"),
+                    None,
+                );
+            }
+        }
+        aggregator.record(
+            line(base, "a.test", "/report", 200, 1_800.0),
+            owner("app"),
+            None,
+        );
+        aggregator.record(
+            line(base, "b.test", "/report", 200, 300.0),
+            owner("other"),
+            None,
+        );
+        aggregator.record(line(base, "b.test", "/", 200, 100.0), owner("other"), None);
+        insert(&conn, &aggregator.drain()).unwrap();
+
+        let dto = analytics(
+            &conn,
+            "org",
+            &["app".into()],
+            AnalyticsRange::Hour,
+            false,
+            NOW,
+        )
+        .unwrap();
+        let slow = &dto.slow_paths[0];
+        assert_eq!(slow.key, "/report");
+        assert_eq!(slow.application_id, None);
+        assert_eq!((slow.requests, slow.max_ms), (1, Some(1_800.0)));
+        assert_eq!(slow.p95_ms, Some(1_800.0));
+        assert_eq!(dto.slow_hosts.len(), 1);
+        assert!(dto.slow_applications.is_empty());
+
+        let org = analytics(
+            &conn,
+            "org",
+            &["app".into(), "other".into()],
+            AnalyticsRange::Hour,
+            true,
+            NOW,
+        )
+        .unwrap();
+        let paths: Vec<_> = org
+            .slow_paths
+            .iter()
+            .take(3)
+            .map(|entry| (entry.key.as_str(), entry.application_id.as_deref()))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                ("/report", Some("app")),
+                ("/report", Some("other")),
+                ("/", Some("other"))
+            ]
+        );
+        let hosts: Vec<_> = org
+            .slow_hosts
+            .iter()
+            .map(|entry| entry.key.as_str())
+            .collect();
+        assert_eq!(hosts, ["b.test", "a.test"]);
+        assert_eq!(org.slow_applications[0].key, "other");
+    }
+
+    #[test]
+    fn adds_path_latency_columns_to_an_old_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE request_paths (ts TIMESTAMP NOT NULL, organization_id VARCHAR NOT NULL,
+                application_id VARCHAR NOT NULL, path VARCHAR NOT NULL, requests BIGINT NOT NULL,
+                errors BIGINT NOT NULL, duration_sum_ms DOUBLE NOT NULL);
+             INSERT INTO request_paths VALUES (TIMESTAMP '2026-01-01', 'org', 'app', '/', 1, 0, 5);",
+        )
+        .unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        let mut aggregator = Aggregator::default();
+        aggregator.record(line(NOW, "a.test", "/x", 200, 5.0), owner("app"), None);
+        insert(&conn, &aggregator.drain()).unwrap();
+        let old: (f64, i64) = conn
+            .query_row(
+                "SELECT duration_max_ms, lat_0 FROM request_paths WHERE path = '/'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(old, (0.0, 0));
+    }
+
+    #[test]
+    fn adds_agent_column_to_an_old_clients_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE request_clients (ts TIMESTAMP NOT NULL, organization_id VARCHAR NOT NULL,
+                application_id VARCHAR NOT NULL, ip VARCHAR NOT NULL, visitor BIGINT,
+                client VARCHAR NOT NULL, os VARCHAR NOT NULL, country VARCHAR, region VARCHAR,
+                city VARCHAR, requests BIGINT NOT NULL, errors BIGINT NOT NULL, bytes_out BIGINT NOT NULL);
+             INSERT INTO request_clients VALUES (TIMESTAMP '2026-01-01', 'org', 'app', '1.2.3.4', NULL,
+                'bot', 'other', NULL, NULL, NULL, 3, 0, 10);",
+        )
+        .unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        let mut aggregator = Aggregator::default();
+        let mut bot = line(NOW, "a.test", "/", 200, 5.0);
+        bot.client = "bot";
+        bot.agent = "Googlebot".into();
+        bot.visitor = None;
+        aggregator.record(bot, owner("app"), None);
+        insert(&conn, &aggregator.drain()).unwrap();
+        let agents: Vec<String> = conn
+            .prepare("SELECT agent FROM request_clients ORDER BY ts")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        // Rows from before the column existed keep the empty string.
+        assert_eq!(agents, ["", "Googlebot"]);
     }
 
     #[test]
@@ -1916,7 +2374,7 @@ mod tests {
     #[test]
     fn paths_are_capped_per_application_minute() {
         let mut aggregator = Aggregator::default();
-        for index in 0..(PATHS_PER_APP_MINUTE + 5) {
+        for index in 0..(PATHS_PER_APP_MINUTE + SLOW_PATHS_PER_APP_MINUTE + 5) {
             aggregator.record(
                 line(NOW, "a.test", &format!("/p{index}"), 200, 1.0),
                 owner("app"),
@@ -1925,7 +2383,10 @@ mod tests {
         }
         let batch = aggregator.drain();
         assert_eq!(batch.rollups.len(), 1);
-        assert_eq!(batch.paths.len(), PATHS_PER_APP_MINUTE);
+        assert_eq!(
+            batch.paths.len(),
+            PATHS_PER_APP_MINUTE + SLOW_PATHS_PER_APP_MINUTE
+        );
     }
 
     #[test]
