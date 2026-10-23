@@ -166,6 +166,17 @@ The code lives in [`apps/`](apps):
 
 Local setup, Podman machine sizing and staging deploys are documented in [`apps/README.md`](apps/README.md) and [`apps/INSTALLING.md`](apps/INSTALLING.md).
 
+## Telemetry
+
+Self-hosted Litepod sends an anonymous ping to our status service (`status.litepod.sh`) once a day, so we can count how many installations exist and which versions they run. The ping contains only a random instance ID (a UUID v7 generated on your server) and the Litepod version. It does not include domains, emails, app names, project data or IP addresses, and we do not store IPs.
+
+It is on by default, and the first sysadmin to log in is told about it. To turn it off:
+
+- In the UI: **System > Telemetry**.
+- Or set `LITEPOD_TELEMETRY=off` in the environment, which overrides the setting.
+
+Litepod Cloud and development builds never send it.
+
 ## Security
 
 Found a vulnerability? Please follow [SECURITY.md](SECURITY.md) and do not open a public issue.

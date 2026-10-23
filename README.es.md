@@ -166,6 +166,17 @@ El código está en [`apps/`](apps):
 
 El entorno local, el dimensionamiento de la máquina Podman y los despliegues de staging están documentados en [`apps/README.md`](apps/README.md) y [`apps/INSTALLING.md`](apps/INSTALLING.md) (en inglés).
 
+## Telemetría
+
+Litepod autoalojado envía un ping anónimo a nuestro servicio de estado (`status.litepod.sh`) una vez al día, para saber cuántas instalaciones existen y qué versiones usan. El ping solo contiene un ID de instancia aleatorio (un UUID v7 generado en tu servidor) y la versión de Litepod. No incluye dominios, correos, nombres de apps, datos de proyectos ni direcciones IP, y no guardamos IPs.
+
+Está activado por defecto, y el primer sysadmin que inicia sesión recibe un aviso. Para desactivarlo:
+
+- En la UI: **Sistema > Telemetría**.
+- O define `LITEPOD_TELEMETRY=off` en el entorno, que tiene prioridad sobre el ajuste.
+
+Litepod Cloud y las compilaciones de desarrollo nunca lo envían.
+
 ## Seguridad
 
 ¿Encontraste una vulnerabilidad? Sigue [SECURITY.md](SECURITY.md) y no abras un issue público.

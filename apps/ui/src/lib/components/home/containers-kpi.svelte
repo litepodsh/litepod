@@ -138,63 +138,61 @@
 	});
 </script>
 
-{#if loading}
-	<Skeleton class="h-36 rounded-2xl" />
-{:else}
-	<KpiCard
-		title={t('common.home.containers')}
-		sub={failed
+<!-- Always the full card, so the grid row keeps its height while data loads. -->
+<KpiCard
+	title={t('common.home.containers')}
+	sub={loading
+		? '\u00a0'
+		: failed
 			? t('common.home.containers_unavailable')
 			: t('common.home.containers_sub', { pods, servers: serverCount })}
-		value={failed ? '-' : String(containers.length)}
-		hint={failed ? '' : t('common.org_apps.running_count', { count: running })}
-		{href}
-		icon={LayersIcon}>
-		{#if slots.length}
-			<div class="relative" bind:this={chartHost}>
-				<CellChart
-					values={cpu}
-					cols={COLS}
-					rows={5}
-					onhover={(i) => (hovered = i)}
-					ariaLabel={t('common.home.containers_cpu')} />
-			</div>
-			<ChartTooltip host={chartHost} column={hovered} cols={COLS}>
-				{#if tooltip?.slot}
-					<p class="text-muted-foreground tabular-nums">{tooltip.time}</p>
-					<p class="mt-0.5 flex items-baseline gap-2 tabular-nums">
-						<b class="text-sm font-semibold">CPU {percent(tooltip.slot.cpu)}</b>
-						<span class="text-muted-foreground">
-							{t('common.home.containers_tooltip_peak', { value: percent(tooltip.slot.peak) })}
-						</span>
-					</p>
-					<p class="tabular-nums">RAM {formatBytes(tooltip.slot.mem)}</p>
-					<ul class="mt-1.5 flex flex-col gap-1 border-t pt-1.5">
-						{#each tooltip.top as container (container.name)}
-							<li class="flex justify-between gap-4">
-								<span class="truncate font-mono text-[11.5px]">{container.name}</span>
-								<span class="text-muted-foreground tabular-nums">{percent(container.cpu)}</span>
-							</li>
-						{/each}
-						{#if tooltip.rest.length}
-							<li class="flex justify-between gap-4 text-muted-foreground">
-								<span>
-									{t('common.home.containers_tooltip_others', { count: tooltip.rest.length })}
-								</span>
-								<span class="tabular-nums">
-									{percent(tooltip.rest.reduce((sum, c) => sum + c.cpu, 0))}
-								</span>
-							</li>
-						{/if}
-					</ul>
-				{:else if tooltip}
-					<p class="mt-0.5">{t('servers.card.no_data')}</p>
-				{/if}
-			</ChartTooltip>
-			<p class="mt-2 flex justify-between gap-2 text-xs text-muted-foreground">
-				<span class="truncate">{t('common.home.containers_cpu')}</span>
-				<span class="font-mono tabular-nums">{Math.round(lastCpu)}%</span>
+	value={loading ? '–' : failed ? '-' : String(containers.length)}
+	hint={loading || failed ? '' : t('common.org_apps.running_count', { count: running })}
+	{href}
+	icon={LayersIcon}
+	class={loading ? 'animate-pulse' : ''}>
+	<div class="relative" bind:this={chartHost}>
+		<CellChart
+			values={slots.length ? cpu : []}
+			cols={COLS}
+			rows={5}
+			onhover={(i) => (hovered = i)}
+			ariaLabel={t('common.home.containers_cpu')} />
+	</div>
+	<ChartTooltip host={chartHost} column={hovered} cols={COLS}>
+		{#if tooltip?.slot}
+			<p class="text-muted-foreground tabular-nums">{tooltip.time}</p>
+			<p class="mt-0.5 flex items-baseline gap-2 tabular-nums">
+				<b class="text-sm font-semibold">CPU {percent(tooltip.slot.cpu)}</b>
+				<span class="text-muted-foreground">
+					{t('common.home.containers_tooltip_peak', { value: percent(tooltip.slot.peak) })}
+				</span>
 			</p>
+			<p class="tabular-nums">RAM {formatBytes(tooltip.slot.mem)}</p>
+			<ul class="mt-1.5 flex flex-col gap-1 border-t pt-1.5">
+				{#each tooltip.top as container (container.name)}
+					<li class="flex justify-between gap-4">
+						<span class="truncate font-mono text-[11.5px]">{container.name}</span>
+						<span class="text-muted-foreground tabular-nums">{percent(container.cpu)}</span>
+					</li>
+				{/each}
+				{#if tooltip.rest.length}
+					<li class="flex justify-between gap-4 text-muted-foreground">
+						<span>
+							{t('common.home.containers_tooltip_others', { count: tooltip.rest.length })}
+						</span>
+						<span class="tabular-nums">
+							{percent(tooltip.rest.reduce((sum, c) => sum + c.cpu, 0))}
+						</span>
+					</li>
+				{/if}
+			</ul>
+		{:else if tooltip}
+			<p class="mt-0.5">{t('servers.card.no_data')}</p>
 		{/if}
-	</KpiCard>
-{/if}
+	</ChartTooltip>
+	<p class="mt-2 flex justify-between gap-2 text-xs text-muted-foreground">
+		<span class="truncate">{t('common.home.containers_cpu')}</span>
+		<span class="font-mono tabular-nums">{slots.length ? `${Math.round(lastCpu)}%` : ''}</span>
+	</p>
+</KpiCard>

@@ -350,6 +350,7 @@ builds = "Build Configuration"
 general = "General"
 organizations = "Organizations"
 rate_limit = "Rate Limiting"
+telemetry = "Telemetry"
 
 [subscription]
 annual = "Annual (20% off)"
@@ -447,6 +448,23 @@ profile = "Profile"
 security = "Security"
 sessions = "Sessions"
 tokens = "Tokens"
+
+[telemetry]
+description = "Litepod sends an anonymous ping once a day so the project can count self-hosted installs."
+instance_id = "Instance ID"
+env_locked = "Telemetry is turned off by the LITEPOD_TELEMETRY environment variable on this server."
+keep_on = "Keep it on"
+notice_description = "This server sends an anonymous ping to status.litepod.sh once a day with a random instance ID and the Litepod version. Nothing else is sent: no domains, emails, app names or IP addresses. You can turn it off here or later in System > Telemetry."
+notice_title = "Anonymous install counter"
+title = "Telemetry"
+turn_off = "Turn it off"
+what_is_sent = "Only a random instance ID and the Litepod version are sent. No domains, emails, app names or IP addresses."
+
+[telemetry.errors]
+save = "Could not save telemetry settings"
+
+[telemetry.success]
+saved = "Telemetry settings saved"
 
 [tokens]
 all_revoked = "All tokens revoked"

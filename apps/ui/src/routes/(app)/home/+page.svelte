@@ -187,7 +187,7 @@
 
 		<div class="kpis">
 			{#if appsLoading}
-				<Skeleton class="h-36 rounded-2xl" />
+				<Skeleton class="min-h-36 rounded-2xl" />
 			{:else}
 				<KpiCard
 					title={t('common.org_apps.kpi_apps')}
@@ -222,7 +222,7 @@
 						: `/organizations/${organization.id}/servers`} />
 			{/if}
 			{#if appsLoading}
-				<Skeleton class="h-36 rounded-2xl" />
+				<Skeleton class="min-h-36 rounded-2xl" />
 			{:else}
 				<KpiCard
 					title={t('common.org_apps.kpi_domains')}
@@ -245,7 +245,7 @@
 				</KpiCard>
 			{/if}
 			{#if tasksLoading}
-				<Skeleton class="h-36 rounded-2xl" />
+				<Skeleton class="min-h-36 rounded-2xl" />
 			{:else}
 				<KpiCard
 					title={t('common.org_apps.kpi_tasks')}

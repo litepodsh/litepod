@@ -15,6 +15,7 @@
 	import InstanceSettingsPanel from '#lib/components/system/instance-settings-panel.svelte';
 	import BuildsPanel from '#lib/components/system/builds-panel.svelte';
 	import RateLimitPanel from '#lib/components/system/rate-limit-panel.svelte';
+	import TelemetryPanel from '#lib/components/system/telemetry-panel.svelte';
 	import BrandingPanel from '#lib/ee/branding/branding-panel.svelte';
 	import CertificatesSettings from '#lib/components/custom/certificates-settings.svelte';
 	import SystemStatusSection from '#lib/components/home/system-status-section.svelte';
@@ -33,6 +34,7 @@
 	import CpuIcon from '@lucide/svelte/icons/cpu';
 	import GaugeIcon from '@lucide/svelte/icons/gauge';
 	import PaletteIcon from '@lucide/svelte/icons/palette';
+	import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	/** Every section `?tab=` may name; anything else lands on System info. */
@@ -42,6 +44,7 @@
 		'certificates',
 		'builds',
 		'rate-limit',
+		'telemetry',
 		'branding',
 		'containers',
 		'caddy',
@@ -70,6 +73,9 @@
 		{ value: 'certificates', label: t('account.certificates.title'), icon: ShieldCheckIcon },
 		{ value: 'builds', label: t('account.settings.tabs.builds'), icon: CpuIcon },
 		{ value: 'rate-limit', label: t('account.settings.tabs.rate_limit'), icon: GaugeIcon },
+		...(isCloud
+			? []
+			: [{ value: 'telemetry', label: t('account.settings.tabs.telemetry'), icon: RadioTowerIcon }]),
 		...(isCloud
 			? []
 			: [{ value: 'branding', label: t('account.settings.tabs.branding'), icon: PaletteIcon }]),
@@ -186,6 +192,8 @@
 					<BuildsPanel />
 				{:else if visibleTab === 'rate-limit'}
 					<RateLimitPanel />
+				{:else if visibleTab === 'telemetry'}
+					<TelemetryPanel />
 				{:else if visibleTab === 'branding'}
 					<BrandingPanel />
 				{:else if visibleTab === 'maintenance'}

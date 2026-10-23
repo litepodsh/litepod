@@ -658,6 +658,14 @@
 		}
 	}
 
+	// Hovering a tab starts its fetch; the loader dedupes, so the click reuses it.
+	// `deployment` always refreshes on entry, so warming it would be wasted.
+	function prefetchTab(value: string) {
+		if (value === 'deployment' || !isDeferredTab(value) || !environment || !organizationId) return;
+		if (loading) return;
+		deferredTabs.load(value).catch(() => {});
+	}
+
 	// Entering the domains tab is silent: the page-level load already populated
 	// `domains` from the deployment, and the deferred loader is the only thing
 	// that fetches the rest (ssh server + compose routes) on top of it. A flash
@@ -1002,6 +1010,8 @@
 			tabItems.map((item) => ({ ...item, icon: APPLICATION_TAB_ICONS[item.value] })),
 			activeTab,
 			selectTab,
+			page.url.pathname,
+			prefetchTab,
 		);
 	});
 

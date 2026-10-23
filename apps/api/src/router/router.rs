@@ -436,6 +436,8 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/settings/build-configuration", get(settings::get_build_configuration_handler).patch(settings::update_build_configuration_handler))
         .route("/api/v1/settings/scheduled-task-history", get(settings::get_scheduled_task_history_handler).patch(settings::update_scheduled_task_history_handler))
         .route("/api/v1/settings/rate-limit", get(settings::get_rate_limit_handler).patch(settings::update_rate_limit_handler))
+        .route("/api/v1/settings/telemetry", get(crate::telemetry::get_handler).patch(crate::telemetry::update_handler))
+        .route("/api/v1/settings/telemetry/acknowledge", post(crate::telemetry::acknowledge_handler))
         .route("/api/v1/settings/infrastructure/{target}/restart", post(settings::restart_infrastructure_handler))
         .route("/api/v1/settings/backup/s3-config", get(backup::get_s3_config_handler).put(backup::update_s3_config_handler))
         .route("/api/v1/organizations/{organization_id}/backup-targets", get(backup::list_s3_targets_handler).post(backup::create_s3_target_handler))
