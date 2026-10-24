@@ -1,4 +1,4 @@
-//! Anonymous install counter. Sends `{instance_id, version}` to the Litepod status
+//! Anonymous install counter. Sends `{instance_id, version, is_cloud}` to the Litepod status
 //! service once a day so the project can tell how many self-hosted instances exist.
 //! Nothing else leaves the server: no domains, emails, app names or IPs.
 //!
@@ -66,17 +66,18 @@ async fn ping(state: &SharedState) -> Result<(), Box<dyn std::error::Error>> {
         .timeout(TIMEOUT)
         .build()?
         .post(url)
-        .json(&serde_json::json!({ "instance_id": id, "version": state.version }))
+        .json(&serde_json::json!({ "instance_id": id, "version": state.version, "is_cloud": state.is_cloud }))
         .send()
         .await?
         .error_for_status()?;
     Ok(())
 }
 
-/// Daily ping loop. Skipped for Litepod Cloud and dev builds, which are not self-hosted installs.
+/// Daily ping loop. Skipped for dev builds. Litepod Cloud pings too, flagged `is_cloud`,
+/// so the status service can show which instance is the cloud one.
 /// Failures are logged at debug level and never affect the API.
 pub fn spawn(state: SharedState) {
-    if state.is_cloud || state.dev_mode || state.version == "dev" {
+    if state.dev_mode || state.version == "dev" {
         return;
     }
     tokio::spawn(async move {

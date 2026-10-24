@@ -35,7 +35,7 @@ async fn load(state: &SharedState) -> Result<TelemetryDto, AppError> {
     Ok(TelemetryDto {
         enabled: row.get::<i64, _>(0) != 0,
         env_locked: env_disabled(),
-        // Cloud never pings, so there is nothing to announce.
+        // Cloud is the operator's own instance, so there is nothing to announce.
         notice_acknowledged: state.is_cloud || row.get::<i64, _>(1) != 0,
         instance_id: id,
     })
