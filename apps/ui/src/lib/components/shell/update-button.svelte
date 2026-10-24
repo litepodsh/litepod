@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { getSystemVersion, type SystemVersion } from '#lib/clients/system-client.js';
 	import { updateState } from '#lib/state/update.svelte.js';
 	import { isInstallableUpdate, SYSTEM_UPDATE_CHANGED_EVENT } from '#lib/utils/system-update.js';
+
+	const RELEASES_URL = 'https://github.com/litepodsh/litepod/releases';
 
 	let { isSysadmin }: { isSysadmin: boolean } = $props();
 	let info = $state<SystemVersion | null>(null);
@@ -44,6 +47,10 @@
 </script>
 
 {#if updateAvailable}
+	<Button variant="ghost" size="sm" href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
+		<ExternalLinkIcon />
+		<span class="max-md:sr-only">Release notes</span>
+	</Button>
 	<Button
 		size="sm"
 		onclick={() => void updateState.startUpdate()}
