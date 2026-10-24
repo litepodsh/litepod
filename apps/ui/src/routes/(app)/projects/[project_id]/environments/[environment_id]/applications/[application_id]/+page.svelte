@@ -2126,13 +2126,15 @@
 </script>
 
 {#snippet appCrumbIcon()}
-	<ApplicationIcon
-		templateKind={application?.template_kind ?? null}
-		catalogIconUrl={application?.catalog_icon_url ?? null}
-		iconUrl={application?.icon_url ?? null}
-		applicationId={application?.id ?? ''}
-		bind:failedApplicationIds={failedIconApplicationIds}
-		class="size-3.5" />
+	<span class="bg-muted grid size-4 shrink-0 place-items-center overflow-hidden rounded-[4px]">
+		<ApplicationIcon
+			templateKind={application?.template_kind ?? null}
+			catalogIconUrl={application?.catalog_icon_url ?? null}
+			iconUrl={application?.icon_url ?? null}
+			applicationId={application?.id ?? ''}
+			bind:failedApplicationIds={failedIconApplicationIds}
+			class="size-full" />
+	</span>
 {/snippet}
 
 {#snippet projectItemIcon(id: string)}
@@ -2142,13 +2144,15 @@
 {#snippet appItemIcon(id: string)}
 	{@const item = environment?.applications.find((candidate) => candidate.id === id)}
 	{#if item}
-		<ApplicationIcon
-			templateKind={item.template_kind}
-			catalogIconUrl={item.catalog_icon_url}
-			iconUrl={item.id === application?.id ? application.icon_url : item.icon_url}
-			applicationId={item.id}
-			bind:failedApplicationIds={failedIconApplicationIds}
-			class="size-3.5 shrink-0" />
+		<span class="bg-muted grid size-4 shrink-0 place-items-center overflow-hidden rounded-[4px]">
+			<ApplicationIcon
+				templateKind={item.template_kind}
+				catalogIconUrl={item.catalog_icon_url}
+				iconUrl={item.id === application?.id ? application.icon_url : item.icon_url}
+				applicationId={item.id}
+				bind:failedApplicationIds={failedIconApplicationIds}
+				class="size-full" />
+		</span>
 	{/if}
 {/snippet}
 
@@ -2173,7 +2177,7 @@
 				iconUrl={application.icon_url}
 				applicationId={application.id}
 				bind:failedApplicationIds={failedIconApplicationIds}
-				class="size-6" />
+				class="size-full" />
 		</span>
 	{/if}
 {/snippet}
