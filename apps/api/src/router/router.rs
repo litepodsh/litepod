@@ -135,6 +135,10 @@ const METRICS_ALLOWED_PATHS: &[&str] = &[
     assistant::update_connection_handler,
     assistant::refresh_connection_handler,
     assistant::delete_connection_handler,
+    assistant::get_web_search_handler,
+    assistant::save_web_search_handler,
+    assistant::update_web_search_handler,
+    assistant::delete_web_search_handler,
     assistant::list_conversations_handler,
     assistant::read_conversation_handler,
     assistant::rename_conversation_handler,
@@ -967,6 +971,13 @@ pub fn create_router(state: SharedState) -> Router {
         .route(
             "/api/v1/organizations/{organization_id}/assistant/connections/{connection_id}/refresh",
             post(assistant::refresh_connection_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/assistant/web-search",
+            get(assistant::get_web_search_handler)
+                .post(assistant::save_web_search_handler)
+                .patch(assistant::update_web_search_handler)
+                .delete(assistant::delete_web_search_handler),
         )
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/replicas/{server_id}/deploy",

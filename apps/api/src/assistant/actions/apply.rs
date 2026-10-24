@@ -1,3 +1,5 @@
+use std::ffi::OsString;
+
 use crate::{
     deployment::{self, compose::store::ComposeFileStore},
     dtos::response::AppError,
@@ -482,6 +484,125 @@ pub(super) async fn apply_redeploy(
     Ok(Applied {
         audit_action: "application.deployed",
         added: Some(format!("queued as job {}", job.id)),
+        removed: None,
+    })
+}
+
+pub(super) async fn apply_rollback(
+    state: &SharedState,
+    actor: &AuthUser,
+    stored: &StoredAction,
+) -> Result<Applied, AppError> {
+    let arguments: Rollback = serde_json::from_str(&stored.arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let job = deployment::enqueue_rollback_for_application(
+        state,
+        &stored.application_id,
+        &arguments.run,
+        Some(&actor.user_id),
+    )
+    .await?;
+
+    Ok(Applied {
+        audit_action: "deployment.rolled_back",
+        added: Some(format!(
+            "rollback to {} queued as job {}",
+            arguments.run, job.id
+        )),
+        removed: None,
+    })
+}
+
+/// Restarts the containers on one server. Returns how many were restarted, or
+/// `None` when the application has no container running there and the caller
+/// should redeploy instead.
+async fn restart_here(
+    state: &SharedState,
+    application_id: &str,
+    container: Option<&str>,
+) -> Result<Option<usize>, AppError> {
+    let names = crate::handler::deployments::container_names(state, application_id).await?;
+    let runtime =
+        crate::servers::runtime::ServerRuntime::for_application(state, application_id).await?;
+    let targets: Vec<String> = match container {
+        Some(name) => names
+            .into_iter()
+            .filter(|candidate| candidate == name)
+            .collect(),
+        None => names,
+    };
+    if container.is_none() {
+        let mut running = false;
+        for name in &targets {
+            running |= crate::handler::deployments::inspect_container_state(&runtime, name).await
+                == "running";
+        }
+        if !running {
+            return Ok(None);
+        }
+    }
+    for name in &targets {
+        runtime
+            .podman(&[OsString::from("restart"), OsString::from(name)])
+            .await?;
+    }
+    Ok(Some(targets.len()))
+}
+
+pub(super) async fn apply_restart(
+    state: &SharedState,
+    actor: &AuthUser,
+    stored: &StoredAction,
+) -> Result<Applied, AppError> {
+    let arguments: Restart = serde_json::from_str(&stored.arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let application_id = &stored.application_id;
+    let container = arguments.container.as_deref();
+
+    // A group of servers only resolves its runtime inside a replica scope.
+    let is_group = crate::servers::replica::target_server_id(state, application_id)
+        .await?
+        .is_none();
+    let mut restarted = 0;
+    let mut idle = true;
+    if is_group {
+        let servers = crate::servers::groups::resolve_target_servers(state, application_id).await?;
+        for server in &servers {
+            let outcome = crate::servers::replica::for_replica(
+                &server.id,
+                restart_here(state, application_id, container),
+            )
+            .await?;
+            if let Some(count) = outcome {
+                restarted += count;
+                idle = false;
+            }
+        }
+    } else if let Some(count) = restart_here(state, application_id, container).await? {
+        restarted = count;
+        idle = false;
+    }
+
+    // Nothing was running, so there is nothing to restart: bring it up the
+    // way a redeploy does.
+    if idle {
+        let job = deployment::enqueue_for_application(
+            state,
+            application_id,
+            ASSISTANT_TRIGGER,
+            Some(&actor.user_id),
+        )
+        .await?;
+        return Ok(Applied {
+            audit_action: "application.deployed",
+            added: Some(format!("not running, redeploy queued as job {}", job.id)),
+            removed: None,
+        });
+    }
+
+    Ok(Applied {
+        audit_action: "container.restarted",
+        added: Some(format!("{restarted} container(s) restarted")),
         removed: None,
     })
 }

@@ -489,6 +489,146 @@ pub async fn propose_lifecycle(
     })
 }
 
+/// Stores a rollback without running it.
+///
+/// The run is resolved here, not at confirm time: with no `run` it is the
+/// successful deploy before the current one, and either way it must be a
+/// successful run of this application. The card then names exactly what comes
+/// back, even if another deploy lands before someone confirms.
+pub async fn propose_rollback(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    run: Option<String>,
+    reason: Option<String>,
+) -> Result<ActionDto, AppError> {
+    let run_id = match run
+        .map(|run| run.trim().to_owned())
+        .filter(|run| !run.is_empty())
+    {
+        Some(run) => run,
+        None => deployment::history::list(state, &target.application_id)
+            .await?
+            .into_iter()
+            .filter(|run| run.status == "succeeded")
+            .nth(1)
+            .map(|run| run.id)
+            .ok_or_else(|| {
+                AppError::ValidationError(
+                    "There is no earlier successful deploy to roll back to".into(),
+                )
+            })?,
+    };
+    let previous = deployment::history::rollback_source(state, &target.application_id, &run_id)
+        .await
+        .map_err(|_| {
+            AppError::ValidationError(format!(
+                "`{run_id}` is not a deploy of {}. Use `get deployments` for the run ids.",
+                target.application_name
+            ))
+        })?;
+    if previous.status != "succeeded" {
+        return Err(AppError::ValidationError(
+            "Only a successful deploy can be rolled back to".into(),
+        ));
+    }
+
+    let what = match previous.commit_sha.as_deref() {
+        Some(sha) => format!("run {run_id} (commit {})", &sha[..sha.len().min(8)]),
+        None => format!("run {run_id}"),
+    };
+    let title = format!("Roll back {}", target.application_name);
+    let summary = match reason {
+        Some(reason) => format!(
+            "Redeploys {} as it was in {what}. {reason}",
+            target.application_name
+        ),
+        None => format!("Redeploys {} as it was in {what}.", target.application_name),
+    };
+    let arguments = serde_json::to_string(&Rollback { run: run_id })
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        ROLLBACK_APPLICATION,
+        &arguments,
+        title,
+        summary,
+    )
+    .await
+    .map(|action| ActionDto {
+        added: None,
+        ..action
+    })
+}
+
+/// Stores a restart without running it. With a `container` it is that one,
+/// which has to belong to the application; without, the whole application, and
+/// confirming redeploys it instead when nothing is running.
+pub async fn propose_restart(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    container: Option<String>,
+    reason: Option<String>,
+) -> Result<ActionDto, AppError> {
+    let container = container
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty());
+    if let Some(name) = &container {
+        let names =
+            crate::handler::deployments::container_names(state, &target.application_id).await?;
+        if !names.iter().any(|candidate| candidate == name) {
+            return Err(AppError::ValidationError(format!(
+                "`{name}` is not a container of {}. Use `get containers` for the names.",
+                target.application_name
+            )));
+        }
+    }
+
+    let (title, effect) = match &container {
+        Some(name) => (
+            format!("Restart {name}"),
+            format!(
+                "Restarts the container {name} of {}.",
+                target.application_name
+            ),
+        ),
+        None => (
+            format!("Restart {}", target.application_name),
+            format!(
+                "Restarts the containers of {}, or redeploys it if none is running.",
+                target.application_name
+            ),
+        ),
+    };
+    let summary = match reason {
+        Some(reason) => format!("{effect} {reason}"),
+        None => effect,
+    };
+    let arguments = serde_json::to_string(&Restart { container })
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        RESTART_APPLICATION,
+        &arguments,
+        title,
+        summary,
+    )
+    .await
+    .map(|action| ActionDto {
+        added: None,
+        ..action
+    })
+}
+
 /// Stores a replacement compose file without writing it.
 ///
 /// The current file is read here so the card can say how the shape changes,

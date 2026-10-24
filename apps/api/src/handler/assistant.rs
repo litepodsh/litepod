@@ -18,7 +18,7 @@ use serde::Deserialize;
 use std::convert::Infallible;
 
 use crate::{
-    assistant::{actions, connections, conversation},
+    assistant::{actions, connections, conversation, search},
     dtos::response::{AppError, created, ok},
     security::authz::extract::{RequireOrg, perm},
     state::state::SharedState,
@@ -390,6 +390,112 @@ pub async fn delete_connection_handler(
     )
     .await;
     Ok(ok(connection))
+}
+
+// ── Web search ───────────────────────────────────────────────────────────────
+//
+// The search provider the assistant and MCP agents use: a SearXNG address or a
+// Brave key. The key goes in and never comes back; all a person can do with a
+// saved setting is turn it off or delete it.
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/organizations/{organization_id}/assistant/web-search",
+    tag = "assistant",
+    responses((status = 200, description = "The organization's web search setting, if any", body = Option<search::WebSearchDto>))
+)]
+pub async fn get_web_search_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::OrgRead>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(search::get(&state, &org.organization_id).await?))
+}
+
+/// Saving runs a real search first, so a wrong address or key fails here.
+#[utoipa::path(
+    post,
+    path = "/api/v1/organizations/{organization_id}/assistant/web-search",
+    tag = "assistant",
+    request_body = search::SaveWebSearchRequest,
+    responses((status = 201, description = "The stored setting", body = search::WebSearchDto))
+)]
+pub async fn save_web_search_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::AssistantUse>,
+    Json(request): Json<search::SaveWebSearchRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let saved = search::save(&state, &org.organization_id, request).await?;
+    record_web_search_change(&state, &org, "assistant_web_search.created", &saved).await;
+    Ok(created(saved))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/organizations/{organization_id}/assistant/web-search",
+    tag = "assistant",
+    request_body = search::UpdateWebSearchRequest,
+    responses((status = 200, description = "The updated setting", body = search::WebSearchDto))
+)]
+pub async fn update_web_search_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::AssistantUse>,
+    Json(request): Json<search::UpdateWebSearchRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let updated = search::set_enabled(&state, &org.organization_id, request.enabled).await?;
+    let action = if updated.enabled {
+        "assistant_web_search.enabled"
+    } else {
+        "assistant_web_search.disabled"
+    };
+    record_web_search_change(&state, &org, action, &updated).await;
+    Ok(ok(updated))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/organizations/{organization_id}/assistant/web-search",
+    tag = "assistant",
+    responses((status = 200, description = "The deleted setting", body = search::WebSearchDto))
+)]
+pub async fn delete_web_search_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::AssistantUse>,
+) -> Result<impl IntoResponse, AppError> {
+    let deleted = search::delete(&state, &org.organization_id).await?;
+    record_web_search_change(&state, &org, "assistant_web_search.deleted", &deleted).await;
+    Ok(ok(deleted))
+}
+
+/// A credential changed hands, so it leaves a trail. The provider and address go
+/// in; the key never does.
+async fn record_web_search_change(
+    state: &SharedState,
+    org: &crate::security::middleware::org_scope::OrgScope,
+    action: &str,
+    setting: &search::WebSearchDto,
+) {
+    crate::git::repositories::audit_log::record(
+        state,
+        &org.organization_id,
+        &org.user,
+        action,
+        Some("assistant_web_search"),
+        Some(&org.organization_id),
+        Some(&setting.provider),
+        Some(
+            &serde_json::json!({
+                "provider": setting.provider,
+                "base_url": setting.base_url,
+                "enabled": setting.enabled,
+            })
+            .to_string(),
+        ),
+        None,
+        None,
+        None,
+    )
+    .await
+    .ok();
 }
 
 /// These are credentials, so every write leaves a trail. The provider, endpoint

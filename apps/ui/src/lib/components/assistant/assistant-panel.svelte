@@ -25,6 +25,7 @@
 	import { onDestroy, tick } from 'svelte';
 	import AssistantHistoryPopover from './assistant-history-popover.svelte';
 	import ModelPicker from './model-picker.svelte';
+	import AssistantRun from './assistant-run.svelte';
 	import {
 		ask,
 		cancelTurn,
@@ -75,6 +76,20 @@
 
 	const title = $derived(
 		thread.items.find((item) => item.kind === 'user')?.text ?? t('common.assistant.title'),
+	);
+
+	type Step = Extract<ThreadItem, { kind: 'step' }>;
+	type Block = ThreadItem | { kind: 'run'; steps: Step[] };
+
+	// Consecutive tool steps read as one run, not as a column of loose rows.
+	const blocks = $derived(
+		thread.items.reduce<Block[]>((out, item) => {
+			if (item.kind !== 'step') return [...out, item];
+			const last = out.at(-1);
+			if (last?.kind === 'run') last.steps.push(item);
+			else out.push({ kind: 'run', steps: [item] });
+			return out;
+		}, []),
 	);
 
 	// Follow the newest item while a turn is running.
@@ -207,21 +222,6 @@
 			use:enhanceCodeBlocks>
 			{@html renderMarkdown(item.text)}
 		</div>
-	{:else if item.kind === 'step'}
-		<!-- One row per tool the assistant ran, so the work is legible after the fact. -->
-		<div
-			class="bg-card flex min-w-0 items-center gap-1.5 rounded-[.75rem] border px-2 py-1.5 font-mono text-[.625rem]">
-			<span
-				class={`size-1.5 shrink-0 rounded-full ${
-					item.running
-						? 'bg-warning motion-safe:animate-pulse'
-						: item.ok
-							? 'bg-success'
-							: 'bg-destructive'
-				}`}></span>
-			<b class="shrink-0 font-medium">{item.name}</b>
-			<span class="text-muted-foreground truncate">{item.arguments}</span>
-		</div>
 	{:else if item.kind === 'choices'}
 		<!-- A miss the user can fix by picking, instead of retyping the sentence. -->
 		<div class="flex flex-wrap gap-1.5">
@@ -243,7 +243,7 @@
 			<TriangleAlertIcon class="text-warning mt-0.5 size-3 shrink-0" />
 			<span>{item.text}</span>
 		</div>
-	{:else}
+	{:else if item.kind === 'action'}
 		{@render actionCard(item.action)}
 	{/if}
 {/snippet}
@@ -328,10 +328,16 @@
 		<div
 			bind:this={transcript}
 			class="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-3 pt-3.5 pb-4">
-			{#each thread.items as item, index (index)}
-				{@render threadItem(item)}
+			{#each blocks as block, index (index)}
+				{#if block.kind === 'run'}
+					<AssistantRun
+						steps={block.steps}
+						live={thread.running && index === blocks.length - 1} />
+				{:else}
+					{@render threadItem(block)}
+				{/if}
 			{/each}
-			{#if thread.running}
+			{#if thread.running && !(blocks.at(-1)?.kind === 'run')}
 				<div
 					class="border-primary/40 flex flex-col gap-1.5 border-s-2 ps-3"
 					role="status"

@@ -11,6 +11,7 @@
 	import SoftSwitch from '#lib/components/custom/soft-switch.svelte';
 	import { updateOrganization, type OrganizationDto } from '#lib/clients/organization-client.js';
 	import AssistantConnectionsPanel from './assistant-connections-panel.svelte';
+	import AssistantWebSearchPanel from './assistant-web-search-panel.svelte';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	let {
@@ -28,6 +29,11 @@
 		try {
 			const updated = await updateOrganization(organizationId, { assistant_enabled: checked });
 			organization.assistant_enabled = updated.assistant_enabled;
+			window.dispatchEvent(
+				new CustomEvent('organization-assistant-updated', {
+					detail: { id: organizationId, assistant_enabled: updated.assistant_enabled },
+				}),
+			);
 		} catch (error) {
 			organization.assistant_enabled = previous;
 			toast.error(
@@ -57,6 +63,8 @@
 
 	<AssistantConnectionsPanel {organizationId} />
 
+	<AssistantWebSearchPanel {organizationId} />
+
 	<div class="lp-raised bg-card rounded-2xl border p-4">
 		<p class="text-sm font-medium">{t('organizations.assistant.can_see')}</p>
 		<ul class="text-muted-foreground mt-2 grid gap-1 text-sm">
@@ -68,6 +76,7 @@
 			</li>
 			<li>{t('organizations.assistant.see_deployments')}</li>
 			<li>{t('organizations.assistant.see_compose')}</li>
+			<li>{t('organizations.assistant.see_web')}</li>
 		</ul>
 		<p class="text-muted-foreground mt-3 text-sm">
 			{t('organizations.assistant.scrubbed')}

@@ -95,7 +95,14 @@ pub async fn mcp_handler(
             ),
         ),
         "ping" => protocol::success(&id, json!({})),
-        "tools/list" => protocol::success(&id, protocol::tools_list()),
+        "tools/list" => {
+            let web_search = crate::assistant::search::get(&state, &org.organization_id)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|setting| setting.enabled);
+            protocol::success(&id, protocol::tools_list(web_search))
+        }
         "tools/call" => match call(&state, &org, &request.params).await {
             Ok(result) => protocol::success(&id, result),
             Err(message) => protocol::error(&id, protocol::INVALID_PARAMS, &message, None),
@@ -130,10 +137,22 @@ async fn call(state: &SharedState, org: &OrgScope, params: &Value) -> Result<Val
     }
 
     // A compose the agent wrote waits until its human has heard what the
-    // catalog already has.
+    // catalog already has - whichever action carries it.
+    let writes_compose = match arguments.get("action").and_then(Value::as_str) {
+        Some("deploy_compose" | "set_compose_file") => true,
+        Some("create_application") => arguments
+            .get("compose")
+            .and_then(Value::as_str)
+            .is_some_and(|compose| !compose.trim().is_empty()),
+        _ => false,
+    };
     if name == tools::EXEC
-        && arguments.get("action").and_then(Value::as_str) == Some("deploy_compose")
-        && let Some(found) = catalog_check::templates_first(&arguments).await
+        && writes_compose
+        && let Some(found) = catalog_check::templates_first(
+            &format!("{}:{}", org.organization_id, org.user.user_id),
+            &arguments,
+        )
+        .await
     {
         return Ok(protocol::tool_result(found.to_string(), false));
     }

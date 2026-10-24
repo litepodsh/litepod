@@ -187,6 +187,44 @@
 				</span>
 			</p>
 
+			{#if connection.models.length > 0}
+				<details class="group mt-2">
+					<summary
+						class="text-muted-foreground hover:text-foreground w-fit cursor-pointer text-xs transition-colors">
+						{t('organizations.assistant.models_count', { count: connection.models.length })}
+					</summary>
+					<ul
+						class="mt-1.5 grid max-h-56 gap-px overflow-y-auto rounded-lg border font-mono text-xs">
+						{#each connection.models as model (model.id)}
+							<li
+								class="flex flex-wrap items-center gap-x-2 px-2.5 py-1.5 {model.blocked
+									? 'text-muted-foreground opacity-60'
+									: ''}">
+								<span class="min-w-0 flex-1 truncate">{model.id}</span>
+								{#if model.blocked}
+									<span class="text-warning text-[10px]">
+										{model.blocked === 'endpoint'
+											? t('common.assistant.model_blocked_endpoint')
+											: t('common.assistant.model_blocked_no_tools')}
+									</span>
+								{:else}
+									{#if model.context}
+										<span class="text-muted-foreground text-[10px]">
+											{t('organizations.assistant.models_context', {
+												count: Math.round(model.context / 1000),
+											})}
+										</span>
+									{/if}
+									{#if model.tools}
+										<span class="text-primary text-[10px] uppercase">tools</span>
+									{/if}
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</details>
+			{/if}
+
 			{#if connection.status_detail}
 				<!-- The provider's own words: a 401 and a closed port need different fixes. -->
 				<p class="text-warning mt-1 font-mono text-xs break-words">{connection.status_detail}</p>

@@ -261,6 +261,8 @@ pub(super) fn exec_action(tool: &str) -> &str {
         REDEPLOY_APPLICATION => "redeploy",
         START_APPLICATION => "start",
         STOP_APPLICATION => "stop",
+        RESTART_APPLICATION => "restart",
+        ROLLBACK_APPLICATION => "rollback",
         other => other,
     }
 }
@@ -319,6 +321,8 @@ pub async fn confirm(
         SET_ENVIRONMENT_VARIABLE => apply_environment_variable(state, &stored).await,
         REDEPLOY_APPLICATION => apply_redeploy(state, actor, &stored).await,
         START_APPLICATION | STOP_APPLICATION => apply_lifecycle(state, actor, &stored).await,
+        RESTART_APPLICATION => apply_restart(state, actor, &stored).await,
+        ROLLBACK_APPLICATION => apply_rollback(state, actor, &stored).await,
         SET_COMPOSE_FILE => apply_compose_file(state, &stored).await,
         DELETE_ENVIRONMENT_VARIABLE => apply_delete_environment_variable(state, &stored).await,
         UPDATE_APPLICATION => apply_update_application(state, &stored).await,
@@ -345,6 +349,9 @@ pub async fn confirm(
         Err(error) => {
             let message = error.to_string();
             settle(state, actor, action_id, "failed", Some(&message)).await?;
+            // The next turn reads this, so the assistant can say why and fix it
+            // instead of the user having to paste the error back.
+            note(state, &stored, &format!("confirmed but failed: {message}")).await;
             audit(
                 state,
                 actor,

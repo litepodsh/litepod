@@ -1446,6 +1446,8 @@ fn every_stored_proposal_is_an_allowed_action() {
         REDEPLOY_APPLICATION,
         START_APPLICATION,
         STOP_APPLICATION,
+        RESTART_APPLICATION,
+        ROLLBACK_APPLICATION,
     ] {
         assert!(
             crate::assistant::capabilities::action_allowed(exec_action(tool)),
@@ -1668,5 +1670,67 @@ async fn a_public_repository_becomes_a_railpack_git_deploy() {
         .is_err()
     );
 
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn a_rollback_with_no_earlier_successful_deploy_is_refused() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let conversation = conversation(&state, "organization-a").await;
+
+    let refused = propose_rollback(
+        &state,
+        &conversation,
+        &auth_user("editor"),
+        &target,
+        None,
+        None,
+    )
+    .await;
+    assert!(refused.is_err());
+
+    let unknown = propose_rollback(
+        &state,
+        &conversation,
+        &auth_user("editor"),
+        &target,
+        Some("not-a-run".into()),
+        None,
+    )
+    .await;
+    assert!(unknown.is_err());
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn a_restart_of_a_container_the_application_does_not_have_is_refused() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let conversation = conversation(&state, "organization-a").await;
+
+    let refused = propose_restart(
+        &state,
+        &conversation,
+        &auth_user("editor"),
+        &target,
+        Some("someone-elses-container".into()),
+        None,
+    )
+    .await;
+    assert!(refused.is_err());
+
+    let whole = propose_restart(
+        &state,
+        &conversation,
+        &auth_user("editor"),
+        &target,
+        None,
+        Some("it hangs".into()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(whole.tool, RESTART_APPLICATION);
+    assert!(whole.summary.contains("it hangs"), "{}", whole.summary);
     cleanup_database(&path);
 }

@@ -32,8 +32,8 @@ pub use propose::{
     propose_add_domain, propose_compose_file, propose_create_application, propose_create_project,
     propose_delete_domain, propose_delete_environment_variable, propose_delete_project,
     propose_deploy_compose, propose_environment_variable, propose_from_template, propose_lifecycle,
-    propose_redeploy, propose_source, propose_static_site, propose_update_application,
-    propose_update_domain, propose_update_project,
+    propose_redeploy, propose_restart, propose_rollback, propose_source, propose_static_site,
+    propose_update_application, propose_update_domain, propose_update_project,
 };
 
 pub use types::{START_APPLICATION, STOP_APPLICATION};

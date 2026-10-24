@@ -5,8 +5,16 @@
 //! wrote from memory has none of that. So the first `deploy_compose` over MCP
 //! that names something the catalog has stops here and hands the matches back,
 //! for the agent to ask its human. Only a second call with `use_own_compose`
-//! goes on to propose. The in-app chat is not stopped: its panel already
-//! shows the user every card before anything happens.
+//! goes on to propose, and only after this check has answered once for the
+//! same caller and app: an agent cannot skip the question by sending the flag
+//! up front. The in-app chat is not stopped: its panel already shows the user
+//! every card before anything happens.
+
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
+};
 
 use serde_json::{Value, json};
 
@@ -15,12 +23,52 @@ use crate::templates::catalog_templates::{CatalogClient, CatalogQuery};
 /// Enough to recognise the app; more would be the catalog, not a question.
 const MAX_MATCHES: usize = 5;
 
+/// How long an answered question stays answered. Long enough for a person to
+/// read the matches and reply; short enough that a later session is asked again.
+const ASKED_TTL: Duration = Duration::from_secs(30 * 60);
+
+/// Callers (organization, user, app) the catalog already answered for.
+static ASKED: LazyLock<Mutex<HashMap<String, Instant>>> = LazyLock::new(Default::default);
+
+fn asked_key(caller: &str, arguments: &Value) -> String {
+    let app = ["name", "application"]
+        .iter()
+        .find_map(|key| arguments.get(key).and_then(Value::as_str))
+        .unwrap_or_default();
+    format!(
+        "{caller}:{}",
+        app.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    )
+}
+
+fn was_asked(key: &str) -> bool {
+    let mut asked = ASKED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    asked.retain(|_, at| at.elapsed() < ASKED_TTL);
+    asked.contains_key(key)
+}
+
+fn remember_asked(key: String) {
+    ASKED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(key, Instant::now());
+}
+
 /// The catalog templates the user should hear about before this compose is
 /// deployed, as the tool result to return instead. `None` lets the call
 /// through: the user already chose, nothing matched, or the catalog cannot be
 /// reached (it is advice, never a reason to refuse a deploy).
-pub async fn templates_first(arguments: &Value) -> Option<Value> {
-    if arguments.get("use_own_compose").and_then(Value::as_bool) == Some(true) {
+///
+/// `caller` identifies who is asking (organization and user), so
+/// `use_own_compose` only counts once this has answered for them.
+pub async fn templates_first(caller: &str, arguments: &Value) -> Option<Value> {
+    let key = asked_key(caller, arguments);
+    if arguments.get("use_own_compose").and_then(Value::as_bool) == Some(true) && was_asked(&key) {
         return None;
     }
     let client = CatalogClient::new().ok()?;
@@ -54,6 +102,7 @@ pub async fn templates_first(arguments: &Value) -> Option<Value> {
     if matches.is_empty() {
         return None;
     }
+    remember_asked(key);
     Some(json!({
         "done": false,
         "templates_found": matches,
@@ -70,8 +119,11 @@ pub async fn templates_first(arguments: &Value) -> Option<Value> {
 /// the `postgres` template and ask about the wrong thing.
 fn search_terms(arguments: &Value) -> Vec<String> {
     let mut terms = Vec::new();
-    if let Some(name) = arguments.get("name").and_then(Value::as_str) {
-        terms.push(name.trim().to_owned());
+    // `name` creates an app; `application` names the one whose compose is replaced.
+    for key in ["name", "application"] {
+        if let Some(name) = arguments.get(key).and_then(Value::as_str) {
+            terms.push(name.trim().to_owned());
+        }
     }
     let compose = arguments
         .get("compose")
@@ -159,6 +211,16 @@ mod tests {
     #[tokio::test]
     async fn the_users_choice_is_not_asked_again() {
         let arguments = json!({ "name": "uptime-kuma", "use_own_compose": true });
-        assert!(templates_first(&arguments).await.is_none());
+        remember_asked(asked_key("org:user", &arguments));
+        assert!(templates_first("org:user", &arguments).await.is_none());
+    }
+
+    #[test]
+    fn the_flag_alone_does_not_count_as_a_choice() {
+        let arguments = json!({ "name": "never-asked-app", "use_own_compose": true });
+        assert!(!was_asked(&asked_key("org:user", &arguments)));
+        // Another caller's answer is not this caller's.
+        remember_asked(asked_key("org:other", &arguments));
+        assert!(!was_asked(&asked_key("org:user", &arguments)));
     }
 }

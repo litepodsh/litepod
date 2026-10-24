@@ -52,6 +52,21 @@
 			setSelectedOrganizationId(activeOrganization.id);
 	});
 
+	// Settings flips `assistant_enabled` on its own copy of the organization;
+	// this list is the one the header icon reads, so it has to hear about it.
+	$effect(() => {
+		function sync(event: Event) {
+			const { id, assistant_enabled } = (
+				event as CustomEvent<{ id: string; assistant_enabled: boolean }>
+			).detail;
+			organizations = organizations.map((organization) =>
+				organization.id === id ? { ...organization, assistant_enabled } : organization,
+			);
+		}
+		window.addEventListener('organization-assistant-updated', sync);
+		return () => window.removeEventListener('organization-assistant-updated', sync);
+	});
+
 	$effect(() => primeOrganizationName(page.url.pathname));
 
 	/**

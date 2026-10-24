@@ -13,6 +13,10 @@ pub const START_APPLICATION: &str = "start_application";
 
 pub const STOP_APPLICATION: &str = "stop_application";
 
+pub const RESTART_APPLICATION: &str = "restart_application";
+
+pub const ROLLBACK_APPLICATION: &str = "rollback_application";
+
 pub const SET_COMPOSE_FILE: &str = "set_compose_file";
 
 pub const DELETE_ENVIRONMENT_VARIABLE: &str = "delete_environment_variable";
@@ -93,6 +97,22 @@ pub struct SetEnvironmentVariable {
 
 pub(super) fn runtime_scope() -> String {
     "runtime".into()
+}
+
+/// Validated arguments for [`ROLLBACK_APPLICATION`]: the run to go back to,
+/// already resolved at proposal time so a later deploy cannot change what the
+/// card promised.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rollback {
+    pub run: String,
+}
+
+/// Validated arguments for [`RESTART_APPLICATION`]. No container means the
+/// whole application.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Restart {
+    #[serde(default)]
+    pub container: Option<String>,
 }
 
 /// Validated arguments for [`SET_COMPOSE_FILE`]. Always the whole document: a

@@ -49,12 +49,21 @@ Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy p
 
 Connect your own agent (Claude, Cursor, …) to `/api/v1/organizations/{organization_id}/mcp`. It exposes two tools:
 
-- **`get`** reads. Every project and application in the organization with its status (`running`, `stopped`, `failed`, …) in one call, or one project; every domain in the organization, or one application's; plus environment variable names (never values), deployments and their logs, live containers and their logs, source, compose file, servers and Git providers; the internal database templates and the template catalog at [templates.litepod.sh](https://templates.litepod.sh) — searched by name, tag or category, and for one template its ports and the variables the user has to fill in. When the catalog has more than one template for what the user asked for, the agent gets the candidates and asks which one they want.
-- **`exec`** changes. `start` and `stop` run immediately. Everything else is a proposal a person confirms in Litepod: set or delete environment variables, redeploy, edit the compose file or source, add, update or delete domains, create, rename or delete projects and applications (empty or Compose).
+- **`get`** reads. The organizations the user belongs to; every project and application in the organization with its status (`running`, `stopped`, `failed`, …) in one call, or one project; every project's environments with the production one marked; every domain in the organization, or one application's; plus environment variables with their values, deployments and their logs, live containers and their logs, source, compose file, servers and Git providers; the internal database templates and the template catalog at [templates.litepod.sh](https://templates.litepod.sh) — searched by name, tag or category, and for one template its ports and the variables the user has to fill in. When the catalog has more than one template for what the user asked for, the agent gets the candidates and asks which one they want.
+  - **Environments** — reads default to the production environment. Pass `environment` (e.g. `qa`) to read another one, or `environment: "all"` to list every environment. It also picks between same-named applications in different environments.
+  - **`restart`** — restarts one container, or the whole application; if nothing is running it redeploys instead.
+  - **`rollback`** — redeploys an earlier successful run (from `get deployments`), or the one before the current deploy when none is given.
+  - **`repositories`** — lists and searches the repositories the organization's Git providers can see (private ones included), or the branches of one repository with `git_url`.
+  - **`url`** — reads one public HTTPS page as text (a README, a `compose.yml`); a github.com repository or file address returns the README or the raw file. Responses are size-capped and marked as untrusted data, and internal addresses are refused.
+  - **`web_search`** — searches the web through the provider the organization set up in the assistant settings: a SearXNG instance it runs, or a Brave Search API key. Off until an owner adds one; the key is encrypted and never shown again (it can only be turned off or deleted). Results are marked as untrusted data. Over MCP it only appears once an owner has set it up and turned it on: your agent's own web search is the default.
+  - **`wait_deployment`** — blocks up to 55 seconds until an application has no deploy queued or running, then returns its final status, error and domains with their route health.
+- **`exec`** changes. `start` and `stop` run immediately. Everything else is a proposal a person confirms in Litepod: set or delete environment variables, redeploy, restart, roll back to an earlier deploy, edit the compose file or source, add, update or delete domains, update an application's settings, create, rename or delete projects and applications (empty or Compose).
   - **`deploy_static_site`** — one confirmation for a whole static site: project (existing or new), application, upload, deploy and an optional HTTPS domain. The agent gets a one-time `upload_url` and sends the site (up to 10 MB) with `curl -T site.zip <upload_url>`.
   - **`create_from_template`** — one confirmation for a database (`postgres`, `mariadb`, `mongodb`, `dragonflydb`, `keydb`, `sqlserver`) or a catalog template such as `uptime-kuma`: project (existing or new), the variable values the user wrote, an optional domain, and the deploy.
 
-  After confirming, the agent reads `get applications` until the status is `running` and reports back.
+  - **`deploy_compose`** — one confirmation for a Compose application from a file the agent writes: project (existing or new), the compose file, an optional `.env`, and the deploy.
+
+  After confirming, the agent calls `wait_deployment` until the deploy finishes and reports back.
 
 ## Screenshots
 
