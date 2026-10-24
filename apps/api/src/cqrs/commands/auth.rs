@@ -6,6 +6,9 @@ use crate::git::repositories::{organization, organization_member, session, user}
 use crate::state::state::SharedState;
 use crate::utils::security;
 
+/// Counter bumped once per account created through `/register`. Exported on `/metrics`.
+pub const USER_REGISTRATIONS_METRIC: &str = "litepod_user_registrations_total";
+
 pub async fn register(
     state: &SharedState,
     email: &str,
@@ -58,6 +61,7 @@ pub async fn register(
 
     let is_sysadmin = user::is_sysadmin(state, &user_id).await;
     let session_token = create_session(state, &user_id, user_agent, None).await?;
+    metrics::counter!(USER_REGISTRATIONS_METRIC).increment(1);
 
     Ok((
         AuthResponse {
@@ -131,6 +135,7 @@ pub async fn register_public_cloud(
     .await?;
 
     let session_token = create_session(state, &user_id, user_agent, None).await?;
+    metrics::counter!(USER_REGISTRATIONS_METRIC).increment(1);
     Ok((
         AuthResponse {
             user: UserClaims {

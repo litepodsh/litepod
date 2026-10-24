@@ -38,6 +38,7 @@ hex = "0.4"
 ipnet = "2"
 jsonwebtoken = { version = "10.4.0", features = ["aws_lc_rs"] }
 libc = "0.2"
+metrics = "0.24.6"
 podman-api = "0.11.0"
 prometheus = "0.14.0"
 rand = "0.10.2"

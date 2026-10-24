@@ -221,6 +221,9 @@ pub fn create_router(state: SharedState) -> Router {
         .with_default_metrics()
         .build_pair();
 
+    // Emit the series at 0 from boot so `increase()` sees the first registration.
+    metrics::counter!(crate::cqrs::commands::auth::USER_REGISTRATIONS_METRIC).increment(0);
+
     let metrics_routes = Router::new()
         .route(
             "/metrics",

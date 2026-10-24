@@ -5578,6 +5578,7 @@ dependencies = [
  "jsonwebtoken",
  "libc",
  "maxminddb",
+ "metrics",
  "openidconnect",
  "openssl",
  "podman-api",
