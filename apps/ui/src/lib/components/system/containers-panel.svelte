@@ -14,6 +14,7 @@
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import DebugJsonPanel from '#lib/components/debug-json-panel.svelte';
+	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import VolumeFileWorkspace from '#lib/components/volumes/volume-file-workspace.svelte';
 	import { AnimatedTabs } from '#lib/components/custom/animated-tabs/index.js';
 	import { toast } from '#lib/utils/toast.js';
@@ -76,6 +77,14 @@
 		type UsageSort,
 	} from '#lib/utils/podman-monitoring.js';
 	import { containerStatusTone } from '#lib/utils/container-status.js';
+	import {
+		containerProject,
+		inspectedContainerPorts,
+		inspectedIps,
+		internalRoute,
+		listedContainerPorts,
+		splitImage,
+	} from '#lib/utils/container-routes.js';
 	import { toneBadge, toneDot } from '#lib/utils/status-tone.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { allowed } from '#lib/state/permissions.svelte.js';
@@ -441,6 +450,31 @@
 		}
 		return [];
 	});
+
+	let containerGroups = $derived.by(() => {
+		const byProject = new Map<string, PodmanRecord[]>();
+		for (const entry of filtered) {
+			const key = containerProject(entry);
+			byProject.set(key, [...(byProject.get(key) ?? []), entry]);
+		}
+		return [...byProject.entries()]
+			.sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
+			.map(([name, entries]) => ({
+				name,
+				entries: entries.sort((a, b) => entryName(a).localeCompare(entryName(b))),
+				running: entries.filter((e) => containerState(e).toLowerCase() === 'running').length,
+			}));
+	});
+
+	let detailPorts = $derived(
+		selected && active === 'containers' ? inspectedContainerPorts(selected.data) : [],
+	);
+	let detailRoutes = $derived(
+		selected && active === 'containers'
+			? detailPorts.map((port) => internalRoute(entryName(selected!.data), port))
+			: [],
+	);
+	let detailIps = $derived(selected && active === 'containers' ? inspectedIps(selected.data) : []);
 
 	type DfCard = { title: string; rows: [string, string][] };
 	let dfCards = $derived.by<DfCard[]>(() => {
@@ -1097,6 +1131,111 @@
 									class="rounded-2xl border border-dashed border-foreground/15 p-8 text-center text-sm text-muted-foreground">
 									{t('organizations.containers.empty_resources', { resource: active })}
 								</div>
+							{:else if active === 'containers'}
+								<div class="flex flex-col gap-4">
+									{#each containerGroups as group (group.name)}
+										<section class="lp-raised overflow-hidden rounded-2xl border bg-card">
+											<header
+												class="flex items-baseline justify-between gap-3 bg-muted/50 px-4 py-2.5">
+												<h3 class="truncate text-sm font-semibold tracking-tight">
+													{group.name || t('organizations.containers.standalone')}
+												</h3>
+												<span class="shrink-0 text-xs text-muted-foreground tabular-nums"
+													>{t('organizations.containers.group_count', {
+														count: group.entries.length,
+														running: group.running,
+													})}</span>
+											</header>
+											{#each group.entries as entry (entryId(entry))}
+												{@const metric =
+													metricsByContainer.get(entryId(entry)) ??
+													metricsByContainer.get(entryName(entry))}
+												{@const running = containerState(entry).toLowerCase() === 'running'}
+												{@const image = splitImage(containerImage(entry))}
+												{@const routePorts = listedContainerPorts(entry)}
+												{@const hostPorts = trackedPorts(entry)}
+												<div
+													class="grid gap-x-3 gap-y-2 border-t px-4 py-3 hover:bg-muted/40 sm:grid-cols-[minmax(0,1fr)_auto]"
+													class:bg-muted={selected?.id === entryId(entry)}>
+													<div class="min-w-0">
+														<button
+															type="button"
+															class="block w-full min-w-0 text-left"
+															onclick={() => inspect(entry)}>
+															<span class="flex items-center gap-2">
+																<span
+																	class={`size-2 shrink-0 rounded-full ${toneDot(containerStatusTone(containerState(entry)))}`}
+																></span>
+																<span class="truncate font-medium">{entryName(entry)}</span>
+															</span>
+															<span
+																class="mt-1 flex min-w-0 items-center gap-1.5 pl-4 text-xs"
+																title={containerImage(entry)}>
+																<span class="truncate font-mono text-foreground/80"
+																	>{image.repo || '—'}</span>
+																{#if image.tag}
+																	<span
+																		class="lp-raised shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+																		>{image.tag}</span>
+																{/if}
+															</span>
+														</button>
+														<div class="mt-2 flex flex-wrap items-center gap-1.5 pl-4">
+															{#if !running}
+																<span class="text-[11px] text-muted-foreground">—</span>
+															{:else if routePorts.length === 0}
+																<span class="text-[11px] text-muted-foreground"
+																	>{t('organizations.containers.internal_route_none')}</span>
+															{:else}
+																{#each routePorts.slice(0, 3) as port (port)}
+																	<CopyButton
+																		value={internalRoute(entryName(entry), port)}
+																		revealOnHover={false}
+																		class="lp-raised rounded-full bg-muted px-2.5 py-1 font-mono text-[11px] text-foreground hover:bg-muted/70" />
+																{/each}
+																{#if routePorts.length > 3}<span
+																		class="text-[11px] text-muted-foreground"
+																		>+{routePorts.length - 3}</span
+																	>{/if}
+															{/if}
+															{#each hostPorts as p (p.host_port + p.source)}
+																<span
+																	class="rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 font-mono text-[10px] text-primary"
+																	title={t('organizations.containers.host_port_reserved', {
+																		application: p.application_name,
+																		source: p.source,
+																	})}>{p.host_port}→{p.container_port}</span>
+															{/each}
+														</div>
+													</div>
+													<div class="flex items-center gap-3 sm:flex-col sm:items-end sm:gap-1.5">
+														<span
+															class={`rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize ${containerStateClass(entry)}`}
+															>{containerState(entry)}</span>
+														{#if running}
+															<span class="text-[11px] text-muted-foreground tabular-nums">
+																{metric
+																	? `${formatCpu(metric.cpu_percent)} · ${formatMemory(metric.memory_usage_bytes, metric.memory_limit_bytes)}`
+																	: '—'}
+															</span>
+														{/if}
+														{#if canManage}
+															<Button
+																size="sm"
+																variant={running ? 'outline' : 'default'}
+																onclick={() => void inspectAndAskContainerAction(entry)}
+																disabled={actionBusy}>
+																{running
+																	? t('organizations.containers.stop')
+																	: t('organizations.containers.start')}
+															</Button>
+														{/if}
+													</div>
+												</div>
+											{/each}
+										</section>
+									{/each}
+								</div>
 							{:else}
 								<div class="lp-raised overflow-hidden rounded-2xl border bg-card">
 									{#each filtered as entry, i (entryId(entry) + ':' + i)}
@@ -1143,59 +1282,6 @@
 																})}</span>
 														{/if}
 													</div>
-												{:else if active === 'containers'}
-													{@const containerPortList = containerPorts(entry)}
-													{@const hostPorts = trackedPorts(entry)}
-													<div class="min-w-0 flex-1">
-														<div class="flex items-center gap-2">
-															<span
-																class={`size-2 shrink-0 rounded-full ${toneDot(containerStatusTone(containerState(entry)))}`}
-															></span>
-															<span class="truncate font-medium">{entryName(entry)}</span>
-														</div>
-														<p class="mt-0.5 truncate text-xs text-muted-foreground">
-															{containerImage(entry)}
-														</p>
-														{#if containerPortList.length}
-															<div class="mt-1 flex flex-wrap gap-1">
-																{#each containerPortList.slice(0, 4) as port (port)}
-																	<span
-																		class="lp-raised rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-																		>{port}</span>
-																{/each}
-																{#if containerPortList.length > 4}<span
-																		class="text-[10px] text-muted-foreground"
-																		>+{containerPortList.length - 4}</span
-																	>{/if}
-															</div>
-														{/if}
-														{#if hostPorts.length}
-															<div class="mt-1 flex flex-wrap gap-1">
-																{#each hostPorts as p (p.host_port + p.source)}
-																	<span
-																		class="rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 font-mono text-[10px] text-primary"
-																		title={t('organizations.containers.host_port_reserved', {
-																			application: p.application_name,
-																			source: p.source,
-																		})}>{p.host_port}→{p.container_port}</span>
-																{/each}
-															</div>
-														{/if}
-													</div>
-													<div class="flex shrink-0 flex-col items-end gap-0.5 text-xs">
-														<span
-															class={`rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize ${containerStateClass(entry)}`}
-															>{containerState(entry)}</span>
-														{#if containerState(entry).toLowerCase() === 'running'}
-															<span class="text-[11px] text-muted-foreground tabular-nums">
-																{metric
-																	? `${formatCpu(metric.cpu_percent)} · ${formatMemory(metric.memory_usage_bytes, metric.memory_limit_bytes)}`
-																	: '—'}
-															</span>
-														{/if}
-														<span class="text-[11px] text-muted-foreground"
-															>{relativeAge(createdMs(entry.Created ?? entry.created))}</span>
-													</div>
 												{:else}
 													<div class="min-w-0 flex-1">
 														<p class="truncate font-medium">{entryName(entry)}</p>
@@ -1208,19 +1294,6 @@
 														>{summary(entry)}</span>
 												{/if}
 											</button>
-											{#if active === 'containers' && canManage}
-												<Button
-													size="sm"
-													variant={containerState(entry).toLowerCase() === 'running'
-														? 'outline'
-														: 'default'}
-													onclick={() => void inspectAndAskContainerAction(entry)}
-													disabled={actionBusy}>
-													{containerState(entry).toLowerCase() === 'running'
-														? t('organizations.containers.stop')
-														: t('organizations.containers.start')}
-												</Button>
-											{/if}
 										</div>
 									{/each}
 								</div>
@@ -1364,6 +1437,40 @@
 									{/if}
 								</div>
 
+								{#if active === 'containers' && (detailRoutes.length || detailIps.length)}
+									<div class="lp-inset mb-3 rounded-xl bg-muted/40 px-4 py-3">
+										<p class="mb-2 text-sm font-medium">
+											{t('organizations.containers.internal_route')}
+										</p>
+										<div class="flex flex-col items-start gap-1.5">
+											{#each detailRoutes as route (route)}
+												<CopyButton
+													value={route}
+													revealOnHover={false}
+													class="font-mono text-sm text-foreground" />
+											{/each}
+											{#each detailIps as row (row.network + row.ip)}
+												<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+													<span class="text-xs text-muted-foreground"
+														>{t('organizations.containers.internal_ip', {
+															network: row.network,
+														})}</span>
+													{#each detailPorts as port (port)}
+														<CopyButton
+															value={internalRoute(row.ip, port)}
+															revealOnHover={false}
+															class="font-mono text-xs text-foreground" />
+													{:else}
+														<CopyButton
+															value={row.ip}
+															revealOnHover={false}
+															class="font-mono text-xs text-foreground" />
+													{/each}
+												</div>
+											{/each}
+										</div>
+									</div>
+								{/if}
 								{#if detailRows.length}
 									<div class="lp-inset overflow-hidden rounded-xl bg-muted/40">
 										<dl class="divide-y text-sm">
