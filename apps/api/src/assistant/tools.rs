@@ -175,6 +175,12 @@ const ACTION_HELP: &[(&str, &str)] = &[
         "delete_environment_variable",
         "`delete_environment_variable` (needs `name`, optionally `scope`)",
     ),
+    (
+        "link_database",
+        "`link_database` (needs `application` and `database`, the name or id of an internal database in the same environment; \
+        joins the application to the database's private network and sets `name` (default DATABASE_URL) to its connection string, \
+        without showing you the password. Redeploy the application afterwards)",
+    ),
     ("redeploy", "`redeploy` (nothing else)"),
     (
         "restart",
@@ -433,6 +439,7 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
                         "container": { "type": "string", "description": "`restart` only: one container name from `get containers`. Omit to restart the whole application." },
                         "name": { "type": "string", "description": "Variable name, upper case with underscores." },
                         "value": { "type": "string" },
+                        "database": { "type": "string", "description": "`link_database` only: name or id of an internal database in the application's environment." },
                         "scope": { "type": "string", "enum": ["runtime", "build"] },
                         "compose": { "type": "string", "description": "The complete compose file." },
                         "env": { "type": "string", "description": "`deploy_compose` only: the `.env` file as text, `KEY=VALUE` per line." },
@@ -1277,6 +1284,30 @@ async fn exec(
                     scope: scope_of(arguments),
                     reason: reason.clone(),
                 },
+            )
+            .await
+            {
+                Ok(action) => ToolOutcome::proposed(
+                    action,
+                    "Not applied. The user has to confirm this in the panel.",
+                ),
+                Err(error) => ToolOutcome::failure(error.to_string()),
+            }
+        }
+
+        "link_database" => {
+            let Some(database) = string_of(arguments, "database") else {
+                return ToolOutcome::failure("`database` is required");
+            };
+            match actions::propose_link_database(
+                state,
+                conversation_id,
+                actor,
+                &resolved.target,
+                &database,
+                string_of(arguments, "name"),
+                scope_of(arguments),
+                reason,
             )
             .await
             {

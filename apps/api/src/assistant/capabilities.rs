@@ -54,6 +54,7 @@ pub const ACTIONS: &[&str] = &[
     "deploy_compose",
     "deploy_zip",
     "deploy_repository",
+    "link_database",
 ];
 
 pub fn resource_allowed(resource: &str) -> bool {

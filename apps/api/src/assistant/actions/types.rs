@@ -49,6 +49,8 @@ pub const DEPLOY_ZIP: &str = "deploy_zip";
 
 pub const DEPLOY_REPOSITORY: &str = "deploy_repository";
 
+pub const LINK_DATABASE: &str = "link_database";
+
 /// Litepod's own database templates. Anything else is a catalog template id.
 pub const INTERNAL_TEMPLATES: &[&str] = &[
     "postgres",
@@ -95,6 +97,20 @@ pub struct SetEnvironmentVariable {
     #[serde(default = "runtime_scope")]
     pub scope: String,
     /// The one line the user reads before deciding.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// Validated arguments for [`LINK_DATABASE`]: the database is already resolved
+/// to its id at proposal time, so a rename cannot change what the card promised.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkDatabase {
+    pub database_id: String,
+    pub database_kind: String,
+    /// Variable that receives the private connection string.
+    pub variable: String,
+    #[serde(default = "runtime_scope")]
+    pub scope: String,
     #[serde(default)]
     pub reason: Option<String>,
 }
@@ -410,6 +426,7 @@ impl ActionTarget {
             _ => {
                 let tab = match tool {
                     ADD_DOMAIN | UPDATE_DOMAIN | DELETE_DOMAIN => "domains",
+                    LINK_DATABASE => "networks",
                     _ => "environment",
                 };
                 format!(

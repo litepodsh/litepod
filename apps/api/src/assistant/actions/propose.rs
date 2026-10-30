@@ -1982,3 +1982,79 @@ pub(super) async fn existing_source_target(
         environment.name, source.deploy_type
     )))
 }
+
+/// Stores "join this application to a database's private network and put its
+/// connection string in a variable". The password is read when this is applied,
+/// on the server: it never passes through the model or the stored arguments.
+#[allow(clippy::too_many_arguments)]
+pub async fn propose_link_database(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    database: &str,
+    variable: Option<String>,
+    scope: String,
+    reason: Option<String>,
+) -> Result<ActionDto, AppError> {
+    let variable = variable.unwrap_or_else(|| "DATABASE_URL".into());
+    if !deployment::is_environment_name(&variable) {
+        return Err(AppError::ValidationError(format!(
+            "`{variable}` is not a valid environment variable name"
+        )));
+    }
+    if !matches!(scope.as_str(), "runtime" | "build") {
+        return Err(AppError::ValidationError(
+            "Environment scope must be runtime or build".into(),
+        ));
+    }
+    let linkable =
+        crate::deployment::resource_networks::list_linkable(state, &target.application_id).await?;
+    let wanted = database.trim();
+    let found = linkable.iter().find(|link| {
+        link.resource_application_id == wanted || link.name.eq_ignore_ascii_case(wanted)
+    });
+    let Some(found) = found else {
+        let names: Vec<&str> = linkable.iter().map(|link| link.name.as_str()).collect();
+        return Err(AppError::ValidationError(format!(
+            "No database `{wanted}` in this application's environment and server. Databases there: {}",
+            if names.is_empty() {
+                "none".into()
+            } else {
+                names.join(", ")
+            }
+        )));
+    };
+
+    let arguments = LinkDatabase {
+        database_id: found.resource_application_id.clone(),
+        database_kind: found.template_kind.clone().unwrap_or_default(),
+        variable: variable.clone(),
+        scope,
+        reason: reason.clone(),
+    };
+    let encoded = serde_json::to_string(&arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let title = format!("Connect {} to {}", target.application_name, found.name);
+    let summary = reason.unwrap_or_else(|| {
+        format!(
+            "Joins {} to {}'s private network and sets {variable} to its connection string. Redeploy {} to apply.",
+            target.application_name, found.name, target.application_name
+        )
+    });
+    let stored = store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        LINK_DATABASE,
+        &encoded,
+        title,
+        summary,
+    )
+    .await?;
+    Ok(ActionDto {
+        added: Some(format!("{variable}=••••")),
+        ..stored
+    })
+}

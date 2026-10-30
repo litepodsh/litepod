@@ -1475,3 +1475,41 @@ async fn publish_source_app(
     .await?;
     Ok(url)
 }
+
+pub(super) async fn apply_link_database(
+    state: &SharedState,
+    stored: &StoredAction,
+) -> Result<Applied, AppError> {
+    let arguments: LinkDatabase = serde_json::from_str(&stored.arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+
+    crate::deployment::resource_networks::attach(
+        state,
+        &stored.application_id,
+        &arguments.database_id,
+    )
+    .await?;
+    let connection = crate::templates::internal_templates::connection::private_connection_string(
+        state,
+        &stored.organization_id,
+        &stored.project_id,
+        &stored.environment_id,
+        &arguments.database_id,
+        &arguments.database_kind,
+    )
+    .await?;
+    deployment::set_environment_variable(
+        state,
+        &stored.application_id,
+        &arguments.scope,
+        &arguments.variable,
+        &connection,
+    )
+    .await?;
+
+    Ok(Applied {
+        audit_action: "network.attached",
+        added: Some(format!("{}={}", arguments.variable, mask(&connection))),
+        removed: None,
+    })
+}

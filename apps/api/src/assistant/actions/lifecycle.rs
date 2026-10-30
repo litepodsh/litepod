@@ -327,6 +327,7 @@ pub async fn confirm(
         DELETE_ENVIRONMENT_VARIABLE => apply_delete_environment_variable(state, &stored).await,
         UPDATE_APPLICATION => apply_update_application(state, &stored).await,
         SET_SOURCE => apply_source(state, &stored).await,
+        LINK_DATABASE => apply_link_database(state, &stored).await,
         CREATE_APPLICATION => apply_create_application(state, &stored).await,
         CREATE_PROJECT => apply_create_project(state, &stored).await,
         UPDATE_PROJECT => apply_update_project(state, &stored).await,
