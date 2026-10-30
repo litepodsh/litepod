@@ -199,6 +199,16 @@ Code in `ee/` directories needs a [Litepod Enterprise subscription](LICENSE_EE.m
 - **Single sign-on** — OIDC and SAML per organization, group-to-role mappings, verified domains and SCIM provisioning.
 - **White-label** — set your own name, logo and favicon for the panel, the login page and the browser tab, from System → Branding.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=litepodsh%2Flitepod&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=litepodsh/litepod&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=litepodsh/litepod&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=litepodsh/litepod&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## License
 
 Litepod is licensed under the [Apache License 2.0](LICENSE), except for code in directories named `ee/`, which is covered by the [Litepod Enterprise License](LICENSE_EE.md).

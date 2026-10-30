@@ -199,6 +199,16 @@ El código en directorios `ee/` necesita una [suscripción Litepod Enterprise](L
 - **Inicio de sesión único (SSO)** — OIDC y SAML por organización, mapeo de grupos a roles, dominios verificados y aprovisionamiento SCIM.
 - **Personalización de marca** — define tu propio nombre, logo y favicon para el panel, la página de login y la pestaña del navegador, desde Sistema → Marca.
 
+## Estrellas
+
+<a href="https://www.star-history.com/?repos=litepodsh%2Flitepod&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=litepodsh/litepod&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=litepodsh/litepod&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=litepodsh/litepod&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## Licencia
 
 Litepod usa la [Apache License 2.0](LICENSE), excepto el código en directorios llamados `ee/`, que está cubierto por la [Litepod Enterprise License](LICENSE_EE.md).
