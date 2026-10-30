@@ -65,20 +65,33 @@ fn row_to_dto(row: &sqlx::sqlite::SqliteRow) -> Result<SourceConfigDto, AppError
             .map_err(|e| AppError::DatabaseError(e.to_string()))?
             .is_some(),
         watch_paths: read(16)?,
+        source_upload: row
+            .try_get::<i64, _>(22)
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            == 1,
+        source_archive_bytes: None,
     })
 }
 
 pub async fn get(state: &SharedState, application_id: &str) -> Result<SourceConfigDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let row = sqlx::query(
-        "SELECT deploy_type, build_method, git_provider_id, git_url, git_branch, dockerfile_path, compose_file_path, compose_public_service, container_port, railpack_project_path, auto_deploy, build_cpu_cores, build_memory_mib, clean_build, build_swap_mib, git_credentials_password_encrypted, watch_paths, railpack_start_command, image_url, registry_username, registry_password_encrypted, restart_policy FROM applications WHERE id = ?1",
+        "SELECT deploy_type, build_method, git_provider_id, git_url, git_branch, dockerfile_path, compose_file_path, compose_public_service, container_port, railpack_project_path, auto_deploy, build_cpu_cores, build_memory_mib, clean_build, build_swap_mib, git_credentials_password_encrypted, watch_paths, railpack_start_command, image_url, registry_username, registry_password_encrypted, restart_policy, source_upload FROM applications WHERE id = ?1",
     )
     .bind(application_id)
     .fetch_optional(&conn)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?
     .ok_or(AppError::ApplicationNotFound)?;
-    row_to_dto(&row)
+    let mut source = row_to_dto(&row)?;
+    if source.source_upload {
+        source.source_archive_bytes =
+            tokio::fs::metadata(super::source_archive::archive_file(state, application_id))
+                .await
+                .ok()
+                .map(|metadata| metadata.len());
+    }
+    Ok(source)
 }
 
 pub async fn set_clean_build(
@@ -176,7 +189,8 @@ pub(crate) fn validate_runtime_limits(
     }
 }
 
-fn validate(request: &UpdateSourceRequest) -> Result<(), AppError> {
+/// `archive`: the source is an uploaded ZIP, so there is no repository to name.
+fn validate(request: &UpdateSourceRequest, archive: bool) -> Result<(), AppError> {
     if let Some(policy) = request.restart_policy.as_deref() {
         if !matches!(policy, "no" | "always" | "unless-stopped" | "on-failure") {
             return Err(AppError::ValidationError(
@@ -251,15 +265,16 @@ fn validate(request: &UpdateSourceRequest) -> Result<(), AppError> {
         return Ok(());
     }
     let mut missing = Vec::new();
-    if request.git_url.as_deref().unwrap_or("").trim().is_empty() {
+    if !archive && request.git_url.as_deref().unwrap_or("").trim().is_empty() {
         missing.push("repository URL");
     }
-    if request
-        .git_branch
-        .as_deref()
-        .unwrap_or("")
-        .trim()
-        .is_empty()
+    if !archive
+        && request
+            .git_branch
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
     {
         missing.push("branch");
     }
@@ -409,7 +424,13 @@ pub async fn save(
     application_id: &str,
     mut request: UpdateSourceRequest,
 ) -> Result<SourceConfigDto, AppError> {
-    validate(&request)?;
+    // Saving a git source with no repository keeps an uploaded ZIP as the source;
+    // naming a repository (or a provider) switches back to cloning.
+    let keep_upload = request.deploy_type == "git"
+        && request.git_url.as_deref().unwrap_or("").trim().is_empty()
+        && request.git_provider_id.is_none()
+        && super::source_archive::is_upload(state, application_id).await?;
+    validate(&request, keep_upload)?;
     // Only the Compose pipeline resolves `{{url}}` domain markers; any other
     // deploy type would hand them to the container literally.
     if request.deploy_type != "compose" {
@@ -471,7 +492,7 @@ pub async fn save(
         return Err(AppError::ValidationError(
             "Auto-deploy needs a git provider with push-webhook support — configure one to receive push events".into(),
         ));
-    } else if request.deploy_type == "git" {
+    } else if request.deploy_type == "git" && !keep_upload {
         // No saved provider: extract any `user:token@host` credentials the user pasted
         // directly in the URL, validate and store only the stripped URL, and encrypt the
         // extracted credentials (Feature B) — or leave a public URL fully credential-free
@@ -548,7 +569,7 @@ pub async fn save(
     }
     let conn = crate::git::repositories::db::get_conn(state).await;
     sqlx::query(
-        "UPDATE applications SET deploy_type = ?1, build_method = ?2, git_provider_id = ?3, git_url = ?4, git_branch = ?5, dockerfile_path = ?6, compose_file_path = ?7, compose_public_service = ?8, container_port = ?9, railpack_project_path = ?10, auto_deploy = ?11, git_repo_full_name = ?12, build_cpu_cores = ?13, build_memory_mib = ?14, build_swap_mib = ?15, git_credentials_username = ?16, git_credentials_password_encrypted = ?17, watch_paths = ?18, railpack_start_command = ?19, image_url = ?20, registry_username = ?21, registry_password_encrypted = ?22, restart_policy = COALESCE(?23, restart_policy), updated_at = ?24 WHERE id = ?25",
+        "UPDATE applications SET deploy_type = ?1, build_method = ?2, git_provider_id = ?3, git_url = ?4, git_branch = ?5, dockerfile_path = ?6, compose_file_path = ?7, compose_public_service = ?8, container_port = ?9, railpack_project_path = ?10, auto_deploy = ?11, git_repo_full_name = ?12, build_cpu_cores = ?13, build_memory_mib = ?14, build_swap_mib = ?15, git_credentials_username = ?16, git_credentials_password_encrypted = ?17, watch_paths = ?18, railpack_start_command = ?19, image_url = ?20, registry_username = ?21, registry_password_encrypted = ?22, restart_policy = COALESCE(?23, restart_policy), source_upload = ?24, updated_at = ?25 WHERE id = ?26",
     )
     .bind(request.deploy_type)
     .bind(request.build_method)
@@ -592,6 +613,7 @@ pub async fn save(
     .bind(registry_username)
     .bind(registry_password_encrypted)
     .bind(request.restart_policy.clone())
+    .bind(i64::from(keep_upload))
     .bind(now_ms())
     .bind(application_id)
     .execute(&conn)

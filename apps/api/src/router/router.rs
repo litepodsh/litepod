@@ -338,12 +338,15 @@ pub fn create_router(state: SharedState) -> Router {
         )
         // Keyless deploy hook: the token in the path is the credential.
         .route("/deploy/{token}", post(webhooks::deploy_hook_handler))
-        // Same idea for an MCP agent's static site, capped at 10 MiB.
+        // Same idea for an MCP agent's site or source ZIP; the site's own 10 MiB
+        // cap is enforced when it is staged.
         .route(
             "/api/v1/assistant/uploads/{action_id}/{token}",
             axum::routing::put(webhooks::assistant_upload_handler)
                 .post(webhooks::assistant_upload_handler)
-                .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)),
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    crate::deployment::source_archive::MAX_ARCHIVE_BYTES,
+                )),
         )
         .with_state(state.clone());
 
@@ -911,6 +914,14 @@ pub fn create_router(state: SharedState) -> Router {
             get(deployments::download_artifact_handler)
                 .post(deployments::upload_artifact_handler)
                 .delete(deployments::delete_artifact_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/source-archive",
+            get(deployments::download_source_archive_handler)
+                .post(deployments::upload_source_archive_handler)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    crate::deployment::source_archive::MAX_ARCHIVE_BYTES + 1024 * 1024,
+                )),
         )
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/icon",

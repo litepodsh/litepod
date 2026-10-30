@@ -506,6 +506,11 @@ pub struct SourceConfigDto {
     /// Whether credentials embedded in a pasted git URL (no saved provider) are on
     /// file for this application. The secret itself never leaves the backend.
     pub has_git_credentials: bool,
+    /// The source tree is an uploaded ZIP rather than a repository clone. It is
+    /// set by uploading an archive; saving a repository URL clears it.
+    pub source_upload: bool,
+    /// Size of the stored ZIP when `source_upload` is set.
+    pub source_archive_bytes: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

@@ -683,6 +683,55 @@ pub async fn download_artifact_handler(
     Ok(response)
 }
 
+/// Keeps an uploaded ZIP as the application's source tree. The next deploy
+/// unpacks it where a clone would go.
+pub async fn upload_source_archive_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    mut multipart: Multipart,
+) -> Result<impl IntoResponse, AppError> {
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::ValidationError(format!("Invalid multipart upload: {e}")))?
+        .ok_or_else(|| AppError::ValidationError("Choose a ZIP to upload".into()))?;
+    if field.name() != Some("archive") {
+        return Err(AppError::ValidationError(
+            "Upload field must be named archive".into(),
+        ));
+    }
+    let bytes = field
+        .bytes()
+        .await
+        .map_err(|e| AppError::ValidationError(format!("Could not read upload: {e}")))?;
+    deployment::source_archive::store(&state, &app.application_id, &bytes).await?;
+    Ok(created(
+        deployment::source::get(&state, &app.application_id).await?,
+    ))
+}
+
+pub async fn download_source_archive_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppRead>,
+) -> Result<Response, AppError> {
+    let bytes = tokio::fs::read(deployment::source_archive::archive_file(
+        &state,
+        &app.application_id,
+    ))
+    .await
+    .map_err(|_| AppError::ValidationError("No source archive uploaded".into()))?;
+    let mut response = Response::new(axum::body::Body::from(bytes));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/zip"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        axum::http::HeaderValue::from_static("attachment; filename=\"source.zip\""),
+    );
+    Ok(response)
+}
+
 pub async fn delete_artifact_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::AppUpdate>,

@@ -23,6 +23,7 @@ pub mod resource_networks;
 pub mod rollout;
 pub mod runtime_endpoints;
 pub mod source;
+pub mod source_archive;
 pub mod static_deploy;
 
 pub use operations::*;

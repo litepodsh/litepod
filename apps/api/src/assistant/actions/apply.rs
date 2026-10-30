@@ -806,58 +806,14 @@ async fn publish_static_site(
     .await?;
     deployment::save_artifact(state, application_id, filename, bytes).await?;
 
-    let url = match &site.host {
-        Some(host) => {
-            // Asking again for a host it already has fixes that domain up
-            // instead of failing on the duplicate.
-            let existing = deployment::domains::list(state, application_id)
-                .await?
-                .into_iter()
-                .find(|domain| domain.host.eq_ignore_ascii_case(host));
-            let domain = match existing {
-                Some(domain)
-                    if domain.port == super::propose::STATIC_PORT
-                        && Some(domain.https) == site.https
-                        && domain.is_primary =>
-                {
-                    domain
-                }
-                Some(domain) => {
-                    deployment::domains::update(
-                        state,
-                        application_id,
-                        &domain.id,
-                        crate::dtos::deployment::UpdateDomainRequest {
-                            certificate: Default::default(),
-                            host: None,
-                            port: Some(super::propose::STATIC_PORT),
-                            https: site.https,
-                            is_primary: Some(true),
-                            server_id: None,
-                        },
-                    )
-                    .await?
-                }
-                None => {
-                    deployment::domains::create(
-                        state,
-                        application_id,
-                        crate::dtos::deployment::CreateDomainRequest {
-                            certificate: Default::default(),
-                            host: host.clone(),
-                            port: super::propose::STATIC_PORT,
-                            https: site.https,
-                            is_primary: Some(true),
-                            server_id: None,
-                        },
-                    )
-                    .await?
-                }
-            };
-            Some(domain.url)
-        }
-        None => None,
-    };
+    let url = ensure_primary_domain(
+        state,
+        application_id,
+        site.host.as_deref(),
+        super::propose::STATIC_PORT,
+        site.https,
+    )
+    .await?;
     deployment::enqueue_for_application(
         state,
         application_id,
@@ -866,6 +822,61 @@ async fn publish_static_site(
     )
     .await?;
     Ok(url)
+}
+
+/// Serves the application on `host` as its main URL, fixing up a domain that
+/// already has that host instead of failing on the duplicate. Returns the URL.
+async fn ensure_primary_domain(
+    state: &SharedState,
+    application_id: &str,
+    host: Option<&str>,
+    port: i64,
+    https: Option<bool>,
+) -> Result<Option<String>, AppError> {
+    let Some(host) = host else {
+        return Ok(None);
+    };
+    let existing = deployment::domains::list(state, application_id)
+        .await?
+        .into_iter()
+        .find(|domain| domain.host.eq_ignore_ascii_case(host));
+    let domain = match existing {
+        Some(domain) if domain.port == port && Some(domain.https) == https && domain.is_primary => {
+            domain
+        }
+        Some(domain) => {
+            deployment::domains::update(
+                state,
+                application_id,
+                &domain.id,
+                crate::dtos::deployment::UpdateDomainRequest {
+                    certificate: Default::default(),
+                    host: None,
+                    port: Some(port),
+                    https,
+                    is_primary: Some(true),
+                    server_id: None,
+                },
+            )
+            .await?
+        }
+        None => {
+            deployment::domains::create(
+                state,
+                application_id,
+                crate::dtos::deployment::CreateDomainRequest {
+                    certificate: Default::default(),
+                    host: host.to_owned(),
+                    port,
+                    https,
+                    is_primary: Some(true),
+                    server_id: None,
+                },
+            )
+            .await?
+        }
+    };
+    Ok(Some(domain.url))
 }
 
 /// The update that puts a source back the way `previous` read it. Secrets are
@@ -1279,4 +1290,188 @@ pub(super) async fn apply_deploy_compose(
         }),
         removed: None,
     })
+}
+
+/// Creates and deploys a proposed application built from source: an uploaded
+/// ZIP (`deploy_zip`) or a repository (`deploy_repository`). Like the static
+/// site, nothing is created before the ZIP has arrived, and a later failure
+/// removes what this confirm created or puts back the source it had.
+pub(super) async fn apply_source_app(
+    state: &SharedState,
+    actor: &AuthUser,
+    stored: &StoredAction,
+) -> Result<Applied, AppError> {
+    let app: SourceApp = serde_json::from_str(&stored.arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let zip = if stored.tool == DEPLOY_ZIP {
+        let Some((filename, bytes)) = super::upload::staged(state, &stored.id).await else {
+            return Err(AppError::ValidationError(
+                "The ZIP has not been uploaded yet. The agent has to send it to the upload URL first."
+                    .into(),
+            ));
+        };
+        if filename != "site.zip" {
+            return Err(AppError::ValidationError(
+                "The upload is not a ZIP archive".into(),
+            ));
+        }
+        Some(bytes)
+    } else {
+        None
+    };
+
+    let organization_id = &stored.organization_id;
+    if let Some(application_id) = &app.application_id {
+        let target = ActionTarget {
+            organization_id: organization_id.clone(),
+            project_id: stored.project_id.clone(),
+            project_name: app.project_name.clone(),
+            environment_id: stored.environment_id.clone(),
+            application_id: String::new(),
+            application_name: String::new(),
+        };
+        let found = super::propose::existing_source_target(state, &target, &app.name).await?;
+        if found.as_ref() != Some(application_id) {
+            return Err(AppError::ValidationError(format!(
+                "`{}` changed since this was proposed. Ask the agent to propose it again.",
+                app.name
+            )));
+        }
+        let previous = deployment::source::get(state, application_id).await?;
+        let url = match publish_source_app(state, actor, application_id, &app, zip).await {
+            Ok(url) => url,
+            Err(error) => {
+                if !previous.source_upload {
+                    let _ =
+                        deployment::source::save(state, application_id, restore_source(previous))
+                            .await;
+                }
+                return Err(error);
+            }
+        };
+        super::upload::discard(state, &stored.id).await;
+        return Ok(Applied {
+            audit_action: "application.deployed",
+            added: Some(match url {
+                Some(url) => format!("{} deploying, {url}", app.name),
+                None => format!("{} deploying ({application_id})", app.name),
+            }),
+            removed: None,
+        });
+    }
+
+    let created_project = stored.project_id.is_empty();
+    let (project_id, environment_id) = ensure_project(state, stored, &app.project_name).await?;
+    let built = async {
+        let application = crate::cqrs::commands::project::create_application(
+            state,
+            organization_id,
+            &project_id,
+            &environment_id,
+            &crate::dtos::project::CreateApplicationRequest {
+                name: app.name.clone(),
+                description: None,
+                server_id: Some(app.server_id.clone()),
+                server_group_id: None,
+            },
+        )
+        .await?;
+        match publish_source_app(state, actor, &application.id, &app, zip).await {
+            Ok(url) => Ok((application, url)),
+            Err(error) => {
+                let _ = crate::cqrs::commands::project::delete_application(
+                    state,
+                    organization_id,
+                    &project_id,
+                    &environment_id,
+                    &application.id,
+                )
+                .await;
+                Err(error)
+            }
+        }
+    }
+    .await;
+    let (application, url) = match built {
+        Ok(built) => built,
+        Err(error) => {
+            if created_project {
+                let _ = crate::cqrs::commands::project::delete_project(
+                    state,
+                    organization_id,
+                    &project_id,
+                )
+                .await;
+            }
+            return Err(error);
+        }
+    };
+    super::upload::discard(state, &stored.id).await;
+
+    Ok(Applied {
+        audit_action: "application.created",
+        added: Some(match url {
+            Some(url) => format!("{} deploying, {url}", application.name),
+            None => format!("{} deploying ({})", application.name, application.id),
+        }),
+        removed: None,
+    })
+}
+
+/// Points `application_id` at the card's source (the ZIP, or the repository),
+/// serves it on the card's host, and queues the deploy. Returns the host's URL.
+async fn publish_source_app(
+    state: &SharedState,
+    actor: &AuthUser,
+    application_id: &str,
+    app: &SourceApp,
+    zip: Option<Vec<u8>>,
+) -> Result<Option<String>, AppError> {
+    if let Some(bytes) = &zip {
+        deployment::source_archive::store(state, application_id, bytes).await?;
+    }
+    let current = deployment::source::get(state, application_id).await?;
+    deployment::source::save(
+        state,
+        application_id,
+        crate::dtos::deployment::UpdateSourceRequest {
+            deploy_type: "git".into(),
+            build_method: app.build_method.clone(),
+            git_provider_id: app.git_provider_id.clone(),
+            git_url: app.git_url.clone(),
+            git_branch: app.git_branch.clone(),
+            auto_deploy: Some(false),
+            watch_paths: None,
+            dockerfile_path: app.dockerfile_path.clone(),
+            compose_file_path: None,
+            compose_public_service: None,
+            container_port: Some(app.container_port),
+            railpack_project_path: app.project_path.clone(),
+            railpack_start_command: None,
+            build_cpu_cores: current.build_cpu_cores,
+            build_memory_mib: current.build_memory_mib,
+            build_swap_mib: current.build_swap_mib,
+            image_url: None,
+            registry_username: None,
+            registry_password: None,
+            restart_policy: None,
+        },
+    )
+    .await?;
+    let url = ensure_primary_domain(
+        state,
+        application_id,
+        app.host.as_deref(),
+        app.container_port,
+        app.https,
+    )
+    .await?;
+    deployment::enqueue_for_application(
+        state,
+        application_id,
+        ASSISTANT_TRIGGER,
+        Some(&actor.user_id),
+    )
+    .await?;
+    Ok(url)
 }

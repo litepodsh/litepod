@@ -185,7 +185,7 @@ async fn call(state: &SharedState, org: &OrgScope, params: &Value) -> Result<Val
     if name == tools::EXEC
         && let Some(action) = arguments.get("action").and_then(Value::as_str)
         && capabilities::mcp_auto_confirm(action)
-        && (action != "deploy_static_site" || uploaded)
+        && (!matches!(action, "deploy_static_site" | "deploy_zip") || uploaded)
         && let Some(proposed) = outcome.action.as_ref()
     {
         let (result, is_error) =

@@ -99,6 +99,8 @@
 		uploadApplicationArtifact,
 		deleteApplicationArtifact,
 		applicationArtifactDownloadUrl,
+		applicationSourceArchiveDownloadUrl,
+		uploadApplicationSourceArchive,
 		updateApplication,
 		uploadApplicationIcon,
 		getContainerStatus,
@@ -1359,6 +1361,25 @@
 		}
 	}
 
+	async function uploadSourceArchive(file: File) {
+		if (!environment) return;
+		busy = true;
+		try {
+			source = await uploadApplicationSourceArchive(
+				organizationId,
+				projectId,
+				environment.id,
+				applicationId,
+				file,
+			);
+			toast.success('Source ZIP saved and ready to deploy');
+		} catch (caught) {
+			toast.error(caught instanceof Error ? caught.message : 'Source upload failed');
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function removeArtifact() {
 		if (!environment) return;
 		busy = true;
@@ -2421,6 +2442,15 @@
 						providers={gitProviders}
 						{busy}
 						onUpload={upload}
+						onUploadSourceArchive={uploadSourceArchive}
+						sourceArchiveDownloadUrl={environment && source?.source_upload
+							? applicationSourceArchiveDownloadUrl(
+									organizationId,
+									projectId,
+									environment.id,
+									applicationId,
+								)
+							: null}
 						onRemoveArtifact={removeArtifact}
 						artifactDownloadUrl={environment && deployment.artifact
 							? applicationArtifactDownloadUrl(

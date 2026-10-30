@@ -45,6 +45,10 @@ pub const CREATE_FROM_TEMPLATE: &str = "create_from_template";
 
 pub const DEPLOY_COMPOSE: &str = "deploy_compose";
 
+pub const DEPLOY_ZIP: &str = "deploy_zip";
+
+pub const DEPLOY_REPOSITORY: &str = "deploy_repository";
+
 /// Litepod's own database templates. Anything else is a catalog template id.
 pub const INTERNAL_TEMPLATES: &[&str] = &[
     "postgres",
@@ -261,6 +265,46 @@ pub struct StaticSite {
     pub application_id: Option<String>,
 }
 
+/// Validated arguments for [`DEPLOY_ZIP`] and [`DEPLOY_REPOSITORY`]: a project
+/// (existing or new), an application built from source - an uploaded ZIP or a
+/// Git repository - an optional domain, and a deploy. One card.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SourceApp {
+    pub project_name: String,
+    pub name: String,
+    #[serde(default)]
+    pub server_id: String,
+    /// `railpack` (default) or `docker`.
+    #[serde(default)]
+    pub build_method: String,
+    /// The folder of the project inside the ZIP or repository, for Railpack.
+    #[serde(default)]
+    pub project_path: Option<String>,
+    #[serde(default)]
+    pub dockerfile_path: Option<String>,
+    #[serde(default)]
+    pub container_port: i64,
+    /// Repository deploys only.
+    #[serde(default)]
+    pub git_url: Option<String>,
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub git_provider_id: Option<String>,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub https: Option<bool>,
+    /// ZIP deploys only; see [`StaticSite::upload_token_hash`].
+    #[serde(default)]
+    pub upload_token_hash: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// An application of that name the source goes into instead of a new one.
+    #[serde(default)]
+    pub application_id: Option<String>,
+}
+
 /// Validated arguments for [`CREATE_FROM_TEMPLATE`]: a project (existing or
 /// new), an application from an internal or catalog template, the variable
 /// values the user gave, an optional domain, and a deploy. One card.
@@ -354,7 +398,9 @@ impl ActionTarget {
             // so a create has no page yet and a delete's page is about to stop
             // existing - and a rename is read on the list anyway.
             CREATE_PROJECT | UPDATE_PROJECT | DELETE_PROJECT | DEPLOY_STATIC_SITE
-            | CREATE_FROM_TEMPLATE | DEPLOY_COMPOSE => "/projects".into(),
+            | CREATE_FROM_TEMPLATE | DEPLOY_COMPOSE | DEPLOY_ZIP | DEPLOY_REPOSITORY => {
+                "/projects".into()
+            }
             // The application does not exist yet, so the environment it lands
             // in is the closest page there is.
             CREATE_APPLICATION => format!(

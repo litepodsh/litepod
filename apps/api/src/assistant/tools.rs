@@ -283,6 +283,33 @@ const ACTION_HELP: &[(&str, &str)] = &[
         with an `index.html`) or `zip_base64`. Once confirmed it deploys; read `get applications` until \
         its `status` is `running` and tell the user)",
     ),
+    (
+        "deploy_zip",
+        "`deploy_zip` (one confirmation to build and run a project the user has as files, not as a \
+        repository: needs `project` - an existing one, or a new one created with it - `name`, and \
+        `container_port`; optionally `host` and `https`. Before calling it, ASK the user, never guess: which \
+        folder of the ZIP holds the project (`railpack_project_path`, `.` when it is at the root) and the \
+        `container_port` the app listens on; a ZIP that wraps everything in one folder is unpacked from inside \
+        it. It builds with Railpack, or with `build_method: docker` and a `dockerfile_path`. Returns an \
+        `upload_url`: send the project there with `curl -T project.zip <upload_url>` (a ZIP, up to 100 MB, \
+        without node_modules or build output) before the person confirms. When the upload URL cannot be \
+        reached, send it in the call instead: `files` (path to text content) or `zip_base64`. A `name` that \
+        was never deployed, or is already built from a ZIP, gets this project; any other existing `name` is \
+        refused. Once confirmed it builds and deploys; read `get deployments` and `get applications` until \
+        its `status` is `running` and tell the user)",
+    ),
+    (
+        "deploy_repository",
+        "`deploy_repository` (one confirmation to build and run a Git repository: needs `project` - an \
+        existing one, or a new one created with it - `name`, `git_url` and `container_port`; optionally \
+        `git_branch` (default `main`), `railpack_project_path`, `build_method`, `host` and `https`. A public \
+        HTTPS `git_url` alone works; for a private repository pass the `git_provider_id` from `get git_providers` \
+        whose account can see it (`get repositories` lists what that provider sees) - never put credentials in \
+        the URL. ASK the user, never guess: the `container_port` the app listens on and which folder of the \
+        repository holds the project (`railpack_project_path`, `.` for the root). It builds with Railpack, or \
+        with `build_method: docker` and a `dockerfile_path`. Once confirmed it clones, builds and deploys; \
+        read `get deployments` and `get applications` until its `status` is `running` and tell the user)",
+    ),
 ];
 
 fn help_for(names: &[&str], help: &[(&str, &str)]) -> String {
@@ -367,7 +394,7 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
             .all(|action| direct.contains(action))
         {
             "Make a change. Every action happens immediately and returns its result, except a \
-            `deploy_static_site` sent without `files` or `zip_base64`, which waits for its upload. "
+            `deploy_static_site` or `deploy_zip` sent without `files` or `zip_base64`, which waits for its upload. "
                 .to_owned()
         } else if direct.is_empty() {
             "Propose a change. This NEVER performs it: every action returns an id the user has to confirm in the panel, so say you have proposed it and never that it is done, live or deploying. ".to_owned()
@@ -386,9 +413,9 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
                 name: EXEC,
                 description: format!(
                     "{opening}`action` picks what: {}. \
-                    When the project the user names does not exist, create it instead of stopping: `create_project`, or just pass the new name as `project` to `create_from_template`, `deploy_compose` or `deploy_static_site`, which create it with the application. Tell the user you did. \
+                    When the project the user names does not exist, create it instead of stopping: `create_project`, or just pass the new name as `project` to `create_from_template`, `deploy_compose`, `deploy_static_site`, `deploy_zip` or `deploy_repository`, which create it with the application. Tell the user you did. \
                     `application` is required for every action except `create_application`, `create_project`, \
-                    `update_project`, `delete_project`, `deploy_static_site`, `create_from_template` and `deploy_compose`, which take `project` instead \
+                    `update_project`, `delete_project`, `deploy_static_site`, `deploy_zip`, `deploy_repository`, `create_from_template` and `deploy_compose`, which take `project` instead \
                     (`create_project` takes neither). \
                     Always pass `reason`: it is the one line the user reads before deciding.",
                     help_for(capabilities::ACTIONS, ACTION_HELP)
@@ -414,8 +441,8 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
                         "git_provider_id": { "type": "string", "description": "From `get git_providers`." },
                         "git_url": { "type": "string", "description": "Repository URL." },
                         "git_branch": { "type": "string", "description": "Defaults to `main` when a repository is set without one." },
-                        "railpack_project_path": { "type": "string", "description": "Directory inside the repository Railpack builds from; `.` is the root. Ask the user." },
-                        "dockerfile_path": { "type": "string", "description": "Dockerfile path inside the repository, e.g. `./Dockerfile`. Ask the user." },
+                        "railpack_project_path": { "type": "string", "description": "Directory inside the repository or ZIP Railpack builds from; `.` is the root. Ask the user." },
+                        "dockerfile_path": { "type": "string", "description": "Dockerfile path inside the repository or ZIP, e.g. `./Dockerfile`. Ask the user." },
                         "compose_file_path": { "type": "string", "description": "Compose file path inside the repository, e.g. `./compose.yml`. Ask the user." },
                         "compose_public_service": { "type": "string", "description": "The compose service that serves the web traffic, for `build_method: compose`." },
                         "build_method": { "type": "string", "enum": ["railpack", "docker", "compose"], "description": "How a git deploy is built. `railpack` when the user does not say." },
@@ -431,8 +458,8 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
                         "port": { "type": "integer", "description": "The port this host fronts." },
                         "https": { "type": "boolean" },
                         "is_primary": { "type": "boolean", "description": "Make this the application's main URL." },
-                        "files": { "type": "object", "additionalProperties": { "type": "string" }, "description": "`deploy_static_site` only: the site inline, path to text content, with an `index.html` at the root." },
-                        "zip_base64": { "type": "string", "description": "`deploy_static_site` only: the site inline as a base64 ZIP with `index.html` at its root." },
+                        "files": { "type": "object", "additionalProperties": { "type": "string" }, "description": "`deploy_static_site` (with an `index.html` at the root) or `deploy_zip`: the files inline, path to text content." },
+                        "zip_base64": { "type": "string", "description": "`deploy_static_site` (with `index.html` at its root) or `deploy_zip`: the files inline as a base64 ZIP." },
                         "reason": { "type": "string", "description": "One line on why, shown to the user on the confirmation card." }
                     },
                     "required": ["action"],
@@ -1559,6 +1586,20 @@ async fn project_action(
             .await,
         );
     }
+    if action == "deploy_zip" || action == "deploy_repository" {
+        return Some(
+            source_app(
+                state,
+                organization_id,
+                conversation_id,
+                actor,
+                arguments,
+                action,
+                reason,
+            )
+            .await,
+        );
+    }
     if action == "create_from_template" {
         return Some(
             from_template(
@@ -2020,6 +2061,103 @@ async fn static_site(
                 serde_json::from_str(&outcome.result).unwrap_or_default();
             result["upload_url"] = json!(upload_url);
             result["upload_command"] = json!(format!("curl -fsS -T site.zip '{upload_url}'"));
+            outcome.result = result.to_string();
+            outcome
+        }
+        Err(error) => ToolOutcome::failure(error.to_string()),
+    }
+}
+
+/// `deploy_zip` and `deploy_repository`: an application built from source in
+/// one card. A ZIP is uploaded to the returned URL (or sent inline) before the
+/// person confirms; a repository needs nothing more.
+async fn source_app(
+    state: &SharedState,
+    organization_id: &str,
+    conversation_id: &str,
+    actor: &AuthUser,
+    arguments: &serde_json::Value,
+    action: &str,
+    reason: Option<String>,
+) -> ToolOutcome {
+    let zip = action == "deploy_zip";
+    // Parsed before anything is stored, so a broken payload proposes nothing.
+    let inline = if zip {
+        match actions::inline_project(arguments) {
+            Ok(inline) => inline,
+            Err(error) => return ToolOutcome::failure(error.to_string()),
+        }
+    } else {
+        None
+    };
+    let (target, project, server_id) = match project_or_new(state, organization_id, arguments).await
+    {
+        Ok(found) => found,
+        Err(outcome) => return *outcome,
+    };
+
+    let tool = if zip {
+        actions::DEPLOY_ZIP
+    } else {
+        actions::DEPLOY_REPOSITORY
+    };
+    match actions::propose_source_app(
+        state,
+        conversation_id,
+        actor,
+        &target,
+        tool,
+        actions::SourceApp {
+            project_name: project,
+            name: string_of(arguments, "name").unwrap_or_default(),
+            server_id,
+            build_method: string_of(arguments, "build_method").unwrap_or_default(),
+            project_path: string_of(arguments, "railpack_project_path"),
+            dockerfile_path: string_of(arguments, "dockerfile_path"),
+            container_port: arguments
+                .get("container_port")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0),
+            git_url: string_of(arguments, "git_url"),
+            git_branch: string_of(arguments, "git_branch"),
+            git_provider_id: string_of(arguments, "git_provider_id"),
+            host: string_of(arguments, "host"),
+            https: arguments.get("https").and_then(|value| value.as_bool()),
+            upload_token_hash: String::new(),
+            reason,
+            application_id: None,
+        },
+    )
+    .await
+    {
+        Ok((action, _)) if !zip => ToolOutcome::proposed(
+            action,
+            "Nothing is created yet. Tell the user to confirm it in Litepod.",
+        ),
+        Ok((action, token)) => {
+            if let Some(bytes) = inline {
+                if let Err(error) = actions::stage_upload(state, &action.id, &token, &bytes).await {
+                    return ToolOutcome::failure(error.to_string());
+                }
+                let mut outcome = ToolOutcome::proposed(
+                    action,
+                    "The project is uploaded with the proposal. Tell the user to confirm it in Litepod.",
+                );
+                let mut result: serde_json::Value =
+                    serde_json::from_str(&outcome.result).unwrap_or_default();
+                result["uploaded"] = json!(true);
+                outcome.result = result.to_string();
+                return outcome;
+            }
+            let upload_url = actions::upload_url(state, &action.id, &token).await;
+            let mut outcome = ToolOutcome::proposed(
+                action,
+                "Nothing is created yet. Upload the project ZIP to `upload_url` now, then tell the user to confirm it in Litepod. The link only works while this proposal is pending.",
+            );
+            let mut result: serde_json::Value =
+                serde_json::from_str(&outcome.result).unwrap_or_default();
+            result["upload_url"] = json!(upload_url);
+            result["upload_command"] = json!(format!("curl -fsS -T project.zip '{upload_url}'"));
             outcome.result = result.to_string();
             outcome
         }

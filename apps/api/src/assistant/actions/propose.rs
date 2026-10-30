@@ -1733,3 +1733,252 @@ pub(super) fn primary_port(
         .into_iter()
         .collect()
 }
+
+/// Stores an application built from source as one card: project (existing or
+/// new), application, the source - a ZIP uploaded to the card's own URL, or a
+/// Git repository - an optional domain, and a deploy.
+///
+/// `tool` is [`DEPLOY_ZIP`] or [`DEPLOY_REPOSITORY`]. For a ZIP the upload token
+/// comes back alongside the card, shown once to the proposer; only its hash is
+/// stored. A repository needs no token and the returned one is empty.
+pub async fn propose_source_app(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    tool: &str,
+    arguments: SourceApp,
+) -> Result<(ActionDto, String), AppError> {
+    let zip = tool == DEPLOY_ZIP;
+    let name = arguments.name.trim().to_owned();
+    if name.is_empty() {
+        return Err(AppError::ValidationError(
+            "The application needs a `name`".into(),
+        ));
+    }
+    if name.chars().count() > 64 {
+        return Err(AppError::ValidationError(
+            "An application name is limited to 64 characters".into(),
+        ));
+    }
+    let project_name = project_name(Some(&arguments.project_name))?;
+    if !(1..=65_535).contains(&arguments.container_port) {
+        return Err(AppError::ValidationError(
+            "`container_port` is required: the port the app listens on (1-65535). Ask the user."
+                .into(),
+        ));
+    }
+    let build_method = match arguments.build_method.trim() {
+        "" | "railpack" => "railpack",
+        "docker" => "docker",
+        other => {
+            return Err(AppError::ValidationError(format!(
+                "`build_method` is `railpack` or `docker`, not `{other}`"
+            )));
+        }
+    }
+    .to_owned();
+    let project_path = arguments
+        .project_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .unwrap_or(".")
+        .to_owned();
+    let relative = |value: &str, what: &str| {
+        let path = std::path::Path::new(value);
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir))
+        {
+            return Err(AppError::ValidationError(format!(
+                "{what} must be a relative path inside the project"
+            )));
+        }
+        Ok(())
+    };
+    relative(&project_path, "`railpack_project_path`")?;
+    let dockerfile_path = arguments
+        .dockerfile_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned);
+    if build_method == "docker" {
+        let Some(path) = &dockerfile_path else {
+            return Err(AppError::ValidationError(
+                "A `docker` build needs `dockerfile_path`. Ask the user.".into(),
+            ));
+        };
+        relative(path, "`dockerfile_path`")?;
+    }
+
+    let (git_url, git_branch) = if zip {
+        (None, None)
+    } else {
+        let raw = arguments.git_url.as_deref().unwrap_or_default();
+        let (clean, embedded) = crate::git::git_providers::split_embedded_credentials(raw)
+            .map_err(AppError::ValidationError)?;
+        if embedded.is_some() {
+            return Err(AppError::ValidationError(
+                "Do not put credentials in `git_url`: use a public repository, or a `git_provider_id` from `get git_providers`".into(),
+            ));
+        }
+        if arguments.git_provider_id.is_none() {
+            crate::security::ssrf::parse_https_url(&clean).map_err(AppError::ValidationError)?;
+        }
+        let branch = arguments
+            .git_branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+            .unwrap_or("main")
+            .to_owned();
+        (Some(clean), Some(branch))
+    };
+
+    let host = arguments
+        .host
+        .as_deref()
+        .map(|host| host.trim().to_ascii_lowercase())
+        .filter(|host| !host.is_empty());
+    let https = host.as_deref().map(|host| {
+        arguments
+            .https
+            .unwrap_or(!deployment::domains::is_local(host))
+    });
+    if let (Some(host), Some(https)) = (&host, https) {
+        deployment::domains::validate(state, host, arguments.container_port, https)?;
+    }
+    let existing = existing_source_target(state, target, &name).await?;
+
+    let token = if zip {
+        format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        )
+    } else {
+        String::new()
+    };
+    let what = if zip {
+        "the uploaded ZIP".to_owned()
+    } else {
+        format!("the repository {}", git_url.as_deref().unwrap_or_default())
+    };
+    let title = format!("Deploy {name} from {what} in {project_name}");
+    let summary = arguments.reason.clone().unwrap_or_else(|| {
+        let mut steps = Vec::new();
+        if target.project_id.is_empty() {
+            steps.push(format!("creates the project {project_name}"));
+        }
+        match &existing {
+            Some(_) => steps.push(format!("sets the source of {name} to {what}")),
+            None => steps.push(format!("creates the application {name} from {what}")),
+        }
+        steps.push(format!(
+            "builds it with {build_method} on port {}",
+            arguments.container_port
+        ));
+        if let Some(host) = &host {
+            let scheme = if https == Some(true) { "https" } else { "http" };
+            steps.push(format!("serves it on {scheme}://{host}"));
+        }
+        let mut text = steps.join(", ");
+        text[..1].make_ascii_uppercase();
+        format!("{text}.")
+    });
+
+    let encoded = serde_json::to_string(&SourceApp {
+        project_name: project_name.clone(),
+        name: name.clone(),
+        build_method,
+        project_path: Some(project_path),
+        dockerfile_path,
+        git_url,
+        git_branch,
+        host: host.clone(),
+        https,
+        upload_token_hash: if zip {
+            super::upload::hash_token(&token)
+        } else {
+            String::new()
+        },
+        application_id: existing,
+        ..arguments
+    })
+    .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let stored = store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        tool,
+        &encoded,
+        title,
+        summary,
+    )
+    .await?;
+
+    Ok((
+        ActionDto {
+            added: Some(match &host {
+                Some(host) => format!("{project_name}/{name} on {host}"),
+                None => format!("{project_name}/{name}"),
+            }),
+            ..stored
+        },
+        token,
+    ))
+}
+
+/// The id of the application called `name` in the target environment when a
+/// source may go into it: one never deployed with no repository or image, or
+/// one already built from an uploaded ZIP. Anything else under that name is
+/// refused, since overwriting it would lose a working configuration.
+pub(super) async fn existing_source_target(
+    state: &SharedState,
+    target: &ActionTarget,
+    name: &str,
+) -> Result<Option<String>, AppError> {
+    if target.project_id.is_empty() {
+        return Ok(None);
+    }
+    let detail = crate::cqrs::queries::project::get_project(
+        state,
+        &target.organization_id,
+        &target.project_id,
+    )
+    .await?;
+    let environment = detail
+        .environments
+        .iter()
+        .find(|environment| environment.id == target.environment_id)
+        .ok_or(AppError::EnvironmentNotFound)?;
+    let Some(application) = environment
+        .applications
+        .iter()
+        .find(|application| application.name.eq_ignore_ascii_case(name))
+    else {
+        return Ok(None);
+    };
+
+    let source = deployment::source::get(state, &application.id).await?;
+    if source.source_upload {
+        return Ok(Some(application.id.clone()));
+    }
+    let empty = source.git_url.is_none()
+        && source.image_url.is_none()
+        && deployment::history::list(state, &application.id)
+            .await?
+            .is_empty();
+    if empty {
+        return Ok(Some(application.id.clone()));
+    }
+    Err(AppError::ValidationError(format!(
+        "`{}` already has an application called `{name}`, set up as a {} deploy. \
+         Change it with `set_source`, pick another name, or remove it in Litepod first.",
+        environment.name, source.deploy_type
+    )))
+}

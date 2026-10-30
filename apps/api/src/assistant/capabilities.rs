@@ -52,6 +52,8 @@ pub const ACTIONS: &[&str] = &[
     "deploy_static_site",
     "create_from_template",
     "deploy_compose",
+    "deploy_zip",
+    "deploy_repository",
 ];
 
 pub fn resource_allowed(resource: &str) -> bool {
@@ -79,8 +81,8 @@ pub fn mcp_direct(action: &str) -> bool {
 /// asks its human before a tool call, and the audit log keeps every step.
 ///
 /// Confirming goes through the same `actions::confirm` as a person's click, so
-/// validation and permissions are unchanged. A `deploy_static_site` whose site
-/// was not sent inline stays pending: there is nothing to apply until upload.
+/// validation and permissions are unchanged. A `deploy_static_site` or `deploy_zip` whose
+/// files were not sent inline stay pending: there is nothing to apply until upload.
 pub fn mcp_auto_confirm(action: &str) -> bool {
     action_allowed(action) && !mcp_direct(action)
 }

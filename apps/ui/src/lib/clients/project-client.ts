@@ -284,6 +284,11 @@ export type SourceConfigDto = {
 	/** Credentials embedded in the pasted git URL (no saved provider) are on file
 	 * for this application. The secret itself never round-trips to the client. */
 	has_git_credentials: boolean;
+	/** The source tree is an uploaded ZIP rather than a repository clone (read-only;
+	 * uploading an archive sets it, saving a repository URL clears it). */
+	source_upload: boolean;
+	/** Size of the stored ZIP when `source_upload` is set (read-only). */
+	source_archive_bytes: number | null;
 };
 
 export type DeployHookDto = {
@@ -2390,6 +2395,33 @@ export async function uploadApplicationArtifact(
 		form,
 	);
 	return data!;
+}
+
+/** Stores a ZIP as the application's source tree, in place of a repository. */
+export async function uploadApplicationSourceArchive(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	archive: File,
+): Promise<SourceConfigDto> {
+	const form = new FormData();
+	form.append('archive', archive);
+	const { data } = await apiForm<SourceConfigDto>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'source-archive'),
+		form,
+	);
+	return data!;
+}
+
+/** The uploaded source ZIP, as it was stored. */
+export function applicationSourceArchiveDownloadUrl(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): string {
+	return `${API_URL}${deploymentPath(organizationId, projectId, environmentId, applicationId, 'source-archive')}`;
 }
 
 export async function uploadApplicationIcon(

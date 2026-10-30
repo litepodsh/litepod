@@ -1,4 +1,4 @@
-//! The upload half of `deploy_static_site`.
+//! The upload half of `deploy_static_site` and `deploy_zip`.
 //!
 //! The agent gets a URL with a one-time token when it proposes, and `curl`s
 //! the site there. The bytes wait under the action's id until a person
@@ -36,8 +36,15 @@ pub async fn upload_url(state: &SharedState, action_id: &str, token: &str) -> St
     )
 }
 
-/// Keeps an upload for a pending `deploy_static_site`. A second upload
-/// replaces the first, so a wrong zip is fixed by sending the right one.
+/// What every upload-carrying proposal stores, whatever else it holds.
+#[derive(serde::Deserialize)]
+struct UploadToken {
+    #[serde(default)]
+    upload_token_hash: String,
+}
+
+/// Keeps an upload for a pending `deploy_static_site` or `deploy_zip`. A second
+/// upload replaces the first, so a wrong zip is fixed by sending the right one.
 pub async fn stage_upload(
     state: &SharedState,
     action_id: &str,
@@ -46,10 +53,11 @@ pub async fn stage_upload(
 ) -> Result<(), AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let row = sqlx::query(
-        "SELECT arguments, status, expires_at FROM assistant_actions WHERE id = ?1 AND tool = ?2",
+        "SELECT arguments, status, expires_at, tool FROM assistant_actions WHERE id = ?1 AND tool IN (?2, ?3)",
     )
     .bind(action_id)
     .bind(DEPLOY_STATIC_SITE)
+    .bind(DEPLOY_ZIP)
     .fetch_optional(&conn)
     .await
     .map_err(|error| AppError::DatabaseError(error.to_string()))?
@@ -63,7 +71,10 @@ pub async fn stage_upload(
     let expires_at: i64 = row
         .try_get(2)
         .map_err(|error| AppError::DatabaseError(error.to_string()))?;
-    let site: StaticSite = serde_json::from_str(&arguments)
+    let tool: String = row
+        .try_get(3)
+        .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    let site: UploadToken = serde_json::from_str(&arguments)
         .map_err(|error| AppError::InternalError(error.to_string()))?;
     // A wrong token answers like a missing action: nothing to learn by guessing.
     if site.upload_token_hash.is_empty() || site.upload_token_hash != hash_token(token) {
@@ -75,10 +86,27 @@ pub async fn stage_upload(
         ));
     }
 
-    let filename = match crate::deployment::file_kind("upload", bytes)? {
-        "zip" => "site.zip",
-        _ => "index.html",
+    let filename = match crate::deployment::file_kind("upload", bytes) {
+        Ok("zip") => "site.zip",
+        _ if tool == DEPLOY_ZIP => {
+            return Err(AppError::ValidationError(
+                "Send the project as a ZIP archive.".into(),
+            ));
+        }
+        Ok(_) => "index.html",
+        Err(error) => return Err(error),
     };
+    // A source project is allowed to be bigger than a site.
+    if tool == DEPLOY_STATIC_SITE && bytes.len() > MAX_SITE_BYTES {
+        return Err(AppError::ValidationError(
+            "The site is larger than 10 MB, the upload limit.".into(),
+        ));
+    }
+    if bytes.len() > crate::deployment::source_archive::MAX_ARCHIVE_BYTES {
+        return Err(AppError::ValidationError(
+            "The ZIP is larger than 100 MB, the upload limit.".into(),
+        ));
+    }
     let dir = staging_dir(state, action_id);
     let _ = tokio::fs::remove_dir_all(&dir).await;
     tokio::fs::create_dir_all(&dir)
@@ -97,6 +125,16 @@ const MAX_SITE_BYTES: usize = 10 * 1024 * 1024;
 /// whose sandbox cannot reach this host: `zip_base64`, or `files` as path to
 /// text content, zipped here. `None` when the call carries neither.
 pub fn inline_site(arguments: &serde_json::Value) -> Result<Option<Vec<u8>>, AppError> {
+    inline_files(arguments, true)
+}
+
+/// The same for a source project: `files` needs no `index.html`, and the ZIP
+/// may be up to the source upload limit.
+pub fn inline_project(arguments: &serde_json::Value) -> Result<Option<Vec<u8>>, AppError> {
+    inline_files(arguments, false)
+}
+
+fn inline_files(arguments: &serde_json::Value, site: bool) -> Result<Option<Vec<u8>>, AppError> {
     use base64::Engine;
     use std::io::{Cursor, Write};
 
@@ -106,12 +144,12 @@ pub fn inline_site(arguments: &serde_json::Value) -> Result<Option<Vec<u8>>, App
             .map_err(|error| {
                 AppError::ValidationError(format!("`zip_base64` is not base64: {error}"))
             })?;
-        return sized(bytes).map(Some);
+        return sized(bytes, site).map(Some);
     }
     let Some(files) = arguments.get("files").and_then(|value| value.as_object()) else {
         return Ok(None);
     };
-    if !files.contains_key("index.html") {
+    if site && !files.contains_key("index.html") {
         return Err(AppError::ValidationError(
             "`files` needs an `index.html` at the root".into(),
         ));
@@ -141,14 +179,19 @@ pub fn inline_site(arguments: &serde_json::Value) -> Result<Option<Vec<u8>>, App
         .finish()
         .map_err(|error| AppError::InternalError(error.to_string()))?
         .into_inner();
-    sized(bytes).map(Some)
+    sized(bytes, site).map(Some)
 }
 
-fn sized(bytes: Vec<u8>) -> Result<Vec<u8>, AppError> {
+fn sized(bytes: Vec<u8>, site: bool) -> Result<Vec<u8>, AppError> {
     if bytes.is_empty() {
-        return Err(AppError::ValidationError("The site is empty".into()));
+        return Err(AppError::ValidationError("The upload is empty".into()));
     }
-    if bytes.len() > MAX_SITE_BYTES {
+    if !site && bytes.len() > crate::deployment::source_archive::MAX_ARCHIVE_BYTES {
+        return Err(AppError::ValidationError(
+            "The project is larger than 100 MB, the upload limit.".into(),
+        ));
+    }
+    if site && bytes.len() > MAX_SITE_BYTES {
         return Err(AppError::ValidationError(
             "The site is larger than 10 MB, the upload limit.".into(),
         ));

@@ -394,8 +394,9 @@ pub async fn enqueue(
     created_by: Option<&str>,
 ) -> Result<super::queue::DeploymentJobDto, AppError> {
     let source = super::source::get(state, application_id).await?;
-    let missing = source.git_url.as_deref().unwrap_or("").trim().is_empty()
-        || source.git_branch.as_deref().unwrap_or("").trim().is_empty()
+    let missing = (!source.source_upload
+        && (source.git_url.as_deref().unwrap_or("").trim().is_empty()
+            || source.git_branch.as_deref().unwrap_or("").trim().is_empty()))
         || source.container_port.is_none();
     let method_ready = match source.build_method.as_str() {
         "docker" => source
@@ -477,8 +478,16 @@ pub async fn enqueue_rollback(
     created_by: Option<&str>,
 ) -> Result<super::queue::DeploymentJobDto, AppError> {
     let source = super::source::get(state, application_id).await?;
-    let missing = source.git_url.as_deref().unwrap_or("").trim().is_empty()
-        || source.git_branch.as_deref().unwrap_or("").trim().is_empty()
+    if source.source_upload
+        && super::source_archive::version_file(state, application_id, target_sha).is_none()
+    {
+        return Err(AppError::ValidationError(
+            "That version's ZIP is no longer kept (the last 10 uploads are). Upload it again.".into(),
+        ));
+    }
+    let missing = (!source.source_upload
+        && (source.git_url.as_deref().unwrap_or("").trim().is_empty()
+            || source.git_branch.as_deref().unwrap_or("").trim().is_empty()))
         || source.container_port.is_none();
     let method_ready = match source.build_method.as_str() {
         "docker" => source
@@ -980,6 +989,36 @@ where
     }
 }
 
+/// The uploaded-ZIP counterpart of the clone: a fresh workspace with the
+/// archive's files. The archive's short hash stands in for the commit, so the
+/// run history still says which upload was built.
+async fn unpack_upload(
+    state: &SharedState,
+    application_id: &str,
+    run_id: &str,
+    repo: &Path,
+    pinned: Option<&str>,
+) -> Result<(), String> {
+    let _ = super::history::append(state, run_id, "info", "Unpacking the uploaded archive").await;
+    // A rollback names the upload it wants; a normal deploy builds the latest.
+    let archive = match pinned {
+        Some(id) => super::source_archive::version_file(state, application_id, id)
+            .ok_or("That version's ZIP is no longer kept. Upload it again.")?,
+        None => super::source_archive::archive_file(state, application_id),
+    };
+    let destination = repo.to_path_buf();
+    let id = tokio::task::spawn_blocking(move || {
+        let _ = std::fs::remove_dir_all(&destination);
+        super::source_archive::unpack(&archive, &destination)
+    })
+    .await
+    .map_err(|error| format!("Unpack task failed: {error}"))??;
+    let _ =
+        super::history::set_commit(state, run_id, &id, "Uploaded ZIP archive", None, None).await;
+    let _ = super::history::append(state, run_id, "info", "Archive unpacked").await;
+    Ok(())
+}
+
 async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Result<(), String> {
     let source = super::source::get(state, application_id)
         .await
@@ -990,102 +1029,110 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
     let target_sha = super::history::commit_sha(state, run_id)
         .await
         .map_err(|e| e.to_string())?;
-    let repository_url = source.git_url.as_deref().unwrap_or_default();
-    let credentials: Option<(String, String)> = if let Some(provider_id) =
-        source.git_provider_id.clone()
-    {
-        let (provider_host, allow_private) = git_providers::provider_host_url(state, &provider_id)
-            .await
-            .map_err(|e| e.to_string())?;
-        crate::security::ssrf::validate_for_host(repository_url, &provider_host, allow_private)
-            .await
-            .map_err(|e| e.to_string())?;
-        let _ = super::history::append(state, run_id, "info", "Resolving Git credentials").await;
-        // Resolved per deploy: GitHub App installation tokens live one hour, so the clone must
-        // use a token minted now rather than anything persisted on the provider row.
-        let resolved = git_providers::resolve_credentials(state, &provider_id)
-            .await
-            .map_err(|e| e.to_string())?;
-        Some((resolved.username, resolved.secret))
-    } else {
-        // No saved provider: anonymous public clone, or credentials the user
-        // embedded in the pasted URL and that were saved (encrypted) at source-save time.
-        crate::security::ssrf::validate_public_url(repository_url)
-            .await
-            .map_err(|e| e.to_string())?;
-        git_providers::application_git_credentials(state, application_id)
-            .await
-            .map_err(|e| e.to_string())?
-    };
-    let _ = super::history::append(state, run_id, "info", "Preparing repository workspace").await;
-    let _ = super::history::append(state, run_id, "info", "Cloning repository").await;
-    // Clone (fresh directory every deploy).
     let repo = repo_dir(state, application_id);
-    // Ensure complete cleanup - retry removal if files are temporarily locked (macOS).
-    for attempt in 0..5 {
-        if !repo.exists() {
-            break;
+    if source.source_upload {
+        let _ = super::history::append(state, run_id, "info", "Preparing source workspace").await;
+        unpack_upload(state, application_id, run_id, &repo, target_sha.as_deref()).await?;
+    } else {
+        let repository_url = source.git_url.as_deref().unwrap_or_default();
+        let credentials: Option<(String, String)> = if let Some(provider_id) =
+            source.git_provider_id.clone()
+        {
+            let (provider_host, allow_private) =
+                git_providers::provider_host_url(state, &provider_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            crate::security::ssrf::validate_for_host(repository_url, &provider_host, allow_private)
+                .await
+                .map_err(|e| e.to_string())?;
+            let _ =
+                super::history::append(state, run_id, "info", "Resolving Git credentials").await;
+            // Resolved per deploy: GitHub App installation tokens live one hour, so the clone must
+            // use a token minted now rather than anything persisted on the provider row.
+            let resolved = git_providers::resolve_credentials(state, &provider_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            Some((resolved.username, resolved.secret))
+        } else {
+            // No saved provider: anonymous public clone, or credentials the user
+            // embedded in the pasted URL and that were saved (encrypted) at source-save time.
+            crate::security::ssrf::validate_public_url(repository_url)
+                .await
+                .map_err(|e| e.to_string())?;
+            git_providers::application_git_credentials(state, application_id)
+                .await
+                .map_err(|e| e.to_string())?
+        };
+        let _ =
+            super::history::append(state, run_id, "info", "Preparing repository workspace").await;
+        let _ = super::history::append(state, run_id, "info", "Cloning repository").await;
+        // Clone (fresh directory every deploy).
+        // Ensure complete cleanup - retry removal if files are temporarily locked (macOS).
+        for attempt in 0..5 {
+            if !repo.exists() {
+                break;
+            }
+            match std::fs::remove_dir_all(&repo) {
+                Ok(()) => break,
+                Err(_) if attempt < 4 => std::thread::sleep(std::time::Duration::from_millis(200)),
+                Err(e) => return Err(format!("Could not clean repo directory: {e}")),
+            }
         }
-        match std::fs::remove_dir_all(&repo) {
-            Ok(()) => break,
-            Err(_) if attempt < 4 => std::thread::sleep(std::time::Duration::from_millis(200)),
-            Err(e) => return Err(format!("Could not clean repo directory: {e}")),
-        }
-    }
-    // Do NOT pre-create the directory - let git2's clone handle all .git structure creation.
-    // Pre-creating can cause race conditions on macOS where git2 tries to write lock files
-    // before its internal directory setup completes.
-    {
-        let url = source.git_url.clone().unwrap();
-        let branch = source.git_branch.clone().unwrap();
-        let destination = repo.clone();
-        let clone_credentials = credentials.clone();
-        let clone_target_sha = target_sha.clone();
-        let (progress_tx, progress_rx) = std::sync::mpsc::channel();
-        let mut clone_task = tokio::task::spawn_blocking(move || {
-            clone_repo(
-                &url,
-                &branch,
-                clone_target_sha.as_deref(),
-                clone_credentials
-                    .as_ref()
-                    .map(|(u, p)| (u.as_str(), p.as_str())),
-                &destination,
-                Some(progress_tx),
-            )
-        });
-        let mut progress_tick = tokio::time::interval(std::time::Duration::from_millis(250));
-        let clone_result = loop {
-            tokio::select! {
-                result = &mut clone_task => break result.map_err(|e| format!("Clone task failed: {e}"))?,
-                _ = progress_tick.tick() => {
-                    while let Ok(message) = progress_rx.try_recv() {
-                        let _ = super::history::append(state, run_id, "info", &message).await;
+        // Do NOT pre-create the directory - let git2's clone handle all .git structure creation.
+        // Pre-creating can cause race conditions on macOS where git2 tries to write lock files
+        // before its internal directory setup completes.
+        {
+            let url = source.git_url.clone().unwrap();
+            let branch = source.git_branch.clone().unwrap();
+            let destination = repo.clone();
+            let clone_credentials = credentials.clone();
+            let clone_target_sha = target_sha.clone();
+            let (progress_tx, progress_rx) = std::sync::mpsc::channel();
+            let mut clone_task = tokio::task::spawn_blocking(move || {
+                clone_repo(
+                    &url,
+                    &branch,
+                    clone_target_sha.as_deref(),
+                    clone_credentials
+                        .as_ref()
+                        .map(|(u, p)| (u.as_str(), p.as_str())),
+                    &destination,
+                    Some(progress_tx),
+                )
+            });
+            let mut progress_tick = tokio::time::interval(std::time::Duration::from_millis(250));
+            let clone_result = loop {
+                tokio::select! {
+                    result = &mut clone_task => break result.map_err(|e| format!("Clone task failed: {e}"))?,
+                    _ = progress_tick.tick() => {
+                        while let Ok(message) = progress_rx.try_recv() {
+                            let _ = super::history::append(state, run_id, "info", &message).await;
+                        }
                     }
                 }
+            };
+            while let Ok(message) = progress_rx.try_recv() {
+                let _ = super::history::append(state, run_id, "info", &message).await;
             }
-        };
-        while let Ok(message) = progress_rx.try_recv() {
-            let _ = super::history::append(state, run_id, "info", &message).await;
+            let (commit_sha, commit_message, commit_author_name, commit_author_email) =
+                clone_result.map_err(|e| {
+                    format!(
+                        "Could not clone {}: {e}",
+                        source.git_url.as_deref().unwrap_or_default()
+                    )
+                })?;
+            let _ = super::history::set_commit(
+                state,
+                run_id,
+                &commit_sha,
+                &commit_message,
+                commit_author_name.as_deref(),
+                commit_author_email.as_deref(),
+            )
+            .await;
+            let _ = super::history::append(state, run_id, "info", "Repository cloned successfully")
+                .await;
         }
-        let (commit_sha, commit_message, commit_author_name, commit_author_email) = clone_result
-            .map_err(|e| {
-                format!(
-                    "Could not clone {}: {e}",
-                    source.git_url.as_deref().unwrap_or_default()
-                )
-            })?;
-        let _ = super::history::set_commit(
-            state,
-            run_id,
-            &commit_sha,
-            &commit_message,
-            commit_author_name.as_deref(),
-            commit_author_email.as_deref(),
-        )
-        .await;
-        let _ =
-            super::history::append(state, run_id, "info", "Repository cloned successfully").await;
     }
 
     if matches!(

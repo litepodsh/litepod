@@ -696,7 +696,7 @@ pub async fn assistant_upload_handler(
     let body = body.map_err(|rejection| {
         if rejection.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
             AppError::ValidationError(
-                "The site is larger than 10 MB, the upload limit. Remove large assets or host them elsewhere and upload again.".into(),
+                "The upload is larger than the limit: 10 MB for a site, 100 MB for a project ZIP. Leave out large assets, node_modules and build output and upload again.".into(),
             )
         } else {
             AppError::ValidationError(format!("Could not read the upload: {rejection}"))
@@ -742,7 +742,7 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            String::from_utf8_lossy(&body).contains("larger than 10 MB"),
+            String::from_utf8_lossy(&body).contains("larger than the limit"),
             "{}",
             String::from_utf8_lossy(&body)
         );
