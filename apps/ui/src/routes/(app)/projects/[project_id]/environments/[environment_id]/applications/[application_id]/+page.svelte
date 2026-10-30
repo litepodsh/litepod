@@ -44,9 +44,13 @@
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import ServerIcon from '@lucide/svelte/icons/server';
 	import BoxesIcon from '@lucide/svelte/icons/boxes';
+	import BoxIcon from '@lucide/svelte/icons/box';
 	import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
+	import FileCode2Icon from '@lucide/svelte/icons/file-code-2';
+	import ContainerIcon from '@lucide/svelte/icons/container';
 	import {
 		applicationVolumeWorkspace,
 		managedVolumeWorkspace,
@@ -972,6 +976,13 @@
 				? 1
 				: 0;
 		const primary = domains.find((domain) => domain.is_primary) ?? domains[0];
+		const sourceMeta: Record<string, { icon: typeof BoxIcon; label: string }> = {
+			static: { icon: BoxIcon, label: t('projects.application_general.static_files') },
+			git: { icon: GitBranchIcon, label: t('projects.application_general.git_repository') },
+			compose: { icon: FileCode2Icon, label: t('projects.application_general.compose') },
+			image: { icon: ContainerIcon, label: t('projects.application_general.registry_image') },
+		};
+		const sourceStat = source ? sourceMeta[source.deploy_type] : undefined;
 		setScopeHero({
 			title: current.name,
 			avatar: heroAvatar,
@@ -987,12 +998,22 @@
 							? `${primary.host} +${domains.length - 1}`
 							: primary.host
 						: '-',
+					href: primary?.url,
+					external: Boolean(primary),
 				},
 				{
 					label: t('projects.application_form.server'),
 					value: current.server?.name ?? current.server_group?.name ?? '-',
+					href: current.server
+						? `/organizations/${encodeURIComponent(organizationId)}/servers/${encodeURIComponent(current.server.id)}`
+						: undefined,
+					external: Boolean(current.server),
 				},
-				{ label: t('projects.application_form.source'), value: source?.deploy_type ?? '-' },
+				{
+					label: t('projects.application_form.source'),
+					value: sourceStat?.label ?? source?.deploy_type ?? '-',
+					icon: sourceStat?.icon,
+				},
 			],
 			siblingsLabel: t('projects.application.apps_in', { project: projectDetail.project.name }),
 			siblings: environment.applications.map((item) => ({

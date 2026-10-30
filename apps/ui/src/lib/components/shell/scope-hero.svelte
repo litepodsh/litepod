@@ -4,6 +4,7 @@
 	import { cn } from '#lib/utils.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 
 	/** The info card between the header and the tabs. Pages fill it with `setScopeHero`. */
 	let hero = $derived(scopeHero.current?.path === page.url.pathname ? scopeHero.current : null);
@@ -68,9 +69,23 @@
 						{#each hero.stats as stat (stat.label)}
 							<div class="stat">
 								<dt>{stat.label}</dt>
-								<dd>
-									{#if stat.href}<a href={stat.href} class="hover:underline">{stat.value}</a>
-									{:else}{stat.value}{/if}
+								<dd class="flex items-center gap-1.5">
+									{#if stat.icon}
+										{@const Icon = stat.icon}
+										<Icon class="size-3.5 shrink-0 text-muted-foreground" />
+									{/if}
+									{#if stat.href}
+										<a
+											href={stat.href}
+											target={stat.external ? '_blank' : undefined}
+											rel={stat.external ? 'noreferrer' : undefined}
+											class="min-w-0 truncate hover:underline">{stat.value}</a>
+										{#if stat.external}
+											<ExternalLinkIcon class="size-3 shrink-0 text-muted-foreground" />
+										{/if}
+									{:else}
+										<span class="min-w-0 truncate">{stat.value}</span>
+									{/if}
 								</dd>
 							</div>
 						{/each}
@@ -119,10 +134,8 @@
 		font-size: 12px;
 	}
 	dd {
-		overflow: hidden;
+		min-width: 0;
 		font-weight: 500;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.siblings {
 		display: flex;

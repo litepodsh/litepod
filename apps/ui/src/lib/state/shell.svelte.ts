@@ -69,7 +69,14 @@ export function clearShellTabs() {
 	shellTabs.path = null;
 }
 
-export type HeroStat = { label: string; value: string; href?: string };
+export type HeroStat = {
+	label: string;
+	value: string;
+	href?: string;
+	/** Opens `href` in a new tab, with an external-link icon next to the value. */
+	external?: boolean;
+	icon?: Component;
+};
 export type HeroSibling = {
 	id: string;
 	label: string;
