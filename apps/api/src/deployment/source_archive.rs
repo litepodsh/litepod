@@ -292,6 +292,30 @@ mod tests {
         (dir, out)
     }
 
+    #[tokio::test]
+    async fn an_earlier_upload_stays_available_for_rollback() {
+        let (state, path) = crate::testing::test_state().await;
+        let first = zip_of(&[("a.txt", "one")]);
+        let second = zip_of(&[("a.txt", "two")]);
+        store(&state, "app-1", &first).await.unwrap();
+        store(&state, "app-1", &second).await.unwrap();
+
+        // The current file is the latest; the first is still kept by its id.
+        assert_eq!(
+            std::fs::read(archive_file(&state, "app-1")).unwrap(),
+            second
+        );
+        let kept = version_file(&state, "app-1", &short_id(&first)).expect("first is kept");
+        let out = scratch().join("out");
+        unpack(&kept, &out).unwrap();
+        assert_eq!(std::fs::read_to_string(out.join("a.txt")).unwrap(), "one");
+
+        // Only ids this module produced name a file.
+        assert!(version_file(&state, "app-1", "../../etc/pa").is_none());
+        assert!(version_file(&state, "app-1", "000000000000").is_none());
+        crate::testing::cleanup_database(&path);
+    }
+
     #[test]
     fn a_wrapping_folder_is_stripped() {
         let (_dir, out) = unpacked(&[("app-main/package.json", "{}"), ("app-main/src/a.js", "")]);

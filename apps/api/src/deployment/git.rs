@@ -482,7 +482,8 @@ pub async fn enqueue_rollback(
         && super::source_archive::version_file(state, application_id, target_sha).is_none()
     {
         return Err(AppError::ValidationError(
-            "That version's ZIP is no longer kept (the last 10 uploads are). Upload it again.".into(),
+            "That version's ZIP is no longer kept (the last 10 uploads are). Upload it again."
+                .into(),
         ));
     }
     let missing = (!source.source_upload
