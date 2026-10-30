@@ -41,6 +41,8 @@ url = "URL"
 
 [form-dialog]
 add_provider = "Add provider"
+auth_gitea_oauth = "OAuth (authorize with your instance)"
+auth_hint_gitea_oauth = "OAuth: you authorize Litepod from your instance, no token to paste. After adding the provider, follow the steps on its card to create the OAuth app and connect."
 auth_hint_oauth2 = "OAuth2 token: sent as oauth2:<token>. The username below is only a label — the token identifies you."
 auth_hint_token = "Personal access token: sent in the Authorization header and used with the username below."
 auth_method = "Authentication method"

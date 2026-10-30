@@ -20,6 +20,7 @@
 	// personal access tokens (sent in the `Authorization: token` header).
 	const AUTH_METHOD_TYPES = ['gitea', 'forgejo'];
 	const AUTH_METHODS = [
+		{ value: 'gitea_oauth', label: 'git-providers.form-dialog.auth_gitea_oauth' },
 		{ value: 'oauth2', label: 'git-providers.form-dialog.auth_oauth2' },
 		{ value: 'token', label: 'git-providers.form-dialog.auth_token' },
 	] as const;
@@ -109,10 +110,14 @@
 		wasOpen = open;
 	});
 
-	// Gitea/Forgejo default to OAuth2; everything else uses its token header.
+	// Gitea/Forgejo default to the OAuth flow; everything else uses its token header.
 	function defaultAuthMethod(type: string) {
-		return AUTH_METHOD_TYPES.includes(type) ? 'oauth2' : 'token';
+		return AUTH_METHOD_TYPES.includes(type) ? 'gitea_oauth' : 'token';
 	}
+
+	// The OAuth app is created after the provider (its redirect URI embeds the provider id),
+	// so this method collects no credentials here — the provider card finishes the flow.
+	let isOauth = $derived(authMethod === 'gitea_oauth');
 
 	let showAuthMethod = $derived(AUTH_METHOD_TYPES.includes(providerType));
 	let activeAuthMethod = $derived(
@@ -174,11 +179,11 @@
 			toast.error(t('git-providers.form-dialog.name_required'));
 			return;
 		}
-		if (!username.trim()) {
+		if (!isOauth && !username.trim()) {
 			toast.error(t('git-providers.form-dialog.username_required'));
 			return;
 		}
-		if (!provider && !password) {
+		if (!isOauth && !provider && !password) {
 			toast.error(t('git-providers.form-dialog.password_required'));
 			return;
 		}
@@ -188,9 +193,10 @@
 				name: name.trim(),
 				provider_type: providerType,
 				host_url: hostUrl.trim(),
-				username: username.trim(),
+				username: username.trim() || name.trim(),
 				auth_method: authMethod,
-				...(password ? { password } : {}),
+				// Stored password is unused by `gitea_oauth` but the column is NOT NULL.
+				...(isOauth ? (provider ? {} : { password: 'oauth' }) : password ? { password } : {}),
 			});
 			open = false;
 		} catch (error) {
@@ -255,9 +261,11 @@
 						</Select.Content>
 					</Select.Root>
 					<p class="text-xs text-muted-foreground">
-						{authMethod === 'oauth2'
-							? t('git-providers.form-dialog.auth_hint_oauth2')
-							: t('git-providers.form-dialog.auth_hint_token')}
+						{authMethod === 'gitea_oauth'
+							? t('git-providers.form-dialog.auth_hint_gitea_oauth')
+							: authMethod === 'oauth2'
+								? t('git-providers.form-dialog.auth_hint_oauth2')
+								: t('git-providers.form-dialog.auth_hint_token')}
 					</p>
 				</div>
 			{/if}
@@ -281,6 +289,7 @@
 					oninput={clearTest}
 					placeholder="https://github.com" />
 			</div>
+			{#if !isOauth}
 			<div class="grid gap-2">
 				<Label for="provider-username">{t('git-providers.form-dialog.username')}</Label>
 				<Input
@@ -388,6 +397,7 @@
 					{/if}
 				</div>
 			</section>
+			{/if}
 		</form>
 		<Dialog.Footer class="shrink-0 border-t border-border bg-popover/50 px-6 py-4">
 			<Button type="button" variant="outline" onclick={() => (open = false)}

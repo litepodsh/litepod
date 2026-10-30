@@ -69,23 +69,22 @@
 						{#each hero.stats as stat (stat.label)}
 							<div class="stat">
 								<dt>{stat.label}</dt>
-								<dd class="flex items-center gap-1.5">
-									{#if stat.icon}
-										{@const Icon = stat.icon}
-										<Icon class="size-3.5 shrink-0 text-muted-foreground" />
-									{/if}
-									{#if stat.href}
-										<a
-											href={stat.href}
-											target={stat.external ? '_blank' : undefined}
-											rel={stat.external ? 'noreferrer' : undefined}
-											class="min-w-0 truncate hover:underline">{stat.value}</a>
-										{#if stat.external}
+								<dd>
+									<svelte:element
+										this={stat.href ? 'a' : 'span'}
+										href={stat.href}
+										target={stat.href && stat.external ? '_blank' : undefined}
+										rel={stat.href && stat.external ? 'noreferrer' : undefined}
+										class={cn('flex min-w-0 items-center gap-1.5', stat.href && 'group/stat')}>
+										{#if stat.icon}
+											{@const Icon = stat.icon}
+											<Icon class="size-3.5 shrink-0 text-muted-foreground" />
+										{/if}
+										<span class="min-w-0 truncate group-hover/stat:underline">{stat.value}</span>
+										{#if stat.href && stat.external}
 											<ExternalLinkIcon class="size-3 shrink-0 text-muted-foreground" />
 										{/if}
-									{:else}
-										<span class="min-w-0 truncate">{stat.value}</span>
-									{/if}
+									</svelte:element>
 								</dd>
 							</div>
 						{/each}

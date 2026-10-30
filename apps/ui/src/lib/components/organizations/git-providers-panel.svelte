@@ -216,13 +216,23 @@
 		}
 	}
 
+	// A fresh `gitea_oauth` provider still needs its OAuth app and Connect: open the card.
+	function expandGiteaOAuth(provider: GitProviderDto) {
+		if (provider.auth_method !== 'gitea_oauth') return;
+		expandedGiteaOAuth = { ...expandedGiteaOAuth, [provider.id]: true };
+		localStorage.setItem('gitea-oauth-expanded', JSON.stringify(expandedGiteaOAuth));
+	}
+
 	async function submit(input: GitProviderInput) {
 		if (editing) {
 			const updated = await updateGitProvider(organizationId, editing.id, input);
 			providers = providers.map((provider) => (provider.id === updated.id ? updated : provider));
+			expandGiteaOAuth(updated);
 			toast.success(t('operations.git_providers.provider_saved'));
 		} else {
-			providers = [...providers, await createGitProvider(organizationId, input)];
+			const created = await createGitProvider(organizationId, input);
+			providers = [...providers, created];
+			expandGiteaOAuth(created);
 			toast.success(t('operations.git_providers.provider_added'));
 		}
 		invalidateOnboarding();
