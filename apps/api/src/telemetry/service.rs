@@ -57,20 +57,41 @@ async fn stored_enabled(pool: &sqlx::SqlitePool) -> Result<bool, sqlx::Error> {
         .map(|enabled| enabled != 0)
 }
 
-async fn ping(state: &SharedState) -> Result<(), Box<dyn std::error::Error>> {
+/// `toggle` is `Some("enabled" | "disabled")` when the sysadmin flips the setting, so the
+/// status service can tell a manual opt-out apart from an instance that just stopped pinging.
+async fn ping(state: &SharedState, toggle: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let id = instance_id(&state.db).await?;
     let base =
         std::env::var("LITEPOD_TELEMETRY_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
     let url = format!("{}{ALIVE_PATH}", base.trim_end_matches('/'));
+    let mut body = serde_json::json!({ "instance_id": id, "version": state.version, "is_cloud": state.is_cloud });
+    if let Some(toggle) = toggle {
+        body["telemetry"] = toggle.into();
+    }
     reqwest::Client::builder()
         .timeout(TIMEOUT)
         .build()?
         .post(url)
-        .json(&serde_json::json!({ "instance_id": id, "version": state.version, "is_cloud": state.is_cloud }))
+        .json(&body)
         .send()
         .await?
         .error_for_status()?;
     Ok(())
+}
+
+/// One-off ping reporting that the sysadmin turned telemetry on or off. Skipped for dev builds
+/// and when `LITEPOD_TELEMETRY=off` forces it off (the toggle has no effect then).
+pub(super) fn notify_toggle(state: &SharedState, enabled: bool) {
+    if state.dev_mode || state.version == "dev" || env_disabled() {
+        return;
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        let toggle = if enabled { "enabled" } else { "disabled" };
+        if let Err(error) = ping(&state, Some(toggle)).await {
+            tracing::debug!(%error, "telemetry toggle ping failed");
+        }
+    });
 }
 
 /// Daily ping loop. Skipped for dev builds. Litepod Cloud pings too, flagged `is_cloud`,
@@ -85,7 +106,7 @@ pub fn spawn(state: SharedState) {
         loop {
             // Re-read the setting every round so a toggle takes effect without a restart.
             let enabled = !env_disabled() && stored_enabled(&state.db).await.unwrap_or(false);
-            if enabled && let Err(error) = ping(&state).await {
+            if enabled && let Err(error) = ping(&state, None).await {
                 tracing::debug!(%error, "telemetry ping failed");
             }
             tokio::time::sleep(INTERVAL).await;

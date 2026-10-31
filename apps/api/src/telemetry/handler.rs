@@ -2,7 +2,7 @@ use axum::{Extension, Json, extract::State, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
-use super::service::{env_disabled, instance_id};
+use super::service::{env_disabled, instance_id, notify_toggle};
 use crate::dtos::response::{AppError, ok};
 use crate::security::middleware::auth::AuthUser;
 use crate::state::state::SharedState;
@@ -60,6 +60,7 @@ pub async fn update_handler(
     if !user.is_sysadmin {
         return Err(AppError::InsufficientPermissions);
     }
+    let was_enabled = load(&state).await?.enabled;
     sqlx::query(
         "UPDATE instance_telemetry SET enabled = ?1, notice_acknowledged = 1, updated_at = datetime('now') WHERE id = 1",
     )
@@ -79,6 +80,9 @@ pub async fn update_handler(
         }),
     )
     .await;
+    if was_enabled != request.enabled {
+        notify_toggle(&state, request.enabled);
+    }
     Ok(ok(load(&state).await?))
 }
 
