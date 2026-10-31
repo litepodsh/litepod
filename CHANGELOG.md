@@ -22,6 +22,20 @@ the user-facing summary and the migrations each release adds.
 - **Back up before updating Litepod.** Optional switch (Settings → Backups): applying an update
   first saves an instance backup and cancels the update if the backup fails. Migration `0082`.
   Docs: `apps/docs/containers/backup-before-update.md`.
+- **Containers can call apps on the same server by their HTTPS domain.** On rootless Podman,
+  `pasta` gave containers the host's public IP, so a request to a domain on the same server
+  (`https://loki.example.com` from Uptime Kuma) failed with "connection refused". The installer
+  and server Setup/Repair now write
+  `~/.config/containers/containers.conf.d/50-litepod-network.conf`, which moves containers to
+  `10.0.2.0/24` and points `host.containers.internal` at `10.0.2.2`. Docs: `servers` →
+  "Networking between apps".
+
+### Action required
+
+- **Existing rootless installations don't get the network fix from the in-panel update.** To
+  apply it, re-run the installer in the same channel on the Litepod server
+  (`curl -fsSL https://litepod.sh/install.sh | bash`; data and volumes are kept) and run
+  **Repair** on each remote server. It takes effect after the next server reboot.
 
 ### Changed
 

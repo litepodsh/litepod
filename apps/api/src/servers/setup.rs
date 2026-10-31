@@ -54,6 +54,21 @@ pub(crate) const QUICK_TIMEOUT: Duration = Duration::from_secs(45);
 const DEFAULT_REGISTRY_PATH: &str =
     "/etc/containers/registries.conf.d/99-litepod-default-registry.conf";
 const DEFAULT_REGISTRY_CONF: &str = "unqualified-search-registries = [\"docker.io\"]\n";
+/// pasta hands rootless containers the host's own public IP, so an app calling another app on
+/// the same server by its domain connects to itself and is refused. A private address sends that
+/// traffic out through pasta to Caddy; `host.containers.internal` moves to the gateway, mapped to
+/// the host. Same file name and contents as `configure_rootless_network()` in
+/// `scripts/install.sh`. Relative to the SSH user's home; a later drop-in overrides it.
+const ROOTLESS_NETWORK_DIR: &str = ".config/containers/containers.conf.d";
+const ROOTLESS_NETWORK_PATH: &str = ".config/containers/containers.conf.d/50-litepod-network.conf";
+const ROOTLESS_NETWORK_CONF: &str = "# Managed by litepod: the installer and server Setup/Repair rewrite this file.
+# Override in a later drop-in (e.g. 99-local.conf) instead of editing it.
+[containers]
+host_containers_internal_ip = \"10.0.2.2\"
+
+[network]
+pasta_options = [\"-a\", \"10.0.2.0\", \"-n\", \"24\", \"-g\", \"10.0.2.2\", \"--dns-forward\", \"10.0.2.3\", \"--map-host-loopback\", \"10.0.2.2\"]
+";
 const FAIL2BAN_SSHD_PATH: &str = "/etc/fail2ban/jail.d/litepod-sshd.local";
 const ROOTFUL_PODMAN_SOCKET_DROPIN: &str =
     "/etc/systemd/system/podman.socket.d/10-litepod-terminal.conf";
@@ -455,6 +470,35 @@ async fn install_default_registry(server: &ServerRecord) -> Result<(), AppError>
         "registries.conf",
         DEFAULT_REGISTRY_PATH,
         "0644",
+    )
+    .await
+}
+
+/// Podman reads it when the rootless network namespace is created, so a host that already runs
+/// containers picks it up after its next reboot.
+async fn configure_rootless_network(server: &ServerRecord) -> Result<(), AppError> {
+    let target = target(server)?;
+    let (key, fingerprint, known_hosts) = credentials(server)?;
+    let staged = crate::servers::ssh::SecretFile::write(ROOTLESS_NETWORK_CONF)?;
+    SshExecutor::run(
+        &target,
+        key,
+        fingerprint,
+        known_hosts,
+        &[
+            OsString::from("mkdir"),
+            OsString::from("-p"),
+            OsString::from(ROOTLESS_NETWORK_DIR),
+        ],
+    )
+    .await?;
+    SshExecutor::copy_file(
+        &target,
+        key,
+        fingerprint,
+        known_hosts,
+        staged.path(),
+        ROOTLESS_NETWORK_PATH,
     )
     .await
 }
@@ -1410,6 +1454,21 @@ where
             }
             other => other,
         })?;
+    if server.podman_mode == PodmanMode::Rootless {
+        on_step(
+            "configure-rootless-network",
+            "Running configure-rootless-network; running containers pick it up after the next reboot".to_string(),
+        )
+        .await?;
+        configure_rootless_network(server)
+            .await
+            .map_err(|error| match error {
+                AppError::ValidationError(message) => {
+                    AppError::ValidationError(format!("Step configure-rootless-network: {message}"))
+                }
+                other => other,
+            })?;
+    }
     if server.podman_mode == PodmanMode::Rootful {
         on_step(
             "configure-rootful-terminal-socket",
@@ -1513,6 +1572,18 @@ mod tests {
         assert!(DEFAULT_REGISTRY_CONF.contains("unqualified-search-registries"));
         assert!(DEFAULT_REGISTRY_CONF.contains("\"docker.io\""));
         assert!(DEFAULT_REGISTRY_CONF.ends_with('\n'));
+    }
+
+    /// The host gateway must be the address pasta maps to the host, or SSH from litepod-api to
+    /// `host.containers.internal` breaks.
+    #[test]
+    fn rootless_network_maps_host_containers_internal_to_the_host() {
+        use super::{ROOTLESS_NETWORK_CONF, ROOTLESS_NETWORK_DIR, ROOTLESS_NETWORK_PATH};
+        assert!(ROOTLESS_NETWORK_PATH.starts_with(&format!("{ROOTLESS_NETWORK_DIR}/")));
+        assert!(ROOTLESS_NETWORK_PATH.ends_with(".conf"));
+        assert!(ROOTLESS_NETWORK_CONF.contains("host_containers_internal_ip = \"10.0.2.2\""));
+        assert!(ROOTLESS_NETWORK_CONF.contains("\"--map-host-loopback\", \"10.0.2.2\""));
+        assert!(ROOTLESS_NETWORK_CONF.ends_with('\n'));
     }
 
     #[test]
