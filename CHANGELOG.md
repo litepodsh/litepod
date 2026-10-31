@@ -3,7 +3,7 @@
 Notable changes per release. Release notes on GitHub are generated from commits; this file keeps
 the user-facing summary and the migrations each release adds.
 
-## Unreleased
+## 0.3.25
 
 ### Added
 
