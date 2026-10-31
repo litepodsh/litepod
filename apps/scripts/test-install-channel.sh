@@ -52,7 +52,7 @@ assert_eq 'Usage: bash install.sh [--alpha] [--wipe]' \
 should_run_installer_main '' bash
 should_run_installer_main scripts/install.sh scripts/install.sh
 assert_fails should_run_installer_main scripts/install.sh bash
-assert_eq v0.3.24 "${FALLBACK_LITEPOD_IMAGE_TAG}"
+assert_eq v0.3.25 "${FALLBACK_LITEPOD_IMAGE_TAG}"
 
 manifest_env="$(mktemp)"
 trap 'rm -f -- "${manifest_env}"' EXIT
