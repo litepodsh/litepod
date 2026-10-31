@@ -209,6 +209,32 @@ pub async fn start(
     Ok(record)
 }
 
+/// Waits for a backup started with [`start`] to leave `running`. Ok only if it succeeded; a
+/// failed, vanished or overlong backup is an error so a caller can refuse to go on.
+pub async fn wait_for(state: &SharedState, id: &str) -> Result<(), AppError> {
+    const POLL: std::time::Duration = std::time::Duration::from_secs(2);
+    const LIMIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+    let deadline = tokio::time::Instant::now() + LIMIT;
+    loop {
+        let record = get(state, id).await?.ok_or(AppError::ResourceNotFound)?;
+        match record.status.as_str() {
+            "success" => return Ok(()),
+            "failed" => {
+                return Err(AppError::InternalError(
+                    record.error_message.unwrap_or_else(|| "the backup failed".into()),
+                ));
+            }
+            _ => {}
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(AppError::InternalError(
+                "the backup did not finish within 30 minutes".into(),
+            ));
+        }
+        tokio::time::sleep(POLL).await;
+    }
+}
+
 async fn upload_snapshot(
     state: &SharedState,
     config: &config::S3Config,
@@ -522,5 +548,59 @@ mod tests {
         assert!(paths.iter().any(|path| path == Path::new("icons/logo.svg")));
         assert!(paths.iter().any(|path| path == Path::new("stack.env")));
         let _ = std::fs::remove_dir_all(root);
+    }
+    async fn insert_with_status(state: &SharedState, id: &str, status: &str, error: Option<&str>) {
+        sqlx::query(
+            "INSERT INTO backup_history (id, started_at, status, triggered_by, error_message) VALUES (?1, 1, ?2, 'manual', ?3)",
+        )
+        .bind(id)
+        .bind(status)
+        .bind(error)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn wait_for_accepts_only_a_successful_backup() {
+        let (state, path) = crate::testing::test_state().await;
+        insert_with_status(&state, "ok", "success", None).await;
+        insert_with_status(&state, "bad", "failed", Some("bucket unreachable")).await;
+
+        wait_for(&state, "ok").await.unwrap();
+        let error = wait_for(&state, "bad").await.unwrap_err().to_string();
+        assert!(error.contains("bucket unreachable"), "{error}");
+        assert!(matches!(
+            wait_for(&state, "missing").await,
+            Err(AppError::ResourceNotFound)
+        ));
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn backup_before_update_is_off_until_the_default_target_enables_it() {
+        let (state, path) = crate::testing::test_state().await;
+        assert!(!config::backup_before_update(&state).await.unwrap(), "no target yet");
+
+        let request = config::UpdateS3ConfigRequest {
+            endpoint_url: "https://s3.example".into(),
+            bucket: "b".into(),
+            region: "us-east-1".into(),
+            access_key_id: "k".into(),
+            secret_access_key: None,
+            schedule_enabled: false,
+            schedule_interval: None,
+            schedule_time: None,
+            backup_before_update: false,
+        };
+        config::save(&state, &request, "secret").await.unwrap();
+        assert!(!config::backup_before_update(&state).await.unwrap());
+
+        let on = config::UpdateS3ConfigRequest { backup_before_update: true, ..request };
+        let saved = config::save(&state, &on, "secret").await.unwrap();
+        assert!(saved.backup_before_update);
+        assert!(config::backup_before_update(&state).await.unwrap());
+        assert!(config::load_dto(&state).await.unwrap().unwrap().backup_before_update);
+        crate::testing::cleanup_database(&path);
     }
 }

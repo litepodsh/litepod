@@ -52,7 +52,13 @@ pub enum AppError {
     TurnstileFailed,
     /// Password login refused: the user's organization enforces single sign-on.
     SsoRequired,
+    /// The organization requires two-factor authentication and this account has
+    /// none. Account routes stay open so it can be set up.
+    TwoFactorRequired,
 }
+
+/// Machine-readable marker the UI keys on to send the user to 2FA setup.
+pub const TWO_FACTOR_REQUIRED_CODE: &str = "two_factor_required";
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -81,6 +87,10 @@ impl std::fmt::Display for AppError {
             AppError::SsoRequired => write!(
                 f,
                 "Your organization requires single sign-on. Use Continue with SSO."
+            ),
+            AppError::TwoFactorRequired => write!(
+                f,
+                "This organization requires two-factor authentication. Set it up on your account to continue."
             ),
             AppError::ResourceInUse(msg) => write!(f, "{}", msg),
             AppError::AlreadyMember => write!(f, "User is already a member of this organization"),
@@ -135,10 +145,25 @@ impl IntoResponse for AppError {
             AppError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::TurnstileFailed => StatusCode::FORBIDDEN,
             AppError::SsoRequired => StatusCode::FORBIDDEN,
+            AppError::TwoFactorRequired => StatusCode::FORBIDDEN,
         };
 
         if status == StatusCode::INTERNAL_SERVER_ERROR {
             tracing::error!(error = %self, "request failed with an internal server error");
+        }
+
+        // The one error with a `code` beside the message: a 403 the UI must
+        // tell apart from "you may not see this".
+        if matches!(self, AppError::TwoFactorRequired) {
+            return (
+                status,
+                Json(serde_json::json!({
+                    "error": self.to_string(),
+                    "data": null,
+                    "code": TWO_FACTOR_REQUIRED_CODE,
+                })),
+            )
+                .into_response();
         }
 
         let body = Json(ApiResponse::<()> {
@@ -218,6 +243,15 @@ mod security_tests {
                 "An internal error occurred. Please try again later."
             );
         }
+        let response = AppError::TwoFactorRequired.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["code"], TWO_FACTOR_REQUIRED_CODE);
+        assert!(value["data"].is_null());
+
         let response = AppError::ValidationError("Name is required".into()).into_response();
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
         let body = axum::body::to_bytes(response.into_body(), 4096)

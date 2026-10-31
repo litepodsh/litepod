@@ -229,6 +229,8 @@ jobs:
     needs: [prepare, build]
     if: needs.prepare.outputs.warm != 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       CHANNEL: ${{ needs.prepare.outputs.channel }}
@@ -283,6 +285,21 @@ jobs:
           IMAGE="${immutable_image}" REPOSITORY="${REPOSITORY}" TAG="${VERSION}" \
             bash podx/scripts/wait-for-immutable-tag.sh
           podman manifest push --all "${local_manifest}" "${moving_image}"
+
+      # The in-app "Release notes" link points at the GitHub releases page, so
+      # every tag gets a release with notes generated from its commits.
+      - name: GitHub release
+        if: env.DRY_RUN != 'true' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${VERSION}" >/dev/null 2>&1; then
+            echo "release ${VERSION} already exists"
+            exit 0
+          fi
+          flags=()
+          [[ "${CHANNEL}" == alpha ]] && flags+=(--prerelease)
+          gh release create "${VERSION}" --verify-tag --generate-notes --title "${VERSION}" "${flags[@]}"
 
       - name: Summary
         run: |

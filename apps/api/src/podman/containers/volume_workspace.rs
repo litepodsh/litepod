@@ -173,7 +173,7 @@ fn writable_host_path(root: &Path, path: &Path) -> Result<PathBuf, AppError> {
     Ok(target)
 }
 
-fn mime(path: &Path) -> Option<String> {
+pub fn mime(path: &Path) -> Option<String> {
     match path
         .extension()
         .and_then(|item| item.to_str())

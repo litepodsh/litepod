@@ -289,14 +289,13 @@ pub async fn take_grant(
     user_id: &str,
 ) -> Result<Option<String>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(
-        "SELECT code_digest FROM mcp_oauth_sessions WHERE id = ?1 AND user_id = ?2",
-    )
-    .bind(session_id)
-    .bind(user_id)
-    .fetch_optional(&conn)
-    .await
-    .map_err(|e| e.to_string())?;
+    let row =
+        sqlx::query("SELECT code_digest FROM mcp_oauth_sessions WHERE id = ?1 AND user_id = ?2")
+            .bind(session_id)
+            .bind(user_id)
+            .fetch_optional(&conn)
+            .await
+            .map_err(|e| e.to_string())?;
     Ok(row.map(|row| row.try_get(0).unwrap_or_default()))
 }
 

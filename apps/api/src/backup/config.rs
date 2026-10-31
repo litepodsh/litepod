@@ -34,6 +34,7 @@ pub struct S3ConfigDto {
     pub schedule_enabled: bool,
     pub schedule_interval: Option<String>,
     pub schedule_time: Option<String>,
+    pub backup_before_update: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +53,8 @@ pub struct UpdateS3ConfigRequest {
     pub schedule_interval: Option<String>,
     #[serde(default)]
     pub schedule_time: Option<String>,
+    #[serde(default)]
+    pub backup_before_update: bool,
 }
 
 fn master_key() -> [u8; 32] {
@@ -240,8 +243,22 @@ async fn parse_config_row(row: &sqlx::sqlite::SqliteRow) -> Result<Option<S3Conf
     }))
 }
 
+/// Whether applying an update must first take an instance backup.
+pub async fn backup_before_update(state: &SharedState) -> Result<bool, AppError> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let flag: Option<i64> = sqlx::query_scalar(
+        "SELECT backup_before_update FROM backup_s3_targets WHERE is_default = 1",
+    )
+    .fetch_optional(&conn)
+    .await
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(flag.is_some_and(|flag| flag != 0))
+}
+
 pub async fn load_dto(state: &SharedState) -> Result<Option<S3ConfigDto>, AppError> {
+    let backup_before_update = backup_before_update(state).await?;
     Ok(load(state).await?.map(|config| S3ConfigDto {
+        backup_before_update,
         endpoint_url: config.endpoint_url,
         bucket: config.bucket,
         region: config.region,
@@ -270,8 +287,8 @@ pub async fn save(
     sqlx::query(
         "INSERT INTO backup_s3_targets \
          (id, name, endpoint_url, bucket, region, access_key_id, wrapped_dek, dek_nonce, ciphertext, nonce, \
-          created_at, updated_at, created_by, is_default, schedule_enabled, schedule_interval, schedule_time) \
-         VALUES ('system-default', 'Default (system backups)', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, 1, ?11, ?12, ?13) \
+          created_at, updated_at, created_by, is_default, schedule_enabled, schedule_interval, schedule_time, backup_before_update) \
+         VALUES ('system-default', 'Default (system backups)', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, 1, ?11, ?12, ?13, ?14) \
          ON CONFLICT(id) DO UPDATE SET \
            name = 'Default (system backups)', \
            endpoint_url = excluded.endpoint_url, \
@@ -286,7 +303,8 @@ pub async fn save(
            is_default = 1, \
            schedule_enabled = excluded.schedule_enabled, \
            schedule_interval = excluded.schedule_interval, \
-           schedule_time = excluded.schedule_time",
+           schedule_time = excluded.schedule_time, \
+           backup_before_update = excluded.backup_before_update",
     )
     .bind(req.endpoint_url.clone())
     .bind(req.bucket.clone())
@@ -301,6 +319,7 @@ pub async fn save(
     .bind(req.schedule_enabled as i64)
     .bind(req.schedule_interval.clone())
     .bind(req.schedule_time.clone())
+    .bind(req.backup_before_update as i64)
     .execute(&conn)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
@@ -314,5 +333,6 @@ pub async fn save(
         schedule_enabled: req.schedule_enabled,
         schedule_interval: req.schedule_interval.clone(),
         schedule_time: req.schedule_time.clone(),
+        backup_before_update: req.backup_before_update,
     })
 }

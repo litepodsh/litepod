@@ -186,6 +186,12 @@ async fn issue(state: &SharedState, state_value: &VerificationState) -> Result<S
     Ok(code)
 }
 
+/// Cloud signups confirm their address in release builds only: a debug build
+/// (`just api`) activates the account at once, so local development needs no mailbox.
+pub fn required(is_cloud: bool) -> bool {
+    is_cloud && !cfg!(debug_assertions)
+}
+
 pub async fn register(
     state: &SharedState,
     email: &str,

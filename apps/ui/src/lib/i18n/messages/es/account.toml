@@ -4,6 +4,8 @@ title = "Cuenta"
 
 [backups]
 access_key_id = "ID de clave de acceso"
+backup_before_update = "Respaldar antes de actualizar"
+backup_before_update_hint = "Al aplicar una actualización de Litepod se guarda antes una copia de la instancia en este almacenamiento. Si la copia falla, la actualización se cancela."
 backup_now = "Hacer copia de seguridad ahora"
 bucket = "Bucket"
 col_finished = "Finalizada"
@@ -60,6 +62,23 @@ time_utc = "Hora (UTC)"
 title = "Copias de seguridad"
 toggle_visibility = "Alternar visibilidad"
 weekly = "Semanal"
+
+[branding]
+description = "Reemplaza el nombre, el logo y el favicon que muestra esta instancia. Deja un campo vacío para usar los de Litepod."
+favicon = "URL del favicon"
+favicon_hint = "Icono de la pestaña del navegador. Un .png, .svg o .ico servido por http(s), o una ruta de esta instancia."
+logo = "URL del logo"
+logo_hint = "Se muestra en la cabecera y en la página de inicio de sesión. Una imagen cuadrada se ve mejor."
+name = "Nombre"
+name_hint = "Reemplaza «litepod» en los títulos de página. Hasta 40 caracteres."
+title = "Marca"
+
+[branding.errors]
+load = "No se pudo cargar la marca"
+save = "No se pudo guardar la marca"
+
+[branding.success]
+saved = "Marca guardada"
 
 [certificates]
 add = "Agregar certificado"
@@ -222,6 +241,8 @@ regenerate_codes = "Regenerar códigos"
 regenerate_description = "Ingresa tu código TOTP para generar nuevos códigos de recuperación. Todos los códigos existentes se invalidarán."
 regenerate_title = "Regenerar códigos de recuperación"
 regeneration_failed = "No se pudo regenerar"
+required_description = "Una organización a la que perteneces exige autenticación en dos pasos. Actívala aquí y volverás a donde estabas."
+required_title = "Se requiere autenticación en dos pasos"
 scan_qr = "Escanea este código QR con tu aplicación de autenticación:"
 setup_failed = "No se pudo iniciar la configuración de TOTP"
 title = "Autenticación de dos factores"
@@ -328,10 +349,12 @@ restart_triggered = "Se activó el reinicio de {target}"
 task_history_saved = "Se guardó la retención del historial de tareas"
 
 [settings.tabs]
+branding = "Marca"
 builds = "Configuración de compilaciones"
 general = "General"
 organizations = "Organizaciones"
 rate_limit = "Límite de solicitudes"
+telemetry = "Telemetría"
 
 [subscription]
 annual = "Anual (20 % de descuento)"
@@ -429,6 +452,22 @@ profile = "Perfil"
 security = "Seguridad"
 sessions = "Sesiones"
 tokens = "Tokens"
+
+[telemetry]
+description = "Litepod envía un ping anónimo una vez al día para que el proyecto pueda contar las instalaciones autoalojadas."
+instance_id = "ID de instancia"
+env_locked = "La telemetría está desactivada por la variable de entorno LITEPOD_TELEMETRY en este servidor."
+ok = "OK"
+notice_description = "No recopilamos telemetría ni datos de uso. Una vez al día, este servidor envía un ping anónimo mínimo (un ID aleatorio y la versión de Litepod) a status.litepod.sh, solo para saber que tu instancia sigue viva. No se envían dominios, correos, nombres de apps ni direcciones IP. Puedes desactivarlo cuando quieras en Sistema > Ajustes del sistema"
+notice_title = "Gracias por instalar Litepod"
+title = "Telemetría"
+what_is_sent = "Solo se envía un ID de instancia aleatorio y la versión de Litepod. Ni dominios, ni correos, ni nombres de apps, ni direcciones IP."
+
+[telemetry.errors]
+save = "No se pudo guardar la configuración de telemetría"
+
+[telemetry.success]
+saved = "Se guardó la configuración de telemetría"
 
 [tokens]
 all_revoked = "Todos los tokens se revocaron"

@@ -44,7 +44,7 @@ pub async fn organization_dashboard(
                     d.status, a.icon_url, p.icon_url
              FROM selected_projects p
              LEFT JOIN ranked_environments e ON e.project_id = p.id AND e.position = 1
-             LEFT JOIN applications a ON a.environment_id = e.id
+             LEFT JOIN applications a ON a.environment_id = e.id AND a.maintenance_for IS NULL
              LEFT JOIN servers s ON s.id = a.server_id
              LEFT JOIN application_deployments d ON d.application_id = a.id
              ORDER BY p.updated_at DESC, a.created_at ASC",

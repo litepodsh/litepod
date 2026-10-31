@@ -43,16 +43,20 @@ export const shellTabs = $state<{
 	items: ShellTab[];
 	active: string;
 	onSelect: ((value: string) => void) | null;
+	/** Pointer rests on a tab: the page may warm that tab's data before the click. */
+	onHover: ((value: string) => void) | null;
 	path: string | null;
-}>({ items: [], active: '', onSelect: null, path: null });
+}>({ items: [], active: '', onSelect: null, onHover: null, path: null });
 
 export function setShellTabs(
 	items: ShellTab[],
 	active: string,
 	onSelect: (value: string) => void,
 	path: string = page.url.pathname,
+	onHover: ((value: string) => void) | null = null,
 ) {
 	shellTabs.items = items;
+	shellTabs.onHover = onHover;
 	shellTabs.active = active;
 	shellTabs.onSelect = onSelect;
 	shellTabs.path = path;
@@ -61,10 +65,18 @@ export function setShellTabs(
 export function clearShellTabs() {
 	shellTabs.items = [];
 	shellTabs.onSelect = null;
+	shellTabs.onHover = null;
 	shellTabs.path = null;
 }
 
-export type HeroStat = { label: string; value: string; href?: string };
+export type HeroStat = {
+	label: string;
+	value: string;
+	href?: string;
+	/** Opens `href` in a new tab, with an external-link icon next to the value. */
+	external?: boolean;
+	icon?: Component;
+};
 export type HeroSibling = {
 	id: string;
 	label: string;

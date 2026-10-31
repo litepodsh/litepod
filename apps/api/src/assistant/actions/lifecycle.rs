@@ -261,6 +261,8 @@ pub(super) fn exec_action(tool: &str) -> &str {
         REDEPLOY_APPLICATION => "redeploy",
         START_APPLICATION => "start",
         STOP_APPLICATION => "stop",
+        RESTART_APPLICATION => "restart",
+        ROLLBACK_APPLICATION => "rollback",
         other => other,
     }
 }
@@ -319,10 +321,13 @@ pub async fn confirm(
         SET_ENVIRONMENT_VARIABLE => apply_environment_variable(state, &stored).await,
         REDEPLOY_APPLICATION => apply_redeploy(state, actor, &stored).await,
         START_APPLICATION | STOP_APPLICATION => apply_lifecycle(state, actor, &stored).await,
+        RESTART_APPLICATION => apply_restart(state, actor, &stored).await,
+        ROLLBACK_APPLICATION => apply_rollback(state, actor, &stored).await,
         SET_COMPOSE_FILE => apply_compose_file(state, &stored).await,
         DELETE_ENVIRONMENT_VARIABLE => apply_delete_environment_variable(state, &stored).await,
         UPDATE_APPLICATION => apply_update_application(state, &stored).await,
         SET_SOURCE => apply_source(state, &stored).await,
+        LINK_DATABASE => apply_link_database(state, &stored).await,
         CREATE_APPLICATION => apply_create_application(state, &stored).await,
         CREATE_PROJECT => apply_create_project(state, &stored).await,
         UPDATE_PROJECT => apply_update_project(state, &stored).await,
@@ -330,9 +335,11 @@ pub async fn confirm(
         ADD_DOMAIN => apply_add_domain(state, &stored).await,
         UPDATE_DOMAIN => apply_update_domain(state, &stored).await,
         DELETE_DOMAIN => apply_delete_domain(state, &stored).await,
+        SET_MAINTENANCE => apply_maintenance(state, &stored).await,
         DEPLOY_STATIC_SITE => apply_static_site(state, actor, &stored).await,
         CREATE_FROM_TEMPLATE => apply_from_template(state, actor, &stored).await,
         DEPLOY_COMPOSE => apply_deploy_compose(state, actor, &stored).await,
+        DEPLOY_ZIP | DEPLOY_REPOSITORY => apply_source_app(state, actor, &stored).await,
         other => {
             return Err(AppError::ValidationError(format!(
                 "`{other}` is not a tool this build can apply"
@@ -345,6 +352,9 @@ pub async fn confirm(
         Err(error) => {
             let message = error.to_string();
             settle(state, actor, action_id, "failed", Some(&message)).await?;
+            // The next turn reads this, so the assistant can say why and fix it
+            // instead of the user having to paste the error back.
+            note(state, &stored, &format!("confirmed but failed: {message}")).await;
             audit(
                 state,
                 actor,

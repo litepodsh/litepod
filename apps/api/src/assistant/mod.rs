@@ -30,5 +30,7 @@ pub mod history;
 pub mod hooks;
 pub mod providers;
 pub mod redaction;
+pub mod search;
 pub mod service;
 pub mod tools;
+pub mod web;

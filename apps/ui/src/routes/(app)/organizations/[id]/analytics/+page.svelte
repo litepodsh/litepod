@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brandedTitle } from '#lib/ee/branding/branding.svelte.js';
 	import { page } from '$app/state';
 	import AnalyticsPanel from '#lib/components/analytics/analytics-panel.svelte';
 	import { getOrganizationAnalytics } from '#lib/clients/analytics-client.js';
@@ -19,7 +20,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('analytics.panel.title')} · litepod</title>
+	<title>{brandedTitle(t('analytics.panel.title'))}</title>
 </svelte:head>
 
 <div class="px-4 py-6 sm:px-6 sm:py-8">

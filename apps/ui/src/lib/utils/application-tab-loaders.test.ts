@@ -11,7 +11,6 @@ describe('deferred application tab loader', () => {
 			domains: vi.fn(),
 			environment: vi.fn(),
 			networks: vi.fn(),
-			map: vi.fn(),
 			volumes: vi.fn(),
 		});
 
@@ -30,7 +29,6 @@ describe('deferred application tab loader', () => {
 			domains,
 			environment: vi.fn(),
 			networks: vi.fn(),
-			map: vi.fn(),
 			volumes: vi.fn(),
 		});
 
@@ -50,7 +48,6 @@ describe('deferred application tab loader', () => {
 			domains: vi.fn(),
 			environment,
 			networks: vi.fn(),
-			map: vi.fn(),
 			volumes: vi.fn(),
 		});
 

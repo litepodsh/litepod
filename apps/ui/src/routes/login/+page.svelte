@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import logo from '#lib/assets/favicon.svg';
+	import { branding, brandName } from '#lib/ee/branding/branding.svelte.js';
 	import {
 		FieldGroup,
 		Field,
@@ -424,8 +425,8 @@
 					</div>
 					<div class="absolute inset-0 flex items-center justify-center">
 						<img
-							src={logo}
-							alt="litepod"
+							src={branding.logo_url ?? logo}
+							alt={brandName()}
 							class="h-48 w-48 drop-shadow-[0_8px_24px_rgba(91,95,239,0.25)]" />
 					</div>
 				</div>

@@ -19,7 +19,18 @@ import { assistantState, setAssistantMode } from '#lib/state/assistant.svelte.js
 export type ThreadItem =
 	| { kind: 'user'; text: string }
 	| { kind: 'assistant'; text: string }
-	| { kind: 'step'; id: string; name: string; arguments: string; running: boolean; ok: boolean }
+	| {
+			kind: 'step';
+			id: string;
+			name: string;
+			arguments: string;
+			running: boolean;
+			ok: boolean;
+			/** `Date.now()` at start, and the elapsed time once finished. Steps
+			 *  restored from storage have neither. */
+			startedAt?: number;
+			durationMs?: number;
+	  }
 	| { kind: 'action'; action: ActionDto }
 	| { kind: 'choices'; options: string[] }
 	| { kind: 'stopped'; text: string };
@@ -270,6 +281,27 @@ export async function settle(
 		if (card?.kind === 'action') card.action = settled;
 	} catch (error) {
 		thread.error = error instanceof Error ? error.message : 'That change could not be applied.';
+		await syncAction(organizationId, action.id, card);
+	}
+}
+
+/**
+ * A confirm that errors can still have settled the action: the API marks it
+ * `failed` and keeps the reason. Without re-reading it, the card stays
+ * `pending` and a second click only gets "already failed".
+ */
+async function syncAction(
+	organizationId: string,
+	actionId: string,
+	card: ThreadItem | undefined,
+) {
+	if (card?.kind !== 'action' || !thread.conversationId) return;
+	try {
+		const conversation = await readConversation(organizationId, thread.conversationId);
+		const fresh = conversation.actions.find((candidate) => candidate.id === actionId);
+		if (fresh) card.action = fresh;
+	} catch {
+		// The error above is already on screen; the card just stays as it was.
 	}
 }
 

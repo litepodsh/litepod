@@ -243,6 +243,14 @@
 		};
 	}
 
+	// Warm a tab's data once the pointer rests on it, not while sweeping across the bar.
+	let warm: ReturnType<typeof setTimeout> | undefined;
+	function prefetch(tab: Tab) {
+		if (!pushed || tab.disabled || tab.id === current) return;
+		clearTimeout(warm);
+		warm = setTimeout(() => shellTabs.onHover?.(tab.id), 100);
+	}
+
 	function select(event: MouseEvent, tab: Tab) {
 		// Let the browser handle opening a link in a new tab or window.
 		if (tab.href && (event.metaKey || event.ctrlKey || event.shiftKey || event.button)) return;
@@ -357,6 +365,10 @@
 										aria-disabled={tab.disabled || undefined}
 										data-sveltekit-noscroll
 										class={cn('ttab', tab.disabled && 'opacity-45')}
+										onpointerenter={(event: PointerEvent) =>
+											event.pointerType === 'mouse' && prefetch(tab)}
+										onpointerleave={() => clearTimeout(warm)}
+										onfocus={() => prefetch(tab)}
 										onclick={(event: MouseEvent) => select(event, tab)}>
 										{#if tab.icon}<tab.icon />{/if}
 										<span>{tab.label}</span>

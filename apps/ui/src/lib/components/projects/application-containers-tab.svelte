@@ -6,6 +6,8 @@
 	import * as Collapsible from '#lib/components/ui/collapsible/index.js';
 	import OsIcon from '#lib/components/os-icon.svelte';
 	import * as Sheet from '#lib/components/ui/sheet/index.js';
+	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import VolumeFileWorkspace from '#lib/components/volumes/volume-file-workspace.svelte';
 	import { toast } from '#lib/utils/toast.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { containerStatusTone, isRunning } from '#lib/utils/container-status.js';
@@ -17,6 +19,7 @@
 	} from '#lib/clients/container-metrics-client.js';
 	import {
 		containerAction,
+		containerFilesWorkspace,
 		fetchDeploymentLogs,
 		inspectApplicationContainer,
 		listReplicaContainers,
@@ -29,9 +32,11 @@
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
-	import InfoIcon from '@lucide/svelte/icons/info';
+	import CopyIcon from '@lucide/svelte/icons/copy';
+import InfoIcon from '@lucide/svelte/icons/info';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
+	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 
 	type Row = {
@@ -39,6 +44,8 @@
 		service: string | null;
 		status: string;
 		ports: string[];
+		/** Release-independent `http://host[:port]` other containers can dial. */
+		internalUrl?: string;
 		/** Replica server for a group-targeted application; absent otherwise. */
 		serverId?: string;
 	};
@@ -97,10 +104,16 @@
 							service: null,
 							status: containerStatus.status,
 							ports: [],
+							internalUrl: containerStatus.internal_host
+								? `http://${containerStatus.internal_host}${containerStatus.internal_port ? `:${containerStatus.internal_port}` : ''}`
+								: undefined,
 						},
 					]
 				: [],
 	);
+
+	// The file explorer opens one container at a time, in a dialog.
+	let filesFor = $state<string | null>(null);
 
 	let replicas = $state<ReplicaContainersDto[]>([]);
 	let replicasLoading = $state(false);
@@ -290,6 +303,13 @@
 		return typeof created === 'string' ? created : '';
 	}
 
+	function copyInternalUrl(url: string) {
+		navigator.clipboard
+			.writeText(url)
+			.then(() => toast.success(t('projects.application_containers.internal_url_copied')))
+			.catch(() => toast.error(t('projects.application_containers.internal_url_copy_failed')));
+	}
+
 	function numberField(detail: Record<string, unknown>, keys: string[]): number | null {
 		for (const key of keys) {
 			const value = detail[key];
@@ -365,6 +385,14 @@
 					{:else}
 						<span>{t('projects.application_containers.inspect_hint')}</span>
 					{/if}
+					{#if row.internalUrl}
+						<button
+							type="button"
+							class="inline-flex items-center gap-1 rounded font-mono hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+							title={t('projects.application_containers.internal_url_label')}
+							onclick={() => copyInternalUrl(row.internalUrl!)}
+							><CopyIcon class="size-3" />{row.internalUrl}</button>
+					{/if}
 					{#if metric && metric.cpu_percent !== null}
 						<span>CPU {formatCpu(metric.cpu_percent)}</span>
 						<span>RAM {formatMemory(metric.memory_usage_bytes, metric.memory_limit_bytes)}</span>
@@ -404,6 +432,14 @@
 						disabled={!isUp}
 						onclick={() => onOpenTerminal(row.containerName)}
 						><TerminalIcon />{t('projects.application.terminal')}</Button>
+					{#if allowedHere('app.exec')}
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={!isUp}
+							onclick={() => (filesFor = row.containerName)}
+							><FolderOpenIcon />{t('projects.application_containers.files')}</Button>
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -633,3 +669,33 @@
 		{/if}
 	</Sheet.Content>
 </Sheet.Root>
+
+<Dialog.Root
+	open={!!filesFor}
+	onOpenChange={(open) => {
+		if (!open) filesFor = null;
+	}}>
+	<Dialog.Content
+		class="flex h-[95vh] w-[95vw] max-w-[95vw] min-w-0 flex-col overflow-hidden sm:max-w-[95vw]">
+		<Dialog.Header>
+			<Dialog.Title class="font-mono text-sm"
+				>{t('projects.application_containers.files_dialog_title', {
+					name: filesFor ?? '',
+				})}</Dialog.Title>
+			<Dialog.Description>{t('projects.application_containers.files_hint')}</Dialog.Description>
+		</Dialog.Header>
+		{#if filesFor}{#key filesFor}
+				<div class="min-h-0 flex-1 overflow-hidden">
+					<VolumeFileWorkspace
+						title={filesFor}
+						client={containerFilesWorkspace(
+							organizationId,
+							projectId,
+							environmentId,
+							applicationId,
+							filesFor,
+						)} />
+				</div>
+			{/key}{/if}
+	</Dialog.Content>
+</Dialog.Root>

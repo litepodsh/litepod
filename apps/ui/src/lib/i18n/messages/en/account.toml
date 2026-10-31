@@ -4,6 +4,8 @@ title = "Account"
 
 [backups]
 access_key_id = "Access key ID"
+backup_before_update = "Back up before updating"
+backup_before_update_hint = "Applying a Litepod update first saves an instance backup to this storage. If the backup fails, the update is cancelled."
 backup_now = "Backup now"
 bucket = "Bucket"
 col_finished = "Finished"
@@ -60,6 +62,23 @@ time_utc = "Time (UTC)"
 title = "Backups"
 toggle_visibility = "Toggle visibility"
 weekly = "Weekly"
+
+[branding]
+description = "Replace the name, logo and favicon this instance shows. Leave a field empty to use Litepod's."
+favicon = "Favicon URL"
+favicon_hint = "Browser tab icon. A .png, .svg or .ico served over http(s), or a path on this instance."
+logo = "Logo URL"
+logo_hint = "Shown in the header and on the login page. A square image works best."
+name = "Name"
+name_hint = "Replaces “litepod” in page titles. Up to 40 characters."
+title = "Branding"
+
+[branding.errors]
+load = "Could not load the branding"
+save = "Could not save the branding"
+
+[branding.success]
+saved = "Branding saved"
 
 [certificates]
 add = "Add certificate"
@@ -222,6 +241,8 @@ regenerate_codes = "Regenerate Codes"
 regenerate_description = "Enter your TOTP code to generate new recovery codes. All existing codes will be invalidated."
 regenerate_title = "Regenerate Recovery Codes"
 regeneration_failed = "Regeneration failed"
+required_description = "An organization you belong to requires two-factor authentication. Set it up here and you will be taken back to where you were."
+required_title = "Two-factor authentication is required"
 scan_qr = "Scan this QR code with your authenticator app:"
 setup_failed = "Failed to start TOTP setup"
 title = "Two-Factor Authentication"
@@ -328,10 +349,12 @@ restart_triggered = "{target} restart triggered"
 task_history_saved = "Task history retention saved"
 
 [settings.tabs]
+branding = "Branding"
 builds = "Build Configuration"
 general = "General"
 organizations = "Organizations"
 rate_limit = "Rate Limiting"
+telemetry = "Telemetry"
 
 [subscription]
 annual = "Annual (20% off)"
@@ -429,6 +452,22 @@ profile = "Profile"
 security = "Security"
 sessions = "Sessions"
 tokens = "Tokens"
+
+[telemetry]
+description = "Litepod sends an anonymous ping once a day so the project can count self-hosted installs."
+instance_id = "Instance ID"
+env_locked = "Telemetry is turned off by the LITEPOD_TELEMETRY environment variable on this server."
+ok = "OK"
+notice_description = "We don't collect telemetry or usage data. Once a day, this server sends a tiny anonymous ping (a random ID and the Litepod version) to status.litepod.sh, just so we know your instance is alive. No domains, emails, app names or IP addresses are sent. You can turn it off anytime in System > System settings"
+notice_title = "Thanks for installing Litepod"
+title = "Telemetry"
+what_is_sent = "Only a random instance ID and the Litepod version are sent. No domains, emails, app names or IP addresses."
+
+[telemetry.errors]
+save = "Could not save telemetry settings"
+
+[telemetry.success]
+saved = "Telemetry settings saved"
 
 [tokens]
 all_revoked = "All tokens revoked"

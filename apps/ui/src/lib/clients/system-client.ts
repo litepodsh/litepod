@@ -54,6 +54,8 @@ export type UpdateCheckResponse = {
 export type UpdateApplyResponse = {
 	triggered: boolean;
 	note: string;
+	/** An instance backup runs first; the install follows only if it succeeds. */
+	backup_started?: boolean;
 };
 
 export async function getSystemVersion(): Promise<SystemVersion> {

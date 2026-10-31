@@ -23,6 +23,10 @@ pub struct ServerFacts {
     pub memory_bytes: Option<u64>,
     pub disk_free_bytes: Option<u64>,
     pub swap_bytes: Option<u64>,
+    /// Version of the `serverctl` script on a public-edge server; `Some(0)` is a copy too
+    /// old to report one. `None` when there is no script or it could not be asked.
+    #[serde(default)]
+    pub helper_version: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +54,21 @@ pub(crate) const QUICK_TIMEOUT: Duration = Duration::from_secs(45);
 const DEFAULT_REGISTRY_PATH: &str =
     "/etc/containers/registries.conf.d/99-litepod-default-registry.conf";
 const DEFAULT_REGISTRY_CONF: &str = "unqualified-search-registries = [\"docker.io\"]\n";
+/// pasta hands rootless containers the host's own public IP, so an app calling another app on
+/// the same server by its domain connects to itself and is refused. A private address sends that
+/// traffic out through pasta to Caddy; `host.containers.internal` moves to the gateway, mapped to
+/// the host. Same file name and contents as `configure_rootless_network()` in
+/// `scripts/install.sh`. Relative to the SSH user's home; a later drop-in overrides it.
+const ROOTLESS_NETWORK_DIR: &str = ".config/containers/containers.conf.d";
+const ROOTLESS_NETWORK_PATH: &str = ".config/containers/containers.conf.d/50-litepod-network.conf";
+const ROOTLESS_NETWORK_CONF: &str = "# Managed by litepod: the installer and server Setup/Repair rewrite this file.
+# Override in a later drop-in (e.g. 99-local.conf) instead of editing it.
+[containers]
+host_containers_internal_ip = \"10.0.2.2\"
+
+[network]
+pasta_options = [\"-a\", \"10.0.2.0\", \"-n\", \"24\", \"-g\", \"10.0.2.2\", \"--dns-forward\", \"10.0.2.3\", \"--map-host-loopback\", \"10.0.2.2\"]
+";
 const FAIL2BAN_SSHD_PATH: &str = "/etc/fail2ban/jail.d/litepod-sshd.local";
 const ROOTFUL_PODMAN_SOCKET_DROPIN: &str =
     "/etc/systemd/system/podman.socket.d/10-litepod-terminal.conf";
@@ -87,8 +106,10 @@ fn credentials(server: &ServerRecord) -> Result<(&str, &str, Option<&str>), AppE
     ))
 }
 
-const CADDY_HELPER: &str = r#"#!/bin/sh
+pub(crate) const CADDY_HELPER: &str = r#"#!/bin/sh
 set -eu
+
+helper_version=1
 
 routes=/etc/litepod/caddy/routes.d
 caddyfile=/etc/caddy/Caddyfile
@@ -203,7 +224,7 @@ sync_routes() {
 
     # Render every desired fragment into a scratch dir first. Any malformed
     # token aborts here, before the live directory is touched at all.
-    while read -r id host port https provider certificate rest; do
+    while read -r id host port https provider certificate auth rest; do
         [ -n "$id" ] || continue
         case "$id" in ''|*[!0-9a-f-]*) exit 64 ;; esac
         case "$host" in ''|*[!A-Za-z0-9.:-]*) exit 64 ;; esac
@@ -225,8 +246,22 @@ sync_routes() {
             automatic:*.test|automatic:*.TEST) tls='	tls internal
 ' ;;
         esac
-        printf '%s {\n%b%b\treverse_proxy 127.0.0.1:%s\n}\n' "$host" "$tls" "$log_block" "$port" \
-            > "$staging/$id.caddy"
+        # Optional base64 `basic_auth` block, spliced in ahead of reverse_proxy
+        # so the upstream is never dialed for an unauthenticated request.
+        auth_block=''
+        case "${auth:--}" in
+            -) ;;
+            *[!A-Za-z0-9+/=]*) exit 64 ;;
+            *)
+                auth_block=$(printf '%s' "$auth" | base64 -d) || exit 64
+                [ -n "$auth_block" ] || exit 64
+                ;;
+        esac
+        {
+            printf '%s {\n%b%b' "$host" "$tls" "$log_block"
+            if [ -n "$auth_block" ]; then printf '%s\n' "$auth_block"; fi
+            printf '\treverse_proxy 127.0.0.1:%s\n}\n' "$port"
+        } > "$staging/$id.caddy"
     done < "$manifest"
 
     # Two manifest lines for one host would adapt to two site blocks for one
@@ -317,6 +352,8 @@ case "${1:-}" in
     sync-routes) [ "$#" -eq 2 ] || exit 64; sync_routes "$2" ;;
     sync-routes-check) exit 0 ;;
     certificates-check) exit 0 ;;
+    basic-auth-check) exit 0 ;;
+    version) [ "$#" -eq 1 ] || exit 64; echo "$helper_version" ;;
     install-certificate) [ "$#" -eq 3 ] || exit 64; install_certificate "$2" "$3" ;;
     health) caddy validate --config "$caddyfile" --adapter caddyfile; systemctl is-active --quiet caddy ;;
     *) exit 64 ;;
@@ -410,7 +447,7 @@ async fn install_root_file(
     Ok(())
 }
 
-async fn install_caddy_helper(server: &ServerRecord) -> Result<(), AppError> {
+pub(crate) async fn install_caddy_helper(server: &ServerRecord) -> Result<(), AppError> {
     install_root_file(
         server,
         CADDY_HELPER,
@@ -433,6 +470,35 @@ async fn install_default_registry(server: &ServerRecord) -> Result<(), AppError>
         "registries.conf",
         DEFAULT_REGISTRY_PATH,
         "0644",
+    )
+    .await
+}
+
+/// Podman reads it when the rootless network namespace is created, so a host that already runs
+/// containers picks it up after its next reboot.
+async fn configure_rootless_network(server: &ServerRecord) -> Result<(), AppError> {
+    let target = target(server)?;
+    let (key, fingerprint, known_hosts) = credentials(server)?;
+    let staged = crate::servers::ssh::SecretFile::write(ROOTLESS_NETWORK_CONF)?;
+    SshExecutor::run(
+        &target,
+        key,
+        fingerprint,
+        known_hosts,
+        &[
+            OsString::from("mkdir"),
+            OsString::from("-p"),
+            OsString::from(ROOTLESS_NETWORK_DIR),
+        ],
+    )
+    .await?;
+    SshExecutor::copy_file(
+        &target,
+        key,
+        fingerprint,
+        known_hosts,
+        staged.path(),
+        ROOTLESS_NETWORK_PATH,
     )
     .await
 }
@@ -634,6 +700,11 @@ async fn collect_facts(server: &ServerRecord) -> Result<(ServerFacts, ServerStat
         .await
         .ok()
         .and_then(|value| value.trim().parse().ok());
+    let helper_version = if matches!(server.ingress_mode, IngressMode::PublicEdge) {
+        super::helper::installed_version(server).await
+    } else {
+        None
+    };
     Ok((
         ServerFacts {
             os: os_value(&os_release, "ID="),
@@ -645,6 +716,7 @@ async fn collect_facts(server: &ServerRecord) -> Result<(ServerFacts, ServerStat
             memory_bytes: memory,
             disk_free_bytes: disk,
             swap_bytes: swap,
+            helper_version,
         },
         state,
     ))
@@ -909,22 +981,74 @@ pub async fn restart_server(server: &ServerRecord) -> Result<MaintenanceOutcome,
     Ok(maintenance_outcome("restart_server", started, run))
 }
 
+/// Build leftovers older than this are removed; a younger one may belong to a
+/// build still running.
+const STALE_BUILD_DIR_DAYS: &str = "+1";
+
+/// Frees the disk a server accumulates: unused images, build cache, the
+/// per-deploy Railpack workspaces and the journal. Containers and volumes are
+/// never touched, so a stopped application can still be started.
 pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, AppError> {
     let started = std::time::Instant::now();
     let ssh_user = server.ssh_user.as_deref().unwrap_or_default();
-    let mut command = server
-        .podman_mode
-        .podman_prefix(ssh_user)
-        .iter()
-        .map(OsString::from)
-        .collect::<Vec<_>>();
-    command.extend(
-        ["podman", "image", "prune", "-a", "-f"]
+    let podman = |args: &[&str]| {
+        let mut command = server
+            .podman_mode
+            .podman_prefix(ssh_user)
             .iter()
-            .map(OsString::from),
+            .map(OsString::from)
+            .collect::<Vec<_>>();
+        command.push(OsString::from("podman"));
+        command.extend(args.iter().map(OsString::from));
+        command
+    };
+    let mut run = run_maintenance_command(server, podman(&["image", "prune", "-a", "-f"])).await?;
+    let mut stdout = std::mem::take(&mut run.stdout);
+    let mut stderr = std::mem::take(&mut run.stderr);
+    let mut success = run.exit_code == 0;
+
+    let builder =
+        run_maintenance_command(server, podman(&["builder", "prune", "-a", "-f"])).await?;
+    append_output(&mut stdout, &builder.stdout);
+    append_output(&mut stderr, &builder.stderr);
+    success &= builder.exit_code == 0;
+
+    // Failed or canceled builds leave their workspace behind on a remote server,
+    // where nothing else removes it. Best effort: a missing directory or journal
+    // is not a failed prune.
+    let script = format!(
+        "d=\"$HOME/.local/share/litepod/apps\"; \
+         find \"$d\" -mindepth 3 -maxdepth 3 -path '*/railpack/*' -mtime {STALE_BUILD_DIR_DAYS} -exec rm -rf {{}} + 2>/dev/null; \
+         find \"$d\" -mindepth 2 -maxdepth 2 -name 'railpack-builder-*' -mtime {STALE_BUILD_DIR_DAYS} -exec rm -rf {{}} + 2>/dev/null; \
+         true"
     );
-    let run = run_maintenance_command(server, command).await?;
-    Ok(maintenance_outcome("prune_images", started, run))
+    // Rootless builders leave files owned by a subordinate uid, which only a
+    // process inside the user's namespace may delete.
+    let workspaces = run_maintenance_command(
+        server,
+        match server.podman_mode {
+            PodmanMode::Rootless => podman(&["unshare", "sh", "-c", &script]),
+            PodmanMode::Rootful => maintenance_command(&[], &["sh", "-c", &script]),
+        },
+    )
+    .await?;
+    append_output(&mut stderr, &workspaces.stderr);
+    let _ = run_maintenance_command(
+        server,
+        maintenance_command(
+            PodmanMode::privilege_prefix(ssh_user),
+            &["journalctl", "--vacuum-size=200M"],
+        ),
+    )
+    .await;
+
+    Ok(MaintenanceOutcome {
+        action: "prune_images".into(),
+        success,
+        stdout: clamp_output_limit(&stdout, MAINTENANCE_OUTPUT_LIMIT),
+        stderr: clamp_output_limit(&stderr, MAINTENANCE_OUTPUT_LIMIT),
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
 }
 
 pub async fn restart_podman(server: &ServerRecord) -> Result<MaintenanceOutcome, AppError> {
@@ -1330,6 +1454,21 @@ where
             }
             other => other,
         })?;
+    if server.podman_mode == PodmanMode::Rootless {
+        on_step(
+            "configure-rootless-network",
+            "Running configure-rootless-network; running containers pick it up after the next reboot".to_string(),
+        )
+        .await?;
+        configure_rootless_network(server)
+            .await
+            .map_err(|error| match error {
+                AppError::ValidationError(message) => {
+                    AppError::ValidationError(format!("Step configure-rootless-network: {message}"))
+                }
+                other => other,
+            })?;
+    }
     if server.podman_mode == PodmanMode::Rootful {
         on_step(
             "configure-rootful-terminal-socket",
@@ -1433,6 +1572,18 @@ mod tests {
         assert!(DEFAULT_REGISTRY_CONF.contains("unqualified-search-registries"));
         assert!(DEFAULT_REGISTRY_CONF.contains("\"docker.io\""));
         assert!(DEFAULT_REGISTRY_CONF.ends_with('\n'));
+    }
+
+    /// The host gateway must be the address pasta maps to the host, or SSH from litepod-api to
+    /// `host.containers.internal` breaks.
+    #[test]
+    fn rootless_network_maps_host_containers_internal_to_the_host() {
+        use super::{ROOTLESS_NETWORK_CONF, ROOTLESS_NETWORK_DIR, ROOTLESS_NETWORK_PATH};
+        assert!(ROOTLESS_NETWORK_PATH.starts_with(&format!("{ROOTLESS_NETWORK_DIR}/")));
+        assert!(ROOTLESS_NETWORK_PATH.ends_with(".conf"));
+        assert!(ROOTLESS_NETWORK_CONF.contains("host_containers_internal_ip = \"10.0.2.2\""));
+        assert!(ROOTLESS_NETWORK_CONF.contains("\"--map-host-loopback\", \"10.0.2.2\""));
+        assert!(ROOTLESS_NETWORK_CONF.ends_with('\n'));
     }
 
     #[test]
@@ -1724,6 +1875,35 @@ mod tests {
             std::fs::read_to_string(dir.join("routes.d/aaaa.caddy")).unwrap(),
             secure
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_routes_splices_basic_auth_ahead_of_reverse_proxy() {
+        use base64::Engine;
+        let dir =
+            std::env::temp_dir().join(format!("litepod-serverctl-auth-{}", uuid::Uuid::now_v7()));
+        let block = "\tbasic_auth bcrypt \"Private\" {\n\t\t\"admin\" $2a$12$hash\n\t}\n";
+        let token = base64::engine::general_purpose::STANDARD.encode(block);
+        let out = run_sync(
+            &dir,
+            0,
+            &format!("aaaa api.example.com 42000 true automatic - {token}\n"),
+        );
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let fragment = std::fs::read_to_string(dir.join("routes.d/aaaa.caddy")).unwrap();
+        assert!(fragment.contains(block), "{fragment}");
+        assert!(fragment.find("basic_auth").unwrap() < fragment.find("reverse_proxy").unwrap());
+        let failed = run_sync(
+            &dir,
+            0,
+            "aaaa api.example.com 42000 true automatic - not*base64\n",
+        );
+        assert!(!failed.status.success());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

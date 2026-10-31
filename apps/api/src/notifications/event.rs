@@ -23,10 +23,11 @@ pub enum Action {
     LitepodRestart,
     ServerReboot,
     DatabaseBackup,
+    SecurityAlert,
 }
 
 impl Action {
-    pub const ALL: [Action; 7] = [
+    pub const ALL: [Action; 8] = [
         Action::AppDeploy,
         Action::AppBuildError,
         Action::LitepodBackup,
@@ -34,6 +35,7 @@ impl Action {
         Action::LitepodRestart,
         Action::ServerReboot,
         Action::DatabaseBackup,
+        Action::SecurityAlert,
     ];
 
     pub fn key(self) -> &'static str {
@@ -45,6 +47,7 @@ impl Action {
             Action::LitepodRestart => "litepod_restart",
             Action::ServerReboot => "server_reboot",
             Action::DatabaseBackup => "database_backup",
+            Action::SecurityAlert => "security_alert",
         }
     }
 
@@ -58,7 +61,10 @@ impl Action {
     pub fn is_global(self) -> bool {
         matches!(
             self,
-            Action::LitepodBackup | Action::DockerCleanup | Action::LitepodRestart
+            Action::LitepodBackup
+                | Action::DockerCleanup
+                | Action::LitepodRestart
+                | Action::SecurityAlert
         )
     }
 }
@@ -408,6 +414,38 @@ pub fn litepod_restart(target: &str, actor: Option<&str>) -> Event {
             fields,
             description: None,
             url: None,
+            timestamp: now_ms(),
+        },
+    }
+}
+
+/// A sign-in or failed-login pattern `login_anomaly` flagged.
+pub fn security_alert(
+    flag: &str,
+    subject: &str,
+    ip: &str,
+    place: Option<&str>,
+    url: Option<String>,
+) -> Event {
+    let title = match flag {
+        "impossible_travel" => format!("Impossible travel for {subject}"),
+        "new_country" => format!("Sign-in from a new country for {subject}"),
+        _ => format!("Failed logins from many IPs for {subject}"),
+    };
+    let mut fields = vec![Field::new("Account", subject), Field::new("IP", ip)];
+    if let Some(place) = place.filter(|place| !place.is_empty()) {
+        fields.push(Field::new("Location", place));
+    }
+    Event {
+        action: Action::SecurityAlert,
+        scope: Scope::Global,
+        payload: EventPayload {
+            action: Action::SecurityAlert.key().to_string(),
+            title,
+            outcome: Outcome::Failure,
+            fields,
+            description: None,
+            url,
             timestamp: now_ms(),
         },
     }

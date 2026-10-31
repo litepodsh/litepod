@@ -4,7 +4,6 @@ export type ApplicationDeferredTab =
 	| 'domains'
 	| 'environment'
 	| 'networks'
-	| 'map'
 	| 'volumes';
 
 type DeferredTabLoaders = Record<ApplicationDeferredTab, () => Promise<void>>;

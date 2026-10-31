@@ -90,6 +90,7 @@ system = "Sistema"
 [user_menu]
 account = "Cuenta"
 debug = "Depuración"
+feedback = "Comentarios y problemas"
 log_out = "Cerrar sesión"
 maintenance = "Mantenimiento"
 organization = "Organización"

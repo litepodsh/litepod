@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brandedTitle } from '#lib/ee/branding/branding.svelte.js';
 	import { onMount } from 'svelte';
 	import BoxIcon from '@lucide/svelte/icons/box';
 	import GlobeIcon from '@lucide/svelte/icons/globe';
@@ -114,7 +115,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('common.home.home')} · litepod</title>
+	<title>{brandedTitle(t('common.home.home'))}</title>
 </svelte:head>
 
 {#snippet legend(tone: StatusTone, label: string, square = false)}
@@ -186,7 +187,7 @@
 
 		<div class="kpis">
 			{#if appsLoading}
-				<Skeleton class="h-36 rounded-2xl" />
+				<Skeleton class="min-h-36 rounded-2xl" />
 			{:else}
 				<KpiCard
 					title={t('common.org_apps.kpi_apps')}
@@ -221,7 +222,7 @@
 						: `/organizations/${organization.id}/servers`} />
 			{/if}
 			{#if appsLoading}
-				<Skeleton class="h-36 rounded-2xl" />
+				<Skeleton class="min-h-36 rounded-2xl" />
 			{:else}
 				<KpiCard
 					title={t('common.org_apps.kpi_domains')}
@@ -244,7 +245,7 @@
 				</KpiCard>
 			{/if}
 			{#if tasksLoading}
-				<Skeleton class="h-36 rounded-2xl" />
+				<Skeleton class="min-h-36 rounded-2xl" />
 			{:else}
 				<KpiCard
 					title={t('common.org_apps.kpi_tasks')}

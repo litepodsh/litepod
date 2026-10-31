@@ -27,6 +27,9 @@ pub struct UserWithOrgsDto {
     pub email: String,
     pub name: String,
     pub created_at: String,
+    /// Locked out by a SysAdmin; only a SysAdmin lifts it.
+    pub disabled: bool,
+    pub is_sysadmin: bool,
     pub organizations: Vec<UserOrganizationDto>,
 }
 

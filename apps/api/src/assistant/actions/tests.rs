@@ -113,6 +113,99 @@ async fn proposing_writes_nothing_until_the_change_is_confirmed() {
 }
 
 #[tokio::test]
+async fn maintenance_is_stored_and_changes_nothing_until_confirmed() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+
+    let action = propose_maintenance(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        SetMaintenance {
+            enabled: true,
+            page_html: Some("<h1>Back at 5</h1>".into()),
+            reason: Some("migrating the database".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(action.status, "pending");
+    assert_eq!(action.tool, SET_MAINTENANCE);
+    assert!(action.title.starts_with("Turn on maintenance"), "{}", action.title);
+    assert!(action.summary.contains("migrating the database"), "{}", action.summary);
+    assert!(action.route.ends_with("?tab=advanced"), "{}", action.route);
+    assert!(
+        !deployment::maintenance::get(&state, &target.application_id)
+            .await
+            .unwrap()
+            .enabled,
+        "proposing must not put the application in maintenance"
+    );
+
+    let applied = confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+    assert_eq!(applied.status, "applied");
+    let on = deployment::maintenance::get(&state, &target.application_id)
+        .await
+        .unwrap();
+    assert!(on.enabled);
+    assert_eq!(on.custom_html.as_deref(), Some("<h1>Back at 5</h1>"));
+
+    // Off again, keeping the page for next time.
+    let off = propose_maintenance(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        SetMaintenance {
+            enabled: false,
+            page_html: None,
+            reason: None,
+        },
+    )
+    .await
+    .unwrap();
+    confirm(&state, "organization-a", &actor, &off.id)
+        .await
+        .unwrap();
+    let after = deployment::maintenance::get(&state, &target.application_id)
+        .await
+        .unwrap();
+    assert!(!after.enabled);
+    assert_eq!(after.custom_html.as_deref(), Some("<h1>Back at 5</h1>"));
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn an_unusable_maintenance_page_is_refused_before_it_is_stored() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+
+    let refused = propose_maintenance(
+        &state,
+        &chat,
+        &auth_user("editor"),
+        &target,
+        SetMaintenance {
+            enabled: true,
+            page_html: Some("a".repeat(deployment::maintenance::MAX_PAGE_BYTES + 1)),
+            reason: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(refused, crate::dtos::response::AppError::ValidationError(_)));
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
 async fn the_card_never_carries_the_secret() {
     let (state, path) = test_state().await;
     let target = target(&state, "organization-a").await;
@@ -984,6 +1077,189 @@ async fn a_compose_application_is_created_whole_or_not_at_all() {
     cleanup_database(&path);
 }
 
+fn zip_of(files: &[(&str, &str)]) -> Vec<u8> {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    for (name, content) in files {
+        zip.start_file(*name, options).unwrap();
+        zip.write_all(content.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+#[tokio::test]
+async fn a_zip_project_waits_for_its_upload_then_becomes_a_railpack_app() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let target = ActionTarget::project("organization-a", "", "");
+
+    let (action, token) = propose_source_app(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        DEPLOY_ZIP,
+        SourceApp {
+            project_name: "backend".into(),
+            name: "orders".into(),
+            server_id: "local".into(),
+            project_path: Some("services/api".into()),
+            container_port: 3000,
+            ..SourceApp::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Nothing is created before the ZIP arrives.
+    assert!(
+        confirm(&state, "organization-a", &actor, &action.id)
+            .await
+            .is_err()
+    );
+    sqlx::query("UPDATE assistant_actions SET status = 'pending', failure = NULL WHERE id = ?1")
+        .bind(&action.id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    // A page of HTML is a fine site and not a project.
+    assert!(
+        super::stage_upload(&state, &action.id, &token, b"<!DOCTYPE html><html></html>")
+            .await
+            .is_err()
+    );
+    super::stage_upload(
+        &state,
+        &action.id,
+        &token,
+        &zip_of(&[("services/api/package.json", "{}")]),
+    )
+    .await
+    .unwrap();
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    let project = crate::cqrs::queries::project::list_projects(&state, "organization-a")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|project| project.name == "backend")
+        .expect("the project was created");
+    let detail = crate::cqrs::queries::project::get_project(&state, "organization-a", &project.id)
+        .await
+        .unwrap();
+    let app = detail
+        .environments
+        .iter()
+        .flat_map(|environment| environment.applications.iter())
+        .find(|application| application.name == "orders")
+        .expect("the application was created");
+    let source = deployment::source::get(&state, &app.id).await.unwrap();
+    assert_eq!(source.deploy_type, "git");
+    assert_eq!(source.build_method, "railpack");
+    assert!(source.source_upload);
+    assert_eq!(source.git_url, None);
+    assert_eq!(source.railpack_project_path, "services/api");
+    assert_eq!(source.container_port, Some(3000));
+    assert!(source.source_archive_bytes.is_some());
+
+    // Saving the build settings again keeps the ZIP as the source.
+    let kept = deployment::source::save(
+        &state,
+        &app.id,
+        crate::dtos::deployment::UpdateSourceRequest {
+            deploy_type: "git".into(),
+            build_method: "railpack".into(),
+            git_provider_id: None,
+            git_url: None,
+            git_branch: None,
+            auto_deploy: Some(false),
+            watch_paths: None,
+            dockerfile_path: None,
+            compose_file_path: None,
+            compose_public_service: None,
+            container_port: Some(8080),
+            railpack_project_path: Some("services/api".into()),
+            railpack_start_command: None,
+            build_cpu_cores: None,
+            build_memory_mib: None,
+            build_swap_mib: None,
+            image_url: None,
+            registry_username: None,
+            registry_password: None,
+            restart_policy: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(kept.source_upload);
+    assert_eq!(kept.container_port, Some(8080));
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn a_repository_card_needs_a_port_and_never_carries_credentials() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let target = ActionTarget::project("organization-a", "", "");
+    let card = |url: &str, port: i64| SourceApp {
+        project_name: "backend".into(),
+        name: "orders".into(),
+        server_id: "local".into(),
+        git_url: Some(url.into()),
+        container_port: port,
+        ..SourceApp::default()
+    };
+
+    let no_port = propose_source_app(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        DEPLOY_REPOSITORY,
+        card("https://github.com/o/r.git", 0),
+    )
+    .await
+    .unwrap_err();
+    assert!(no_port.to_string().contains("container_port"), "{no_port}");
+
+    let credentials = propose_source_app(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        DEPLOY_REPOSITORY,
+        card("https://user:token@github.com/o/r.git", 3000),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        credentials.to_string().contains("credentials"),
+        "{credentials}"
+    );
+
+    let (action, token) = propose_source_app(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        DEPLOY_REPOSITORY,
+        card("https://github.com/o/r.git", 3000),
+    )
+    .await
+    .unwrap();
+    assert!(token.is_empty(), "a repository has nothing to upload");
+    assert_eq!(action.status, "pending");
+
+    cleanup_database(&path);
+}
+
 #[tokio::test]
 async fn a_static_site_waits_for_its_upload_then_comes_up_whole() {
     let (state, path) = test_state().await;
@@ -1367,6 +1643,64 @@ async fn a_compose_app_is_created_like_a_catalog_template() {
     cleanup_database(&path);
 }
 
+#[tokio::test]
+async fn a_compose_app_with_a_host_routes_it_to_the_service() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let target = ActionTarget::project("organization-a", "", "");
+    let compose = "services:\n  web:\n    image: docker.io/library/nginx:1\n    restart: unless-stopped\n    expose:\n      - \"3000\"\n";
+    let action = propose_deploy_compose(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        ComposeApp {
+            project_name: "analytics".into(),
+            name: "web".into(),
+            server_id: "local".into(),
+            compose: compose.into(),
+            port: Some(3000),
+            host: Some("site.example.com".into()),
+            https: Some(true),
+            ..ComposeApp::default()
+        },
+    )
+    .await
+    .unwrap();
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    let project = crate::cqrs::queries::project::list_projects(&state, "organization-a")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|project| project.name == "analytics")
+        .unwrap();
+    let detail = crate::cqrs::queries::project::get_project(&state, "organization-a", &project.id)
+        .await
+        .unwrap();
+    let created = detail
+        .environments
+        .iter()
+        .flat_map(|environment| environment.applications.iter())
+        .find(|application| application.name == "web")
+        .unwrap();
+    let domains = deployment::domains::list(&state, &created.id)
+        .await
+        .unwrap();
+    let routes = deployment::compose::proxy_routes::list(&state, &created.id)
+        .await
+        .unwrap();
+    assert_eq!(routes.len(), 1, "the domain must name a service and port");
+    assert_eq!(routes[0].domain_id, domains[0].id);
+    assert_eq!(routes[0].service, "web");
+    assert_eq!(routes[0].container_port, 3000);
+
+    cleanup_database(&path);
+}
+
 #[test]
 fn every_stored_proposal_is_an_allowed_action() {
     for tool in [
@@ -1382,12 +1716,15 @@ fn every_stored_proposal_is_an_allowed_action() {
         ADD_DOMAIN,
         UPDATE_DOMAIN,
         DELETE_DOMAIN,
+        SET_MAINTENANCE,
         DEPLOY_STATIC_SITE,
         CREATE_FROM_TEMPLATE,
         DEPLOY_COMPOSE,
         REDEPLOY_APPLICATION,
         START_APPLICATION,
         STOP_APPLICATION,
+        RESTART_APPLICATION,
+        ROLLBACK_APPLICATION,
     ] {
         assert!(
             crate::assistant::capabilities::action_allowed(exec_action(tool)),
@@ -1610,5 +1947,67 @@ async fn a_public_repository_becomes_a_railpack_git_deploy() {
         .is_err()
     );
 
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn a_rollback_with_no_earlier_successful_deploy_is_refused() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let conversation = conversation(&state, "organization-a").await;
+
+    let refused = propose_rollback(
+        &state,
+        &conversation,
+        &auth_user("editor"),
+        &target,
+        None,
+        None,
+    )
+    .await;
+    assert!(refused.is_err());
+
+    let unknown = propose_rollback(
+        &state,
+        &conversation,
+        &auth_user("editor"),
+        &target,
+        Some("not-a-run".into()),
+        None,
+    )
+    .await;
+    assert!(unknown.is_err());
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn a_restart_of_a_container_the_application_does_not_have_is_refused() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let conversation = conversation(&state, "organization-a").await;
+
+    let refused = propose_restart(
+        &state,
+        &conversation,
+        &auth_user("editor"),
+        &target,
+        Some("someone-elses-container".into()),
+        None,
+    )
+    .await;
+    assert!(refused.is_err());
+
+    let whole = propose_restart(
+        &state,
+        &conversation,
+        &auth_user("editor"),
+        &target,
+        None,
+        Some("it hangs".into()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(whole.tool, RESTART_APPLICATION);
+    assert!(whole.summary.contains("it hangs"), "{}", whole.summary);
     cleanup_database(&path);
 }

@@ -611,7 +611,7 @@ pub async fn fail_interrupted(state: &SharedState) -> Result<(), AppError> {
     Ok(())
 }
 
-const RUN_COLUMNS: &str = "r.id, r.source_type, r.build_method, r.status, r.started_at, r.finished_at, r.last_error, r.commit_sha, r.commit_message, r.commit_author_name, r.commit_author_email, r.triggered_by, r.branch, j.id, u.id, u.name, u.email";
+const RUN_COLUMNS: &str = "r.id, r.source_type, r.build_method, r.status, r.started_at, r.finished_at, r.last_error, r.commit_sha, r.commit_message, r.commit_author_name, r.commit_author_email, r.triggered_by, r.branch, j.id, u.id, u.name, u.email, j.status";
 const RUN_JOINS: &str =
     "LEFT JOIN deployment_jobs j ON j.run_id = r.id LEFT JOIN users u ON u.id = r.created_by";
 
@@ -633,9 +633,21 @@ fn row_to_run(row: &sqlx::sqlite::SqliteRow) -> Result<DeploymentRunDto, AppErro
         build_method: row
             .try_get(2)
             .map_err(|e| AppError::DatabaseError(e.to_string()))?,
-        status: row
-            .try_get(3)
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        status: {
+            let status: String = row
+                .try_get(3)
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            // A run is born `building` (its own states have no `queued`), but
+            // while its job still waits for a worker slot nothing is building.
+            let job_status: Option<String> = row
+                .try_get(17)
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            if status == "building" && job_status.as_deref() == Some("queued") {
+                "queued".to_string()
+            } else {
+                status
+            }
+        },
         started_at,
         finished_at,
         duration_ms,

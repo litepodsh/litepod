@@ -7,6 +7,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import CloudIcon from '@lucide/svelte/icons/cloud';
+	import MessageSquareWarningIcon from '@lucide/svelte/icons/message-square-warning';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PaletteIcon from '@lucide/svelte/icons/palette';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
@@ -28,6 +29,8 @@
 	} = $props();
 
 	// Phone-only collapsibles; both start folded every time the menu opens.
+	const ISSUES_URL = 'https://github.com/litepodsh/litepod/issues';
+
 	let appearanceOpen = $state(false);
 	let languageOpen = $state(false);
 
@@ -150,6 +153,10 @@
 			</DropdownMenu.Item>
 			<DropdownMenu.Separator />
 		{/if}
+		<DropdownMenu.Item onclick={() => window.open(ISSUES_URL, '_blank', 'noopener,noreferrer')}>
+			<MessageSquareWarningIcon />
+			{t('menu.user_menu.feedback')}
+		</DropdownMenu.Item>
 		<DropdownMenu.Item onclick={() => goto('/logout')}>
 			<LogOutIcon />
 			{t('menu.user_menu.log_out')}

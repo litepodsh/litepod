@@ -7,12 +7,23 @@
 	import { Switch } from '#lib/components/ui/switch/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
 	import type {
 		ApplicationNetworkOverviewDto,
+		ContainerNetStatDto,
 		LinkedApplicationDto,
+		NetworkProbePairDto,
 		ResourceNetworkLinkDto,
 	} from '#lib/clients/project-client.js';
+	import { networkMember } from '#lib/clients/podman-console-client.js';
+	import { toast } from '#lib/utils/toast.js';
 	import { t } from '#lib/i18n/index.svelte.js';
+
+	function formatRate(bytesPerSec: number): string {
+		if (bytesPerSec < 1000) return `${Math.round(bytesPerSec)} B/s`;
+		if (bytesPerSec < 1_000_000) return `${(bytesPerSec / 1000).toFixed(1)} kB/s`;
+		return `${(bytesPerSec / 1_000_000).toFixed(1)} MB/s`;
+	}
 
 	let {
 		overview,
@@ -26,6 +37,10 @@
 		resourceLinksLoading = false,
 		isResource = false,
 		onToggleResourceLink,
+		organizationId = '',
+		serverId = null,
+		onProbe,
+		onStats,
 	}: {
 		overview: ApplicationNetworkOverviewDto | null;
 		loading?: boolean;
@@ -38,7 +53,86 @@
 		resourceLinksLoading?: boolean;
 		isResource?: boolean;
 		onToggleResourceLink?: (resourceId: string, linked: boolean) => Promise<void>;
+		organizationId?: string;
+		serverId?: string | null;
+		/** Runs the active reachability probe and returns its pairs. */
+		onProbe?: () => Promise<NetworkProbePairDto[]>;
+		/** Fetches per-container network counters for the throughput figure. */
+		onStats?: () => Promise<ContainerNetStatDto[]>;
 	} = $props();
+
+	let probes = $state.raw<NetworkProbePairDto[]>([]);
+	let probing = $state(false);
+	let detaching = $state<string | null>(null);
+
+	// `podman stats --no-stream` already reports NetIO as a short-window delta, so
+	// each sample is used directly; a container keeps its last value until the next.
+	let rates = $state.raw<Record<string, number>>({});
+
+	$effect(() => {
+		if (!onStats || !overview || overview.containers.length === 0) return;
+		let cancelled = false;
+		const owned = overview.containers.map((c) => c.name);
+		async function poll() {
+			try {
+				const rows = await onStats!();
+				if (cancelled) return;
+				const sample: Record<string, number> = {};
+				for (const name of owned) sample[name] = 0;
+				for (const row of rows) sample[row.container] = row.net_rx_bytes + row.net_tx_bytes;
+				rates = sample;
+			} catch {
+				// transient; keep the last rates
+			}
+		}
+		void poll();
+		const timer = setInterval(poll, 3000);
+		return () => {
+			cancelled = true;
+			clearInterval(timer);
+		};
+	});
+
+	// A refresh changes the topology, so any probe result is now stale.
+	async function refresh() {
+		probes = [];
+		await onRefresh();
+	}
+
+	async function runProbe() {
+		if (!onProbe) return;
+		probing = true;
+		try {
+			probes = await onProbe();
+			if (probes.length === 0) toast.info(t('projects.application_map.nothing_to_probe'));
+		} catch (caught) {
+			toast.error(
+				caught instanceof Error ? caught.message : t('projects.application_map.probe_failed'),
+			);
+		} finally {
+			probing = false;
+		}
+	}
+
+	async function detach(container: string, network: string) {
+		if (!serverId) return;
+		detaching = container;
+		try {
+			await networkMember(organizationId, serverId, network, 'disconnect', container);
+			toast.success(t('projects.application_map.detached_toast', { container, network }));
+			await refresh();
+		} catch (caught) {
+			const message =
+				caught instanceof Error ? caught.message : t('projects.application_map.could_not_detach');
+			toast.error(
+				/403|forbidden|admin/i.test(message)
+					? t('projects.application_map.detach_admin_required')
+					: message,
+			);
+		} finally {
+			detaching = null;
+		}
+	}
 
 	// One in-flight toggle at a time per row, so a double click cannot fire two
 	// requests that resolve out of order.
@@ -70,7 +164,15 @@
 						<PencilIcon />{t('projects.application_networks.make_private_editable')}
 					</Button>
 				{/if}
-				<Button variant="outline" disabled={loading} onclick={() => void onRefresh()}>
+				{#if onProbe}
+					<Button variant="outline" disabled={probing || loading} onclick={() => void runProbe()}>
+						<PlugZapIcon class={probing ? 'animate-pulse' : ''} />
+						{probing
+							? t('projects.application_map.probing')
+							: t('projects.application_map.test_reachability')}
+					</Button>
+				{/if}
+				<Button variant="outline" disabled={loading} onclick={() => void refresh()}>
 					<RefreshCwIcon class={loading ? 'animate-spin' : ''} />{t(
 						'projects.application_general.refresh',
 					)}
@@ -170,7 +272,7 @@
 		{:else}
 			{#if overview.findings.length}
 				<div class="space-y-2">
-					{#each overview.findings as finding (finding.code)}
+					{#each overview.findings as finding (finding.code + ':' + (finding.container ?? ''))}
 						<div
 							class={finding.severity === 'warning'
 								? 'rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm'
@@ -181,6 +283,18 @@
 									: t('projects.application_networks.info')}
 							</p>
 							<p class="mt-1 text-muted-foreground">{finding.message}</p>
+							{#if finding.container && finding.network && serverId}
+								<Button
+									variant="outline"
+									size="sm"
+									class="mt-2"
+									disabled={detaching === finding.container}
+									onclick={() => void detach(finding.container!, finding.network!)}>
+									{detaching === finding.container
+										? t('projects.application_map.detaching')
+										: t('projects.application_map.detach_from', { network: finding.network })}
+								</Button>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -216,6 +330,25 @@
 				</div>
 			</div>
 
+			{#if probes.length}
+				<div>
+					<h3 class="mb-2 text-sm font-medium">{t('projects.application_networks.reachability')}</h3>
+					<ul class="divide-y rounded-lg border text-sm">
+						{#each probes as probe (probe.from + ' ' + probe.to)}
+							{@const ok = probe.reason === 'reachable' || probe.reason === 'resolved'}
+							<li class="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+								<span class="font-mono text-xs">
+									{probe.from} → {probe.to}{probe.port ? `:${probe.port}` : ''}
+								</span>
+								<span class={ok ? 'text-success' : 'text-warning'}>
+									{probe.reason.replace(/_/g, ' ')}
+								</span>
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+
 			<div>
 				<h3 class="mb-2 text-sm font-medium">
 					{t('projects.application_networks.application_containers')}
@@ -223,7 +356,14 @@
 				<div class="grid gap-3 md:grid-cols-2">
 					{#each overview.containers as container (container.name)}
 						<article class="rounded-lg border p-3">
-							<p class="truncate font-mono text-xs font-medium">{container.name}</p>
+							<div class="flex items-center justify-between gap-2">
+								<p class="truncate font-mono text-xs font-medium">{container.name}</p>
+								{#if rates[container.name] !== undefined}
+									<span class="shrink-0 text-xs text-muted-foreground">
+										{formatRate(rates[container.name])}
+									</span>
+								{/if}
+							</div>
 							<p class="mt-1 text-xs text-muted-foreground">
 								{container.service
 									? t('projects.application_networks.service_label', { service: container.service })

@@ -281,6 +281,20 @@ async fn domain_server(
     application_server(state, &domain.application_id).await
 }
 
+/// Whether a domain is routed by a public-edge server's own Caddy (built by the
+/// edge helper script) rather than by the central Caddy. The central Caddy
+/// serves local-server domains and private-relay domains alike.
+pub(crate) async fn domain_is_public_edge(
+    state: &SharedState,
+    domain: &DomainDto,
+) -> Result<bool, AppError> {
+    if domain.is_local || domains::application_uses_local_caddy(state, &domain.application_id).await? {
+        return Ok(false);
+    }
+    let server = domain_server(state, domain).await?;
+    Ok(matches!(server.ingress_mode, IngressMode::PublicEdge))
+}
+
 /// The remote endpoint a domain's own Compose proxy route targets, for an
 /// application with more than one publicly routed service. `None` for a
 /// domain with no proxy route - a non-Compose remote deploy (git/static),
@@ -456,6 +470,9 @@ pub async fn sync_server_routes(
         setup::caddy_helper(server, &[OsString::from("certificates-check")])
             .await
             .is_ok();
+    let basic_auth_supported = setup::caddy_helper(server, &[OsString::from("basic-auth-check")])
+        .await
+        .is_ok();
     let mut lines = Vec::new();
     for target in &targets {
         let domain = domains::get_by_id(state, &target.domain_id).await?;
@@ -469,6 +486,18 @@ pub async fn sync_server_routes(
         }
         let certificate =
             crate::deployment::certificates::load(state, &domains::route_id(&domain.id)).await?;
+        let auth = crate::deployment::basic_auth::load_payload_for_domain(state, &domain.id)
+            .await?
+            .map(|payload| crate::deployment::basic_auth::edge_token(&payload));
+        if auth.is_some() && !(certificates_supported && basic_auth_supported) {
+            let installed = crate::servers::helper::installed_version(server)
+                .await
+                .map_or("unknown".to_string(), |version| format!("v{version}"));
+            return Err(AppError::ValidationError(format!(
+                "Basic authentication needs a newer server script (installed: {installed}, latest: v{}). Open Servers and choose Update script",
+                crate::servers::helper::HELPER_VERSION
+            )));
+        }
         if !certificates_supported {
             if certificate.certificate_provider != "automatic" || !domain.https {
                 return Err(AppError::ValidationError(
@@ -488,14 +517,18 @@ pub async fn sync_server_routes(
             } else {
                 "-".into()
             };
+            // The auth token is appended only when set, so a helper that predates
+            // basic auth still parses every unprotected line.
+            let auth_field = auth.map(|token| format!(" {token}")).unwrap_or_default();
             lines.push(format!(
-                "{} {} {} {} {} {}\n",
+                "{} {} {} {} {} {}{}\n",
                 domain.id,
                 domain.host,
                 endpoint.host_port,
                 domain.https,
                 certificate.certificate_provider,
-                token
+                token,
+                auth_field
             ));
         }
     }

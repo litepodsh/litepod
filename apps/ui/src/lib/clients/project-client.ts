@@ -284,6 +284,11 @@ export type SourceConfigDto = {
 	/** Credentials embedded in the pasted git URL (no saved provider) are on file
 	 * for this application. The secret itself never round-trips to the client. */
 	has_git_credentials: boolean;
+	/** The source tree is an uploaded ZIP rather than a repository clone (read-only;
+	 * uploading an archive sets it, saving a repository URL clears it). */
+	source_upload: boolean;
+	/** Size of the stored ZIP when `source_upload` is set (read-only). */
+	source_archive_bytes: number | null;
 };
 
 export type DeployHookDto = {
@@ -1602,6 +1607,8 @@ export type ContainerStatusDto = {
 	status: string;
 	label: string;
 	container_name: string | null;
+	internal_host: string | null;
+	internal_port: number | null;
 };
 
 export type ApplicationLogTargetDto = {
@@ -2332,6 +2339,100 @@ export async function updateBasicAuth(
 	return response.data!;
 }
 
+export type MaintenanceSiteDto = {
+	/** Short id of the upload (first 12 hex characters of its SHA-256). */
+	id: string;
+	files: number;
+	bytes: number;
+};
+
+export type MaintenanceDto = {
+	/** While true, every domain of the application answers with the 503 page. */
+	enabled: boolean;
+	/** The application's own page; `null` means the default template is served. */
+	custom_html: string | null;
+	/** The default template, for previewing. */
+	default_html: string;
+	/** An uploaded site (a ZIP with its own files) that takes the place of the inline page. */
+	site: MaintenanceSiteDto | null;
+	/** Railpack build of the uploaded site: `none`, `building`, `ready` or `failed`. */
+	companion_status: 'none' | 'building' | 'ready' | 'failed';
+	/** Why the last build failed. */
+	companion_error: string | null;
+};
+
+/** Largest custom page the API accepts. */
+export const MAINTENANCE_MAX_PAGE_BYTES = 512 * 1024;
+
+/** Largest ZIP the API accepts for a maintenance site. */
+export const MAINTENANCE_MAX_SITE_BYTES = 10 * 1024 * 1024;
+
+function maintenancePath(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): string {
+	return deploymentPath(organizationId, projectId, environmentId, applicationId, 'maintenance');
+}
+
+export async function getMaintenance(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): Promise<MaintenanceDto> {
+	const response = await api<MaintenanceDto>(
+		maintenancePath(organizationId, projectId, environmentId, applicationId),
+	);
+	return response.data!;
+}
+
+/** Keeps a ZIP (with an `index.html` at its root) as the maintenance site. */
+export async function uploadMaintenanceSite(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	archive: File,
+): Promise<MaintenanceDto> {
+	const form = new FormData();
+	form.append('archive', archive);
+	const response = await apiForm<MaintenanceDto>(
+		`${maintenancePath(organizationId, projectId, environmentId, applicationId)}/site`,
+		form,
+	);
+	return response.data!;
+}
+
+export async function deleteMaintenanceSite(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): Promise<MaintenanceDto> {
+	const response = await api<MaintenanceDto>(
+		`${maintenancePath(organizationId, projectId, environmentId, applicationId)}/site`,
+		{ method: 'DELETE' },
+	);
+	return response.data!;
+}
+
+/** Absent keys are left unchanged; a blank `page_html` goes back to the default. */
+export async function updateMaintenance(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	input: { enabled?: boolean; page_html?: string },
+): Promise<MaintenanceDto> {
+	const response = await api<MaintenanceDto>(
+		maintenancePath(organizationId, projectId, environmentId, applicationId),
+		{ method: 'PUT', body: JSON.stringify(input) },
+	);
+	return response.data!;
+}
+
 export async function addBasicAuthUser(
 	organizationId: string,
 	projectId: string,
@@ -2388,6 +2489,33 @@ export async function uploadApplicationArtifact(
 		form,
 	);
 	return data!;
+}
+
+/** Stores a ZIP as the application's source tree, in place of a repository. */
+export async function uploadApplicationSourceArchive(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	archive: File,
+): Promise<SourceConfigDto> {
+	const form = new FormData();
+	form.append('archive', archive);
+	const { data } = await apiForm<SourceConfigDto>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'source-archive'),
+		form,
+	);
+	return data!;
+}
+
+/** The uploaded source ZIP, as it was stored. */
+export function applicationSourceArchiveDownloadUrl(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): string {
+	return `${API_URL}${deploymentPath(organizationId, projectId, environmentId, applicationId, 'source-archive')}`;
 }
 
 export async function uploadApplicationIcon(
@@ -2582,6 +2710,19 @@ export async function getApplicationVolumes(
 		deploymentPath(organizationId, projectId, environmentId, applicationId, 'volumes'),
 	);
 	return response.data ?? [];
+}
+
+/** File explorer over a container's own filesystem (needs the `app.exec` permission). */
+export function containerFilesWorkspace(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	containerName: string,
+) {
+	return workspaceClient(
+		`${deploymentPath(organizationId, projectId, environmentId, applicationId, 'containers')}/${encodeURIComponent(containerName)}/files`,
+	);
 }
 
 export function applicationVolumeWorkspace(

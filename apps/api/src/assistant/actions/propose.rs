@@ -489,6 +489,201 @@ pub async fn propose_lifecycle(
     })
 }
 
+/// Stores a maintenance-mode change without applying it. A page that would be
+/// refused at confirm time (too large, not text) is refused now, so the card
+/// never promises something that cannot happen.
+pub async fn propose_maintenance(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    arguments: SetMaintenance,
+) -> Result<ActionDto, AppError> {
+    if let Some(page) = arguments.page_html.as_deref() {
+        deployment::maintenance::normalize_page(Some(page))?;
+    }
+    let name = &target.application_name;
+    let (title, effect) = if arguments.enabled {
+        (
+            format!("Turn on maintenance for {name}"),
+            format!(
+                "Visitors of every domain of {name} will see a maintenance page (HTTP 503) instead of the application. The containers keep running."
+            ),
+        )
+    } else {
+        (
+            format!("Turn off maintenance for {name}"),
+            format!("Visitors of {name} reach the application again."),
+        )
+    };
+    let effect = if arguments.page_html.is_some() {
+        format!("{effect} The maintenance page is replaced.")
+    } else {
+        effect
+    };
+    let summary = match arguments.reason.as_deref() {
+        Some(reason) => format!("{effect} {reason}"),
+        None => effect,
+    };
+    let stored = serde_json::to_string(&arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        SET_MAINTENANCE,
+        &stored,
+        title,
+        summary,
+    )
+    .await
+    .map(|action| ActionDto {
+        added: None,
+        ..action
+    })
+}
+
+/// Stores a rollback without running it.
+///
+/// The run is resolved here, not at confirm time: with no `run` it is the
+/// successful deploy before the current one, and either way it must be a
+/// successful run of this application. The card then names exactly what comes
+/// back, even if another deploy lands before someone confirms.
+pub async fn propose_rollback(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    run: Option<String>,
+    reason: Option<String>,
+) -> Result<ActionDto, AppError> {
+    let run_id = match run
+        .map(|run| run.trim().to_owned())
+        .filter(|run| !run.is_empty())
+    {
+        Some(run) => run,
+        None => deployment::history::list(state, &target.application_id)
+            .await?
+            .into_iter()
+            .filter(|run| run.status == "succeeded")
+            .nth(1)
+            .map(|run| run.id)
+            .ok_or_else(|| {
+                AppError::ValidationError(
+                    "There is no earlier successful deploy to roll back to".into(),
+                )
+            })?,
+    };
+    let previous = deployment::history::rollback_source(state, &target.application_id, &run_id)
+        .await
+        .map_err(|_| {
+            AppError::ValidationError(format!(
+                "`{run_id}` is not a deploy of {}. Use `get deployments` for the run ids.",
+                target.application_name
+            ))
+        })?;
+    if previous.status != "succeeded" {
+        return Err(AppError::ValidationError(
+            "Only a successful deploy can be rolled back to".into(),
+        ));
+    }
+
+    let what = match previous.commit_sha.as_deref() {
+        Some(sha) => format!("run {run_id} (commit {})", &sha[..sha.len().min(8)]),
+        None => format!("run {run_id}"),
+    };
+    let title = format!("Roll back {}", target.application_name);
+    let summary = match reason {
+        Some(reason) => format!(
+            "Redeploys {} as it was in {what}. {reason}",
+            target.application_name
+        ),
+        None => format!("Redeploys {} as it was in {what}.", target.application_name),
+    };
+    let arguments = serde_json::to_string(&Rollback { run: run_id })
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        ROLLBACK_APPLICATION,
+        &arguments,
+        title,
+        summary,
+    )
+    .await
+    .map(|action| ActionDto {
+        added: None,
+        ..action
+    })
+}
+
+/// Stores a restart without running it. With a `container` it is that one,
+/// which has to belong to the application; without, the whole application, and
+/// confirming redeploys it instead when nothing is running.
+pub async fn propose_restart(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    container: Option<String>,
+    reason: Option<String>,
+) -> Result<ActionDto, AppError> {
+    let container = container
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty());
+    if let Some(name) = &container {
+        let names =
+            crate::handler::deployments::container_names(state, &target.application_id).await?;
+        if !names.iter().any(|candidate| candidate == name) {
+            return Err(AppError::ValidationError(format!(
+                "`{name}` is not a container of {}. Use `get containers` for the names.",
+                target.application_name
+            )));
+        }
+    }
+
+    let (title, effect) = match &container {
+        Some(name) => (
+            format!("Restart {name}"),
+            format!(
+                "Restarts the container {name} of {}.",
+                target.application_name
+            ),
+        ),
+        None => (
+            format!("Restart {}", target.application_name),
+            format!(
+                "Restarts the containers of {}, or redeploys it if none is running.",
+                target.application_name
+            ),
+        ),
+    };
+    let summary = match reason {
+        Some(reason) => format!("{effect} {reason}"),
+        None => effect,
+    };
+    let arguments = serde_json::to_string(&Restart { container })
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        RESTART_APPLICATION,
+        &arguments,
+        title,
+        summary,
+    )
+    .await
+    .map(|action| ActionDto {
+        added: None,
+        ..action
+    })
+}
+
 /// Stores a replacement compose file without writing it.
 ///
 /// The current file is read here so the card can say how the shape changes,
@@ -1592,4 +1787,329 @@ pub(super) fn primary_port(
         )
         .into_iter()
         .collect()
+}
+
+/// Stores an application built from source as one card: project (existing or
+/// new), application, the source - a ZIP uploaded to the card's own URL, or a
+/// Git repository - an optional domain, and a deploy.
+///
+/// `tool` is [`DEPLOY_ZIP`] or [`DEPLOY_REPOSITORY`]. For a ZIP the upload token
+/// comes back alongside the card, shown once to the proposer; only its hash is
+/// stored. A repository needs no token and the returned one is empty.
+pub async fn propose_source_app(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    tool: &str,
+    arguments: SourceApp,
+) -> Result<(ActionDto, String), AppError> {
+    let zip = tool == DEPLOY_ZIP;
+    let name = arguments.name.trim().to_owned();
+    if name.is_empty() {
+        return Err(AppError::ValidationError(
+            "The application needs a `name`".into(),
+        ));
+    }
+    if name.chars().count() > 64 {
+        return Err(AppError::ValidationError(
+            "An application name is limited to 64 characters".into(),
+        ));
+    }
+    let project_name = project_name(Some(&arguments.project_name))?;
+    if !(1..=65_535).contains(&arguments.container_port) {
+        return Err(AppError::ValidationError(
+            "`container_port` is required: the port the app listens on (1-65535). Ask the user."
+                .into(),
+        ));
+    }
+    let build_method = match arguments.build_method.trim() {
+        "" | "railpack" => "railpack",
+        "docker" => "docker",
+        other => {
+            return Err(AppError::ValidationError(format!(
+                "`build_method` is `railpack` or `docker`, not `{other}`"
+            )));
+        }
+    }
+    .to_owned();
+    let project_path = arguments
+        .project_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .unwrap_or(".")
+        .to_owned();
+    let relative = |value: &str, what: &str| {
+        let path = std::path::Path::new(value);
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir))
+        {
+            return Err(AppError::ValidationError(format!(
+                "{what} must be a relative path inside the project"
+            )));
+        }
+        Ok(())
+    };
+    relative(&project_path, "`railpack_project_path`")?;
+    let dockerfile_path = arguments
+        .dockerfile_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned);
+    if build_method == "docker" {
+        let Some(path) = &dockerfile_path else {
+            return Err(AppError::ValidationError(
+                "A `docker` build needs `dockerfile_path`. Ask the user.".into(),
+            ));
+        };
+        relative(path, "`dockerfile_path`")?;
+    }
+
+    let (git_url, git_branch) = if zip {
+        (None, None)
+    } else {
+        let raw = arguments.git_url.as_deref().unwrap_or_default();
+        let (clean, embedded) = crate::git::git_providers::split_embedded_credentials(raw)
+            .map_err(AppError::ValidationError)?;
+        if embedded.is_some() {
+            return Err(AppError::ValidationError(
+                "Do not put credentials in `git_url`: use a public repository, or a `git_provider_id` from `get git_providers`".into(),
+            ));
+        }
+        if arguments.git_provider_id.is_none() {
+            crate::security::ssrf::parse_https_url(&clean).map_err(AppError::ValidationError)?;
+        }
+        let branch = arguments
+            .git_branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+            .unwrap_or("main")
+            .to_owned();
+        (Some(clean), Some(branch))
+    };
+
+    let host = arguments
+        .host
+        .as_deref()
+        .map(|host| host.trim().to_ascii_lowercase())
+        .filter(|host| !host.is_empty());
+    let https = host.as_deref().map(|host| {
+        arguments
+            .https
+            .unwrap_or(!deployment::domains::is_local(host))
+    });
+    if let (Some(host), Some(https)) = (&host, https) {
+        deployment::domains::validate(state, host, arguments.container_port, https)?;
+    }
+    let existing = existing_source_target(state, target, &name).await?;
+
+    let token = if zip {
+        format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        )
+    } else {
+        String::new()
+    };
+    let what = if zip {
+        "the uploaded ZIP".to_owned()
+    } else {
+        format!("the repository {}", git_url.as_deref().unwrap_or_default())
+    };
+    let title = format!("Deploy {name} from {what} in {project_name}");
+    let summary = arguments.reason.clone().unwrap_or_else(|| {
+        let mut steps = Vec::new();
+        if target.project_id.is_empty() {
+            steps.push(format!("creates the project {project_name}"));
+        }
+        match &existing {
+            Some(_) => steps.push(format!("sets the source of {name} to {what}")),
+            None => steps.push(format!("creates the application {name} from {what}")),
+        }
+        steps.push(format!(
+            "builds it with {build_method} on port {}",
+            arguments.container_port
+        ));
+        if let Some(host) = &host {
+            let scheme = if https == Some(true) { "https" } else { "http" };
+            steps.push(format!("serves it on {scheme}://{host}"));
+        }
+        let mut text = steps.join(", ");
+        text[..1].make_ascii_uppercase();
+        format!("{text}.")
+    });
+
+    let encoded = serde_json::to_string(&SourceApp {
+        project_name: project_name.clone(),
+        name: name.clone(),
+        build_method,
+        project_path: Some(project_path),
+        dockerfile_path,
+        git_url,
+        git_branch,
+        host: host.clone(),
+        https,
+        upload_token_hash: if zip {
+            super::upload::hash_token(&token)
+        } else {
+            String::new()
+        },
+        application_id: existing,
+        ..arguments
+    })
+    .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let stored = store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        tool,
+        &encoded,
+        title,
+        summary,
+    )
+    .await?;
+
+    Ok((
+        ActionDto {
+            added: Some(match &host {
+                Some(host) => format!("{project_name}/{name} on {host}"),
+                None => format!("{project_name}/{name}"),
+            }),
+            ..stored
+        },
+        token,
+    ))
+}
+
+/// The id of the application called `name` in the target environment when a
+/// source may go into it: one never deployed with no repository or image, or
+/// one already built from an uploaded ZIP. Anything else under that name is
+/// refused, since overwriting it would lose a working configuration.
+pub(super) async fn existing_source_target(
+    state: &SharedState,
+    target: &ActionTarget,
+    name: &str,
+) -> Result<Option<String>, AppError> {
+    if target.project_id.is_empty() {
+        return Ok(None);
+    }
+    let detail = crate::cqrs::queries::project::get_project(
+        state,
+        &target.organization_id,
+        &target.project_id,
+    )
+    .await?;
+    let environment = detail
+        .environments
+        .iter()
+        .find(|environment| environment.id == target.environment_id)
+        .ok_or(AppError::EnvironmentNotFound)?;
+    let Some(application) = environment
+        .applications
+        .iter()
+        .find(|application| application.name.eq_ignore_ascii_case(name))
+    else {
+        return Ok(None);
+    };
+
+    let source = deployment::source::get(state, &application.id).await?;
+    if source.source_upload {
+        return Ok(Some(application.id.clone()));
+    }
+    let empty = source.git_url.is_none()
+        && source.image_url.is_none()
+        && deployment::history::list(state, &application.id)
+            .await?
+            .is_empty();
+    if empty {
+        return Ok(Some(application.id.clone()));
+    }
+    Err(AppError::ValidationError(format!(
+        "`{}` already has an application called `{name}`, set up as a {} deploy. \
+         Change it with `set_source`, pick another name, or remove it in Litepod first.",
+        environment.name, source.deploy_type
+    )))
+}
+
+/// Stores "join this application to a database's private network and put its
+/// connection string in a variable". The password is read when this is applied,
+/// on the server: it never passes through the model or the stored arguments.
+#[allow(clippy::too_many_arguments)]
+pub async fn propose_link_database(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    database: &str,
+    variable: Option<String>,
+    scope: String,
+    reason: Option<String>,
+) -> Result<ActionDto, AppError> {
+    let variable = variable.unwrap_or_else(|| "DATABASE_URL".into());
+    if !deployment::is_environment_name(&variable) {
+        return Err(AppError::ValidationError(format!(
+            "`{variable}` is not a valid environment variable name"
+        )));
+    }
+    if !matches!(scope.as_str(), "runtime" | "build") {
+        return Err(AppError::ValidationError(
+            "Environment scope must be runtime or build".into(),
+        ));
+    }
+    let linkable =
+        crate::deployment::resource_networks::list_linkable(state, &target.application_id).await?;
+    let wanted = database.trim();
+    let found = linkable.iter().find(|link| {
+        link.resource_application_id == wanted || link.name.eq_ignore_ascii_case(wanted)
+    });
+    let Some(found) = found else {
+        let names: Vec<&str> = linkable.iter().map(|link| link.name.as_str()).collect();
+        return Err(AppError::ValidationError(format!(
+            "No database `{wanted}` in this application's environment and server. Databases there: {}",
+            if names.is_empty() {
+                "none".into()
+            } else {
+                names.join(", ")
+            }
+        )));
+    };
+
+    let arguments = LinkDatabase {
+        database_id: found.resource_application_id.clone(),
+        database_kind: found.template_kind.clone().unwrap_or_default(),
+        variable: variable.clone(),
+        scope,
+        reason: reason.clone(),
+    };
+    let encoded = serde_json::to_string(&arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let title = format!("Connect {} to {}", target.application_name, found.name);
+    let summary = reason.unwrap_or_else(|| {
+        format!(
+            "Joins {} to {}'s private network and sets {variable} to its connection string. Redeploy {} to apply.",
+            target.application_name, found.name, target.application_name
+        )
+    });
+    let stored = store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        LINK_DATABASE,
+        &encoded,
+        title,
+        summary,
+    )
+    .await?;
+    Ok(ActionDto {
+        added: Some(format!("{variable}=••••")),
+        ..stored
+    })
 }

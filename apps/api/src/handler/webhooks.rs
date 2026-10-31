@@ -198,7 +198,7 @@ async fn trigger_push_deploys(
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(
         "SELECT a.id, a.watch_paths FROM applications a \
-         WHERE a.git_provider_id = ?1 AND a.auto_deploy = 1 AND a.deploy_type = 'git' AND a.git_branch = ?2 \
+         WHERE a.git_provider_id = ?1 AND a.auto_deploy = 1 AND a.deploy_type = 'git' AND a.git_branch = ?2 AND a.maintenance_for IS NULL \
            AND (a.git_repo_full_name = ?3 OR lower(a.git_url) LIKE '%/' || lower(?3) || '.git')",
     )
     .bind(provider_id)
@@ -696,7 +696,7 @@ pub async fn assistant_upload_handler(
     let body = body.map_err(|rejection| {
         if rejection.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
             AppError::ValidationError(
-                "The site is larger than 10 MB, the upload limit. Remove large assets or host them elsewhere and upload again.".into(),
+                "The upload is larger than the limit: 10 MB for a site, 100 MB for a project ZIP. Leave out large assets, node_modules and build output and upload again.".into(),
             )
         } else {
             AppError::ValidationError(format!("Could not read the upload: {rejection}"))
@@ -742,7 +742,7 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            String::from_utf8_lossy(&body).contains("larger than 10 MB"),
+            String::from_utf8_lossy(&body).contains("larger than the limit"),
             "{}",
             String::from_utf8_lossy(&body)
         );

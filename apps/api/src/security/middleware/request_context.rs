@@ -42,6 +42,16 @@ impl RequestContext {
     }
 }
 
+tokio::task_local! {
+    static CURRENT: RequestContext;
+}
+
+/// This request's context, for code that has no `Extension` to read it from
+/// (`security_events::record` has ~40 callers). `None` in background tasks.
+pub fn current() -> Option<RequestContext> {
+    CURRENT.try_with(Clone::clone).ok()
+}
+
 /// Builds a `RequestContext` for `request` without taking anything out of it
 /// (`headers` and the `ConnectInfo` extension are both read-only). Lives next
 /// to the middleware so tests that exercise just the extraction can do so
@@ -80,7 +90,7 @@ pub fn request_context_for(request: &Request<Body>) -> RequestContext {
 pub async fn request_context_middleware(mut request: Request<Body>, next: Next) -> Response {
     let context = request_context_for(&request);
     request.extensions_mut().insert(context.clone());
-    let mut response = next.run(request).await;
+    let mut response = CURRENT.scope(context.clone(), next.run(request)).await;
     if let Ok(value) = HeaderValue::from_str(&context.request_id) {
         response
             .headers_mut()

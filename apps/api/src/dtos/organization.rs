@@ -17,6 +17,8 @@ pub struct OrganizationDto {
     pub assistant_enabled: bool,
     /// The MCP endpoint answers only while this is true.
     pub mcp_enabled: bool,
+    /// Members without two-factor authentication are refused until they set it up.
+    pub require_two_factor: bool,
     pub created_at: String,
 }
 
@@ -41,6 +43,7 @@ pub struct UpdateOrganizationRequest {
     pub audit_logs_retention_days: Option<i64>,
     pub assistant_enabled: Option<bool>,
     pub mcp_enabled: Option<bool>,
+    pub require_two_factor: Option<bool>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -52,6 +55,9 @@ pub struct OrganizationMemberDto {
     pub role_name: String,
     pub joined_at: String,
     pub disabled: bool,
+    /// Whether the member has two-factor authentication set up. Only filled in
+    /// for callers who can manage members; everyone else sees `None`.
+    pub two_factor_enabled: Option<bool>,
 }
 
 #[derive(Deserialize, ToSchema)]

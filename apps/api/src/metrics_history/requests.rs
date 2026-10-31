@@ -396,9 +396,11 @@ fn agent_label(user_agent: &str, client: &str) -> String {
         .collect();
     let botish = |(name, _): &(&str, &str)| {
         let name = name.to_ascii_lowercase();
-        ["bot", "crawl", "spider", "slurp", "headless", "monitor", "uptime"]
-            .iter()
-            .any(|needle| name.contains(needle))
+        [
+            "bot", "crawl", "spider", "slurp", "headless", "monitor", "uptime",
+        ]
+        .iter()
+        .any(|needle| name.contains(needle))
     };
     tokens
         .iter()
@@ -1697,7 +1699,7 @@ async fn readable_applications(
     let rows = sqlx::query(
         "SELECT a.id, e.project_id, a.environment_id FROM applications a \
          JOIN environments e ON e.id = a.environment_id \
-         JOIN projects p ON p.id = e.project_id WHERE p.organization_id = ?1",
+         JOIN projects p ON p.id = e.project_id WHERE p.organization_id = ?1 AND a.maintenance_for IS NULL",
     )
     .bind(&org.organization_id)
     .fetch_all(&conn)

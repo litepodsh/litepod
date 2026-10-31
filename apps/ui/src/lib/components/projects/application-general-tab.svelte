@@ -7,6 +7,7 @@
 	import GitProviderIcon from '#lib/components/custom/git-provider-icon.svelte';
 	import BoxIcon from '@lucide/svelte/icons/box';
 	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
+	import FileArchiveIcon from '@lucide/svelte/icons/file-archive';
 	import FileCode2Icon from '@lucide/svelte/icons/file-code-2';
 	import ContainerIcon from '@lucide/svelte/icons/container';
 	import type {
@@ -58,6 +59,8 @@
 		containerStatus = null,
 		containerMetrics = new Map(),
 		onUpload,
+		onUploadSourceArchive,
+		sourceArchiveDownloadUrl = null,
 		onRemoveArtifact,
 		artifactDownloadUrl = null,
 		onDeploy,
@@ -91,6 +94,9 @@
 		containerStatus?: ContainerStatusDto | null;
 		containerMetrics?: ReadonlyMap<string, ContainerMetric>;
 		onUpload: (file: File) => Promise<void>;
+		/** Stores a ZIP as the project source, in place of a repository. */
+		onUploadSourceArchive: (file: File) => Promise<void>;
+		sourceArchiveDownloadUrl?: string | null;
 		onRemoveArtifact: () => Promise<void>;
 		artifactDownloadUrl?: string | null;
 		onDeploy: (cleanBuild?: boolean) => Promise<void>;
@@ -125,6 +131,14 @@
 	);
 	$effect(() => {
 		deployType = source.deploy_type;
+	});
+	// A git-type source is either a repository or an uploaded ZIP; the backend
+	// tells them apart by `source_upload`, so only the repository fields differ.
+	let gitSource = $state<'repository' | 'zip'>(
+		untrack(() => (source.source_upload ? 'zip' : 'repository')),
+	);
+	$effect(() => {
+		gitSource = source.source_upload ? 'zip' : 'repository';
 	});
 	let buildMethod = $state<'docker' | 'compose' | 'railpack'>(untrack(() => source.build_method));
 	$effect(() => {
@@ -331,8 +345,7 @@
 	});
 	let gitReady = $derived(
 		!!(
-			repoUrl.trim() &&
-			branch &&
+			(gitSource === 'zip' ? source.source_upload : repoUrl.trim() && branch) &&
 			Number(containerPort) > 0 &&
 			(buildMethod === 'railpack' ||
 				(buildMethod === 'docker' && dockerfilePath.trim()) ||
@@ -360,6 +373,26 @@
 				return null;
 			}
 			return { file, kind };
+		} catch {
+			toast.error(t('projects.application_general.unreadable_file'));
+			return null;
+		}
+	}
+
+	async function validateSourceZip(file: File) {
+		try {
+			// A ZIP starts with "PK" and a local-header, empty-archive or spanned marker.
+			const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+			const isZip =
+				head[0] === 0x50 &&
+				head[1] === 0x4b &&
+				[3, 5, 7].includes(head[2]) &&
+				[4, 6, 8].includes(head[3]);
+			if (!isZip) {
+				toast.error(t('projects.application_general.invalid_source_zip'));
+				return null;
+			}
+			return { file, kind: 'zip' as const };
 		} catch {
 			toast.error(t('projects.application_general.unreadable_file'));
 			return null;
@@ -401,9 +434,9 @@
 			deploy_type: deployType,
 			build_method:
 				deployType === 'compose' ? 'compose' : deployType === 'git' ? buildMethod : 'docker',
-			git_provider_id: deployType === 'git' ? providerId : null,
-			git_url: deployType === 'git' ? repoUrl.trim() : null,
-			git_branch: deployType === 'git' ? branch : null,
+			git_provider_id: deployType === 'git' && gitSource === 'repository' ? providerId : null,
+			git_url: deployType === 'git' && gitSource === 'repository' ? repoUrl.trim() : null,
+			git_branch: deployType === 'git' && gitSource === 'repository' ? branch : null,
 			dockerfile_path:
 				deployType === 'git' && buildMethod === 'docker' ? dockerfilePath.trim() : null,
 			compose_file_path:
@@ -419,9 +452,12 @@
 				deployType === 'git' && buildMethod === 'railpack'
 					? railpackStartCommand.trim() || null
 					: source.railpack_start_command,
-			auto_deploy: deployType === 'git' && canAutoDeploy && autoDeploy,
+			auto_deploy:
+				deployType === 'git' && gitSource === 'repository' && canAutoDeploy && autoDeploy,
 			watch_paths:
-				deployType === 'git' && canAutoDeploy && autoDeploy ? watchPaths.trim() || null : null,
+				deployType === 'git' && gitSource === 'repository' && canAutoDeploy && autoDeploy
+					? watchPaths.trim() || null
+					: null,
 			// Registry-image source. An empty password keeps the saved one when the
 			// image reference is unchanged; blanking it out stores nothing.
 			image_url: deployType === 'image' ? imageUrl.trim() || null : null,
@@ -438,6 +474,8 @@
 			// unchanged since the type is shared between the source response and this save.
 			has_git_credentials: source.has_git_credentials,
 			has_registry_credentials: source.has_registry_credentials,
+			source_upload: source.source_upload,
+			source_archive_bytes: source.source_archive_bytes,
 		});
 	}
 
@@ -807,6 +845,44 @@
 			</div>
 		{:else if deployType === 'git'}
 			<div class="mt-5 grid gap-4">
+				<div class="flex flex-wrap gap-2">
+					<Button
+						size="sm"
+						variant={gitSource === 'repository' ? 'default' : 'outline'}
+						disabled={busy}
+						onclick={() => (gitSource = 'repository')}
+						><GitBranchIcon class="size-4" />
+						{t('projects.application_general.source_repository')}</Button>
+					<Button
+						size="sm"
+						variant={gitSource === 'zip' ? 'default' : 'outline'}
+						disabled={busy}
+						onclick={() => (gitSource = 'zip')}
+						><FileArchiveIcon class="size-4" />
+						{t('projects.application_general.source_zip')}</Button>
+				</div>
+			</div>
+			{#if gitSource === 'zip'}
+				<div class="mt-4">
+					<AnimatedFileUpload
+						accept=".zip,application/zip"
+						heading={t('projects.application_general.source_zip_heading')}
+						description={t('projects.application_general.source_zip_description')}
+						validate={validateSourceZip}
+						onMultipleFiles={() => toast.error(t('projects.application_general.one_file_at_a_time'))}
+						onUpload={onUploadSourceArchive}
+						allowDelete={false}
+						downloadUrl={sourceArchiveDownloadUrl}
+						currentFile={source.source_upload
+							? {
+									name: 'source.zip',
+									size: source.source_archive_bytes ?? 0,
+									kind: 'zip',
+								}
+							: null} />
+				</div>
+			{/if}
+			<div class="mt-5 grid gap-4" class:hidden={gitSource === 'zip'}>
 				{#if providers.length === 0}
 					<p class="text-sm text-muted-foreground">
 						{t('projects.application_general.no_git_providers')}

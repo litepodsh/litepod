@@ -246,6 +246,7 @@ async fn apply_probe_success(state: &SharedState, server: &ServerRecord) -> Resu
         return Ok(());
     }
     if current.state == ServerState::Ready {
+        refresh_helper_version(state, &current).await;
         return repository::mark_checked(state, &server.id).await;
     }
     if !matches!(current.state, ServerState::Degraded | ServerState::Offline) {
@@ -274,6 +275,36 @@ async fn apply_probe_success(state: &SharedState, server: &ServerRecord) -> Resu
             )
             .await
         }
+    }
+}
+
+/// Keeps the stored `serverctl` version current without a full health check. Only a server
+/// that is not known to be on the latest script is asked, so an up-to-date fleet costs nothing
+/// and an outdated one notices the update within a tick.
+async fn refresh_helper_version(state: &SharedState, server: &ServerRecord) {
+    if server.kind != "ssh" || !matches!(server.ingress_mode, super::model::IngressMode::PublicEdge)
+    {
+        return;
+    }
+    let mut facts =
+        serde_json::from_str::<setup::ServerFacts>(&server.facts_json).unwrap_or_default();
+    if facts.helper_version == Some(super::helper::HELPER_VERSION) {
+        return;
+    }
+    let Some(version) = super::helper::installed_version(server).await else {
+        return;
+    };
+    if facts.helper_version == Some(version) {
+        return;
+    }
+    facts.helper_version = Some(version);
+    let Ok(facts_json) = serde_json::to_string(&facts) else {
+        return;
+    };
+    if let Err(error) =
+        repository::set_facts_and_state(state, &server.id, &facts_json, server.state).await
+    {
+        tracing::warn!(server = %server.name, %error, "could not record the helper version");
     }
 }
 

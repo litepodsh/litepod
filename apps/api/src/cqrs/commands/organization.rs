@@ -91,9 +91,31 @@ pub async fn create_organization(
         audit_logs_enabled: row.audit_logs_enabled,
         assistant_enabled: row.assistant_enabled,
         mcp_enabled: row.mcp_enabled,
+        require_two_factor: row.require_two_factor,
         audit_logs_retention_days: row.audit_logs_retention_days,
         created_at: row.created_at,
     })
+}
+
+/// Requiring 2FA refuses every member who has none, the person turning it on
+/// included. Without this check an admin without a second factor locks
+/// themselves out of the settings page that would turn it off again.
+/// The SysAdmin is exempt from the requirement, so it is exempt from this too.
+pub async fn ensure_can_require_two_factor(
+    state: &SharedState,
+    user_id: &str,
+    is_sysadmin: bool,
+) -> Result<(), AppError> {
+    if is_sysadmin {
+        return Ok(());
+    }
+    if crate::git::repositories::account::is_totp_enabled(state, user_id).await? {
+        return Ok(());
+    }
+    Err(AppError::ValidationError(
+        "Set up two-factor authentication on your own account before requiring it from the organization"
+            .into(),
+    ))
 }
 
 pub async fn update_organization(
@@ -143,6 +165,12 @@ pub async fn update_organization(
             .map_err(AppError::DatabaseError)?;
     }
 
+    if let Some(required) = req.require_two_factor {
+        organization::set_require_two_factor(state, organization_id, required)
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
+
     let row = organization::get_organization_by_id(state, organization_id)
         .await
         .ok_or(AppError::OrganizationNotFound)?;
@@ -159,6 +187,7 @@ pub async fn update_organization(
         audit_logs_enabled: row.audit_logs_enabled,
         assistant_enabled: row.assistant_enabled,
         mcp_enabled: row.mcp_enabled,
+        require_two_factor: row.require_two_factor,
         audit_logs_retention_days: row.audit_logs_retention_days,
         created_at: row.created_at,
     })
@@ -286,6 +315,71 @@ mod tests {
             icon_bg: None,
             plan: None,
         }
+    }
+
+    #[tokio::test]
+    async fn an_admin_without_2fa_cannot_require_it_but_the_sysadmin_can() {
+        let (state, path) = test_state().await;
+
+        // No second factor: turning the requirement on would lock this admin out.
+        assert!(matches!(
+            ensure_can_require_two_factor(&state, "viewer", false).await,
+            Err(AppError::ValidationError(_))
+        ));
+        // The SysAdmin is exempt from the requirement, so from this guard too.
+        ensure_can_require_two_factor(&state, "viewer", true)
+            .await
+            .unwrap();
+
+        sqlx::query("UPDATE users SET totp_enabled = 1 WHERE id = 'viewer'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        ensure_can_require_two_factor(&state, "viewer", false)
+            .await
+            .unwrap();
+
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn updating_the_requirement_changes_only_that_organization() {
+        let (state, path) = test_state().await;
+        let request = |required| UpdateOrganizationRequest {
+            name: None,
+            description: None,
+            icon: None,
+            icon_bg: None,
+            plan: None,
+            audit_logs_enabled: None,
+            audit_logs_retention_days: None,
+            assistant_enabled: None,
+            mcp_enabled: None,
+            require_two_factor: required,
+        };
+
+        let on = update_organization(&state, "organization-a", &request(Some(true)))
+            .await
+            .unwrap();
+        assert!(on.require_two_factor);
+
+        // Leaving the field out is "no change", not "turn it off".
+        let untouched = update_organization(&state, "organization-a", &request(None))
+            .await
+            .unwrap();
+        assert!(untouched.require_two_factor);
+
+        let other = organization::get_organization_by_id(&state, "organization-b")
+            .await
+            .unwrap();
+        assert!(!other.require_two_factor);
+
+        let off = update_organization(&state, "organization-a", &request(Some(false)))
+            .await
+            .unwrap();
+        assert!(!off.require_two_factor);
+
+        cleanup_database(&path);
     }
 
     #[tokio::test]

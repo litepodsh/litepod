@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import CommandPalette from '#lib/components/custom/command-palette.svelte';
 	import { UpdateOverlay } from '#lib/components/update/index.js';
+	import TelemetryNotice from '#lib/components/system/telemetry-notice.svelte';
 	import OnboardingDock from '#lib/components/onboarding/onboarding-dock.svelte';
 	import DeploymentsIndicator from '#lib/components/deployments/deployments-indicator.svelte';
 	import ScopeHeader from '#lib/components/shell/scope-header.svelte';
@@ -58,6 +59,9 @@
 
 <CommandPalette />
 <UpdateOverlay />
+{#if !isCloud}
+	<TelemetryNotice {isSysadmin} />
+{/if}
 
 <ScopeHeader bind:organizations bind:isSysadmin bind:isCloud />
 <ScopeHero />

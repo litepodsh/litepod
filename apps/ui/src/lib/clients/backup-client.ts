@@ -9,6 +9,7 @@ export type S3ConfigDto = {
 	schedule_enabled: boolean;
 	schedule_interval: 'daily' | 'weekly' | null;
 	schedule_time: string | null;
+	backup_before_update: boolean;
 };
 
 export type UpdateS3ConfigInput = {
@@ -20,6 +21,7 @@ export type UpdateS3ConfigInput = {
 	schedule_enabled: boolean;
 	schedule_interval: 'daily' | 'weekly' | null;
 	schedule_time: string | null;
+	backup_before_update?: boolean;
 };
 
 export type BackupStatus = 'running' | 'success' | 'failed';

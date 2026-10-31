@@ -10,9 +10,11 @@
 pub const RESOURCES: &[&str] = &[
     "organizations",
     "projects",
+    "environments",
     "applications",
     "environment",
     "deployments",
+    "wait_deployment",
     "deployment_logs",
     "containers",
     "container_logs",
@@ -20,6 +22,9 @@ pub const RESOURCES: &[&str] = &[
     "domains",
     "servers",
     "git_providers",
+    "repositories",
+    "url",
+    "web_search",
     "compose",
     "templates",
     "template",
@@ -32,12 +37,15 @@ pub const ACTIONS: &[&str] = &[
     "redeploy",
     "start",
     "stop",
+    "restart",
+    "rollback",
     "set_compose_file",
     "update_application",
     "set_source",
     "add_domain",
     "update_domain",
     "delete_domain",
+    "set_maintenance",
     "create_project",
     "create_application",
     "update_project",
@@ -45,6 +53,9 @@ pub const ACTIONS: &[&str] = &[
     "deploy_static_site",
     "create_from_template",
     "deploy_compose",
+    "deploy_zip",
+    "deploy_repository",
+    "link_database",
 ];
 
 pub fn resource_allowed(resource: &str) -> bool {
@@ -72,8 +83,8 @@ pub fn mcp_direct(action: &str) -> bool {
 /// asks its human before a tool call, and the audit log keeps every step.
 ///
 /// Confirming goes through the same `actions::confirm` as a person's click, so
-/// validation and permissions are unchanged. A `deploy_static_site` whose site
-/// was not sent inline stays pending: there is nothing to apply until upload.
+/// validation and permissions are unchanged. A `deploy_static_site` or `deploy_zip` whose
+/// files were not sent inline stay pending: there is nothing to apply until upload.
 pub fn mcp_auto_confirm(action: &str) -> bool {
     action_allowed(action) && !mcp_direct(action)
 }
@@ -97,6 +108,11 @@ mod tests {
         );
         assert!(!mcp_direct("redeploy"));
         assert!(!mcp_direct("delete_project"));
+        // Maintenance mode is reachable over MCP the same way as any other
+        // change: auto-confirmed as the token's user, never run on the spot.
+        assert!(action_allowed("set_maintenance"));
+        assert!(!mcp_direct("set_maintenance"));
+        assert!(mcp_auto_confirm("set_maintenance"));
     }
 
     #[test]

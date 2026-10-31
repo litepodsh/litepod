@@ -13,6 +13,10 @@ pub const START_APPLICATION: &str = "start_application";
 
 pub const STOP_APPLICATION: &str = "stop_application";
 
+pub const RESTART_APPLICATION: &str = "restart_application";
+
+pub const ROLLBACK_APPLICATION: &str = "rollback_application";
+
 pub const SET_COMPOSE_FILE: &str = "set_compose_file";
 
 pub const DELETE_ENVIRONMENT_VARIABLE: &str = "delete_environment_variable";
@@ -35,11 +39,19 @@ pub const UPDATE_DOMAIN: &str = "update_domain";
 
 pub const DELETE_DOMAIN: &str = "delete_domain";
 
+pub const SET_MAINTENANCE: &str = "set_maintenance";
+
 pub const DEPLOY_STATIC_SITE: &str = "deploy_static_site";
 
 pub const CREATE_FROM_TEMPLATE: &str = "create_from_template";
 
 pub const DEPLOY_COMPOSE: &str = "deploy_compose";
+
+pub const DEPLOY_ZIP: &str = "deploy_zip";
+
+pub const DEPLOY_REPOSITORY: &str = "deploy_repository";
+
+pub const LINK_DATABASE: &str = "link_database";
 
 /// Litepod's own database templates. Anything else is a catalog template id.
 pub const INTERNAL_TEMPLATES: &[&str] = &[
@@ -91,8 +103,51 @@ pub struct SetEnvironmentVariable {
     pub reason: Option<String>,
 }
 
+/// Validated arguments for [`LINK_DATABASE`]: the database is already resolved
+/// to its id at proposal time, so a rename cannot change what the card promised.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkDatabase {
+    pub database_id: String,
+    pub database_kind: String,
+    /// Variable that receives the private connection string.
+    pub variable: String,
+    #[serde(default = "runtime_scope")]
+    pub scope: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 pub(super) fn runtime_scope() -> String {
     "runtime".into()
+}
+
+/// Validated arguments for [`ROLLBACK_APPLICATION`]: the run to go back to,
+/// already resolved at proposal time so a later deploy cannot change what the
+/// card promised.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rollback {
+    pub run: String,
+}
+
+/// Validated arguments for [`RESTART_APPLICATION`]. No container means the
+/// whole application.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Restart {
+    #[serde(default)]
+    pub container: Option<String>,
+}
+
+/// Validated arguments for [`SET_MAINTENANCE`]: turn the mode on or off, and
+/// optionally replace the page visitors see. Without `page_html` the page the
+/// application already has (or the default) is kept.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetMaintenance {
+    pub enabled: bool,
+    #[serde(default)]
+    pub page_html: Option<String>,
+    /// The one line the user reads before deciding.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Validated arguments for [`SET_COMPOSE_FILE`]. Always the whole document: a
@@ -241,6 +296,46 @@ pub struct StaticSite {
     pub application_id: Option<String>,
 }
 
+/// Validated arguments for [`DEPLOY_ZIP`] and [`DEPLOY_REPOSITORY`]: a project
+/// (existing or new), an application built from source - an uploaded ZIP or a
+/// Git repository - an optional domain, and a deploy. One card.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SourceApp {
+    pub project_name: String,
+    pub name: String,
+    #[serde(default)]
+    pub server_id: String,
+    /// `railpack` (default) or `docker`.
+    #[serde(default)]
+    pub build_method: String,
+    /// The folder of the project inside the ZIP or repository, for Railpack.
+    #[serde(default)]
+    pub project_path: Option<String>,
+    #[serde(default)]
+    pub dockerfile_path: Option<String>,
+    #[serde(default)]
+    pub container_port: i64,
+    /// Repository deploys only.
+    #[serde(default)]
+    pub git_url: Option<String>,
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub git_provider_id: Option<String>,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub https: Option<bool>,
+    /// ZIP deploys only; see [`StaticSite::upload_token_hash`].
+    #[serde(default)]
+    pub upload_token_hash: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// An application of that name the source goes into instead of a new one.
+    #[serde(default)]
+    pub application_id: Option<String>,
+}
+
 /// Validated arguments for [`CREATE_FROM_TEMPLATE`]: a project (existing or
 /// new), an application from an internal or catalog template, the variable
 /// values the user gave, an optional domain, and a deploy. One card.
@@ -334,7 +429,9 @@ impl ActionTarget {
             // so a create has no page yet and a delete's page is about to stop
             // existing - and a rename is read on the list anyway.
             CREATE_PROJECT | UPDATE_PROJECT | DELETE_PROJECT | DEPLOY_STATIC_SITE
-            | CREATE_FROM_TEMPLATE | DEPLOY_COMPOSE => "/projects".into(),
+            | CREATE_FROM_TEMPLATE | DEPLOY_COMPOSE | DEPLOY_ZIP | DEPLOY_REPOSITORY => {
+                "/projects".into()
+            }
             // The application does not exist yet, so the environment it lands
             // in is the closest page there is.
             CREATE_APPLICATION => format!(
@@ -344,6 +441,8 @@ impl ActionTarget {
             _ => {
                 let tab = match tool {
                     ADD_DOMAIN | UPDATE_DOMAIN | DELETE_DOMAIN => "domains",
+                    SET_MAINTENANCE => "advanced",
+                    LINK_DATABASE => "networks",
                     _ => "environment",
                 };
                 format!(

@@ -28,6 +28,27 @@ use crate::security::middleware::request_context::RequestContext;
 use crate::state::state::SharedState;
 use crate::utils::cookie::{SESSION_COOKIE, add_session_cookie, clear_session_cookie};
 
+/// First sign-in of a new account: the baseline `login_anomaly` compares later
+/// logins against.
+async fn record_registered(state: &SharedState, user: &crate::dtos::auth::UserClaims) {
+    let actor = AuthUser {
+        user_id: user.user_id.clone(),
+        email: user.email.clone(),
+        name: user.name.clone(),
+        is_sysadmin: user.is_sysadmin,
+        token_id: None,
+        token_name: None,
+    };
+    let _ = crate::security::security_events::record(
+        state,
+        Some(&actor.user_id),
+        &actor,
+        "auth.registered",
+        None,
+    )
+    .await;
+}
+
 /// Mirrors a login/logout into the audit log of every organization the user
 /// belongs to; `audit_log::record` drops it for orgs with audit logging off.
 /// `metadata` (JSON) records how a login happened: method, 2FA, SSO protocol.
@@ -105,6 +126,7 @@ pub async fn registration_status_handler(
         setup_required,
         public_registration_open: state.is_cloud || setup_required,
         is_cloud: state.is_cloud,
+        captcha_required: crate::security::turnstile::required(state.is_cloud),
     }))
 }
 
@@ -148,6 +170,7 @@ pub async fn setup_handler(
         )
         .await;
     }
+    record_registered(&state, &resp.user).await;
     let jar = add_session_cookie(&state, jar, token).await;
     Ok((jar, created(resp).into_response()))
 }
@@ -195,19 +218,21 @@ pub async fn register_handler(
     }
     if state.is_cloud {
         crate::users::legal::require_accepted(true, req.accept_terms)?;
-        let turnstile_token = req
-            .turnstile_token
-            .as_deref()
-            .filter(|t| !t.is_empty())
-            .ok_or_else(|| {
-                tracing::warn!("register: rejected, request had no turnstile_token");
-                AppError::TurnstileFailed
-            })?;
         let remote_ip = crate::security::middleware::rate_limit::client_ip_from_parts(
             &headers,
             Some(connect_info),
         );
-        crate::security::turnstile::verify(turnstile_token, remote_ip).await?;
+        if crate::security::turnstile::required(state.is_cloud) {
+            let turnstile_token = req
+                .turnstile_token
+                .as_deref()
+                .filter(|t| !t.is_empty())
+                .ok_or_else(|| {
+                    tracing::warn!("register: rejected, request had no turnstile_token");
+                    AppError::TurnstileFailed
+                })?;
+            crate::security::turnstile::verify(turnstile_token, remote_ip).await?;
+        }
 
         let acceptance = crate::users::legal::Acceptance {
             ip: Some(remote_ip.to_string()),
@@ -216,6 +241,16 @@ pub async fn register_handler(
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_string),
         };
+        if !crate::users::email_verification::required(state.is_cloud) {
+            let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
+            let (resp, token) =
+                auth::register(&state, &req.email, &req.password, &req.username, user_agent)
+                    .await?;
+            crate::users::legal::record(&state, &resp.user.user_id, &acceptance).await?;
+            record_registered(&state, &resp.user).await;
+            let jar = add_session_cookie(&state, jar, token).await;
+            return Ok((jar, created(resp).into_response()));
+        }
         let result = crate::users::email_verification::register(
             &state,
             &req.email,
@@ -239,6 +274,7 @@ pub async fn register_handler(
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     let (resp, token) =
         auth::register(&state, &req.email, &req.password, &req.username, user_agent).await?;
+    record_registered(&state, &resp.user).await;
     let jar = add_session_cookie(&state, jar, token).await;
     Ok((jar, created(resp).into_response()))
 }
@@ -284,6 +320,7 @@ pub async fn invited_register_handler(
         };
         crate::users::legal::record(&state, &resp.user.user_id, &acceptance).await?;
     }
+    record_registered(&state, &resp.user).await;
     Ok((add_session_cookie(&state, jar, token).await, created(resp)))
 }
 
@@ -307,7 +344,8 @@ pub async fn login_handler(
 ) -> Result<(CookieJar, axum::response::Response), AppError> {
     let remote_ip = client_ip_from_parts(&headers, Some(connect_info));
     let prior_failures = login_failed_attempts(&state, remote_ip).await;
-    let captcha_required = state.is_cloud && prior_failures >= LOGIN_CAPTCHA_THRESHOLD;
+    let captcha_required =
+        crate::security::turnstile::required(state.is_cloud) && prior_failures >= LOGIN_CAPTCHA_THRESHOLD;
 
     if captcha_required {
         let verified = match req.turnstile_token.as_deref().filter(|t| !t.is_empty()) {
@@ -372,7 +410,7 @@ pub async fn login_handler(
             // so predict its post-increment value to tell the frontend whether the *next*
             // attempt needs the widget.
             let next_captcha_required =
-                state.is_cloud && (prior_failures + 1) >= LOGIN_CAPTCHA_THRESHOLD;
+                crate::security::turnstile::required(state.is_cloud) && (prior_failures + 1) >= LOGIN_CAPTCHA_THRESHOLD;
             let _ = crate::security::security_events::record_anonymous(
                 &state,
                 "auth.login_failed",

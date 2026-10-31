@@ -13,6 +13,10 @@ pub mod history;
 pub mod image;
 pub mod log_buffer;
 pub mod log_filter;
+pub mod maintenance;
+pub mod maintenance_companion;
+#[cfg(test)]
+mod maintenance_companion_guard;
 pub mod managed_volumes;
 pub mod manual_routes;
 pub mod network_observability;
@@ -23,6 +27,7 @@ pub mod resource_networks;
 pub mod rollout;
 pub mod runtime_endpoints;
 pub mod source;
+pub mod source_archive;
 pub mod static_deploy;
 
 pub use operations::*;

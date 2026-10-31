@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brandedTitle } from '#lib/ee/branding/branding.svelte.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -229,7 +230,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('organizations.queue.title')} · litepod</title>
+	<title>{brandedTitle(t('organizations.queue.title'))}</title>
 </svelte:head>
 
 <div class="flex flex-col gap-5 px-4 py-6 sm:px-6">

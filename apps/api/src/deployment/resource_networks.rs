@@ -352,6 +352,7 @@ pub async fn list_linkable(
          WHERE resource.environment_id = consumer.environment_id \
            AND resource.server_id = consumer.server_id \
            AND resource.id <> consumer.id \
+           AND resource.maintenance_for IS NULL \
            AND resource.template_kind IN ({placeholders}) \
          ORDER BY resource.name COLLATE NOCASE, resource.id"
     );

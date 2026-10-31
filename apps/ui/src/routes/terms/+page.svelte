@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { getRegistrationStatus } from '#lib/clients/auth-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
-	const lastUpdated = 'October 7, 2026';
+	const lastUpdated = 'October 31, 2026';
 	let isCloud = $state(true);
 
 	onMount(async () => {

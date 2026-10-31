@@ -40,11 +40,14 @@ pub async fn list_users(state: &SharedState) -> Result<Vec<UserWithOrgsDto>, App
                 }
             })
             .collect();
+        let is_sysadmin = user::is_sysadmin(state, &row.id).await;
         users.push(UserWithOrgsDto {
             id: row.id,
             email: row.email,
             name: row.name,
             created_at: row.created_at,
+            disabled: row.status_id == 4,
+            is_sysadmin,
             organizations: orgs,
         });
     }

@@ -7,6 +7,9 @@
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import * as Alert from '#lib/components/ui/alert/index.js';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { toast, toastError } from '#lib/utils/toast.js';
 	import {
 		getAccount,
@@ -21,6 +24,16 @@
 
 	let profile = $state<AccountProfile | null>(null);
 	let loading = $state(true);
+
+	/** An organization refused this account for lacking 2FA and sent it here. */
+	const twoFactorRequired = page.url.searchParams.get('two_factor') === 'required';
+
+	/** Where the refused request came from, so setup can hand the user back to it.
+	 *  Same-origin paths only: this value travels in a URL. */
+	function returnPath(): string | null {
+		const next = page.url.searchParams.get('next');
+		return next && next.startsWith('/') && !next.startsWith('//') ? next : null;
+	}
 
 	// Setup flow
 	let setupState = $state<'idle' | 'setup' | 'enabled'>('idle');
@@ -155,12 +168,21 @@
 	function handleCloseCodesDialog() {
 		codesDialogOpen = false;
 		showCodes = [];
+		// Only after the codes are dismissed, so they cannot be lost to the redirect.
+		const back = twoFactorRequired && setupState === 'enabled' ? returnPath() : null;
+		if (back) goto(back);
 	}
 </script>
 
 {#if loading}
 	<SkeletonRows rows={3} height="h-20" label={t('account.security.loading')} />
 {:else}
+	{#if twoFactorRequired && setupState !== 'enabled'}
+		<Alert.Root class="mb-4">
+			<Alert.Title>{t('account.security.required_title')}</Alert.Title>
+			<Alert.Description>{t('account.security.required_description')}</Alert.Description>
+		</Alert.Root>
+	{/if}
 	<SettingsSection
 		title={t('account.security.title')}
 		description={t('account.security.description')}>

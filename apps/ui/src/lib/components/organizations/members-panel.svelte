@@ -152,6 +152,16 @@
 							{#if member.disabled}
 								<Badge variant="destructive">{t('organizations.members.disabled_badge')}</Badge>
 							{/if}
+							<!-- Null when the caller may not see it; only member managers are told. -->
+							{#if member.two_factor_enabled === true}
+								<Badge variant="outline" class="text-muted-foreground">
+									{t('organizations.members.two_factor_on')}
+								</Badge>
+							{:else if member.two_factor_enabled === false}
+								<Badge variant="outline" class="text-amber-600 dark:text-amber-400">
+									{t('organizations.members.two_factor_off')}
+								</Badge>
+							{/if}
 						</span>
 						<span class="break-words text-sm text-muted-foreground">{member.email}</span>
 					</div>

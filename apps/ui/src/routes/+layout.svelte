@@ -10,6 +10,7 @@
 	import { onAuthMessage } from '#lib/auth-broadcast.js';
 	import { restoreLocale } from '#lib/i18n/index.svelte.js';
 	import { readStoredPalette, setPalette } from '#lib/state/palette.svelte.js';
+	import { branding, brandedTitle, loadBranding } from '#lib/ee/branding/branding.svelte.js';
 
 	let { children } = $props();
 
@@ -17,6 +18,7 @@
 
 	onMount(() => onAuthMessage(() => goto('/login')));
 	onMount(restoreLocale);
+	onMount(loadBranding);
 
 	// A deploy replaces every content-hashed chunk filename. A tab left open across
 	// a deploy will keep requesting old chunks that no longer exist, and the server
@@ -34,19 +36,19 @@
 
 	function pageTitle(): string {
 		const path = page.url.pathname;
-		if (path === '/login') return 'Login - litepod';
-		if (path === '/register') return 'Register - litepod';
-		if (path === '/verify-email') return 'Verify email - litepod';
-		if (path === '/terms') return 'Terms of Service - litepod';
-		if (path === '/privacy') return 'Privacy Policy - litepod';
-		if (path === '/refund') return 'Refund Policy - litepod';
-		if (path === '/acceptable-use') return 'Acceptable Use Policy - litepod';
-		return 'litepod';
+		if (path === '/login') return brandedTitle('Login', '-');
+		if (path === '/register') return brandedTitle('Register', '-');
+		if (path === '/verify-email') return brandedTitle('Verify email', '-');
+		if (path === '/terms') return brandedTitle('Terms of Service', '-');
+		if (path === '/privacy') return brandedTitle('Privacy Policy', '-');
+		if (path === '/refund') return brandedTitle('Refund Policy', '-');
+		if (path === '/acceptable-use') return brandedTitle('Acceptable Use Policy', '-');
+		return brandedTitle();
 	}
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" href={branding.favicon_url ?? favicon} />
 	<title>{pageTitle()}</title>
 </svelte:head>
 

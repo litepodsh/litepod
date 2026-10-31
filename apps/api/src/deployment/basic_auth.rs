@@ -494,7 +494,18 @@ pub async fn delete_user(
     if result.rows_affected() == 0 {
         return Err(AppError::ResourceNotFound);
     }
-    for domain_id in fetch_protected_domain_ids(state, &auth_id).await? {
+    let protected = fetch_protected_domain_ids(state, &auth_id).await?;
+    // With no users left nothing is protected: Caddy already serves these
+    // routes open, so drop the selection and let the checkboxes say so.
+    if fetch_users(state, &auth_id).await?.is_empty() && !protected.is_empty() {
+        let conn = crate::git::repositories::db::get_conn(state).await;
+        sqlx::query("DELETE FROM application_basic_auth_domains WHERE auth_id = ?1")
+            .bind(&auth_id)
+            .execute(&conn)
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    }
+    for domain_id in protected {
         super::reconcile_caddy_basicauth(state, &domain_id).await;
     }
     Ok(())
@@ -581,9 +592,63 @@ pub(crate) fn authentication_handle(
     }))
 }
 
+/// Quotes one Caddyfile token. `{`/`}` are escaped so Caddy never expands a
+/// placeholder out of a realm or username.
+fn caddyfile_quote(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('"');
+    for ch in value.chars() {
+        match ch {
+            '\\' | '"' | '{' | '}' => {
+                quoted.push('\\');
+                quoted.push(ch);
+            }
+            '\n' | '\r' => quoted.push(' '),
+            _ => quoted.push(ch),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
+/// The Caddyfile `basic_auth` directive for a public-edge route fragment. The
+/// edge helper splices it in ahead of `reverse_proxy`, mirroring the
+/// `authentication` handler `authentication_handle` prepends on central Caddy.
+pub(crate) fn caddyfile_block(payload: &BasicAuthPayload) -> String {
+    let mut block = format!(
+        "\tbasic_auth bcrypt {} {{\n",
+        caddyfile_quote(&payload.realm)
+    );
+    for (username, hash) in &payload.accounts {
+        block.push_str(&format!("\t\t{} {}\n", caddyfile_quote(username), hash));
+    }
+    block.push_str("\t}\n");
+    block
+}
+
+/// Base64 of `caddyfile_block`: the single whitespace-free manifest token the
+/// edge helper decodes.
+pub(crate) fn edge_token(payload: &BasicAuthPayload) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(caddyfile_block(payload))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edge_block_quotes_realm_and_lists_accounts() {
+        let block = caddyfile_block(&BasicAuthPayload {
+            realm: "My \"Area\" {x}".into(),
+            accounts: vec![("admin".into(), "$2a$12$hash".into())],
+        });
+
+        assert_eq!(
+            block,
+            "\tbasic_auth bcrypt \"My \\\"Area\\\" \\{x\\}\" {\n\t\t\"admin\" $2a$12$hash\n\t}\n"
+        );
+    }
 
     #[test]
     fn authentication_realm_belongs_to_http_basic_provider() {

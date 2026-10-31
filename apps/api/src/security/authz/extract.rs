@@ -141,6 +141,20 @@ async fn base(parts: &mut Parts, state: &SharedState) -> Result<OrgScope, AppErr
     let organization_id = path_param(parts, "organization_id").await?;
     // Not a member → 403 NotOrganizationMember, before anything else.
     let role_id = organization_role(state, &organization_id, &user).await?;
+    // An organization that requires 2FA refuses a member who has none. After the
+    // membership check so a stranger learns nothing about the organization's
+    // settings; the SysAdmin is the break-glass and is exempt. Every
+    // organization route comes through here, so password, SSO, OAuth and token
+    // callers are all covered. Account routes are not organization-scoped,
+    // which is what keeps 2FA setup reachable for the refused member.
+    if !user.is_sysadmin
+        && crate::git::repositories::organization::requires_two_factor(state, &organization_id)
+            .await
+            .map_err(AppError::DatabaseError)?
+        && !crate::git::repositories::account::is_totp_enabled(state, &user.user_id).await?
+    {
+        return Err(AppError::TwoFactorRequired);
+    }
     // The `local` server is the control plane's own host on cloud, and on
     // self-hosted it is shared by every organization (`organization_id IS NULL`):
     // its console, exec, volume, Caddy and maintenance routes act on the whole
@@ -632,5 +646,97 @@ mod tests {
         ];
         let distinct: std::collections::BTreeSet<_> = markers.iter().collect();
         assert_eq!(distinct.len(), Permission::ALL.len());
+    }
+
+    // ── Organization-wide 2FA requirement ───────────────────────────────────
+
+    async fn require_two_factor(state: &SharedState, organization_id: &str) {
+        crate::git::repositories::organization::set_require_two_factor(
+            state,
+            organization_id,
+            true,
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn enable_totp(state: &SharedState, user_id: &str) {
+        sqlx::query("UPDATE users SET totp_enabled = 1 WHERE id = ?1")
+            .bind(user_id)
+            .execute(&state.db)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_member_without_2fa_is_refused_when_the_organization_requires_it() {
+        let (state, path) = test_state().await;
+        require_two_factor(&state, "organization-a").await;
+
+        let router = probe(state, auth_user("viewer"), ORG_PATH, org_read_probe);
+        let (status, body) = status_of(router, "/api/v1/organizations/organization-a/probe").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.contains("two-factor"), "{body}");
+        assert!(body.contains(crate::dtos::response::TWO_FACTOR_REQUIRED_CODE), "{body}");
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn a_member_with_2fa_passes_when_the_organization_requires_it() {
+        let (state, path) = test_state().await;
+        require_two_factor(&state, "organization-a").await;
+        enable_totp(&state, "viewer").await;
+
+        let router = probe(state, auth_user("viewer"), ORG_PATH, org_read_probe);
+        let (status, _) = status_of(router, "/api/v1/organizations/organization-a/probe").await;
+        assert_eq!(status, StatusCode::OK);
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn the_requirement_binds_only_the_organization_that_set_it() {
+        // `editor` is a member of both organizations and has no 2FA.
+        // organization-a requires it; organization-b does not.
+        let (state, path) = test_state().await;
+        require_two_factor(&state, "organization-a").await;
+
+        let uri = |org: &str| format!("/api/v1/organizations/{org}/probe");
+        let router = probe(state.clone(), auth_user("editor"), ORG_PATH, org_read_probe);
+        let (status, _) = status_of(router, &uri("organization-a")).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let router = probe(state, auth_user("editor"), ORG_PATH, org_read_probe);
+        let (status, _) = status_of(router, &uri("organization-b")).await;
+        assert_eq!(status, StatusCode::OK);
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn the_sysadmin_is_exempt_from_the_requirement() {
+        let (state, path) = test_state().await;
+        require_two_factor(&state, "organization-a").await;
+
+        let router = probe(
+            state,
+            crate::testing::sysadmin_user("outsider"),
+            ORG_PATH,
+            org_read_probe,
+        );
+        let (status, _) = status_of(router, "/api/v1/organizations/organization-a/probe").await;
+        assert_eq!(status, StatusCode::OK);
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn a_non_member_still_gets_the_membership_error_not_the_2fa_one() {
+        // A stranger must learn nothing about the organization's settings.
+        let (state, path) = test_state().await;
+        require_two_factor(&state, "organization-a").await;
+
+        let router = probe(state, auth_user("outsider"), ORG_PATH, org_read_probe);
+        let (status, body) = status_of(router, "/api/v1/organizations/organization-a/probe").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.contains("Not a member"), "{body}");
+        cleanup_database(&path);
     }
 }

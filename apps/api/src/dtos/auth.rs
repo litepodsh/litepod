@@ -36,6 +36,8 @@ pub struct RegistrationStatusResponse {
     pub setup_required: bool,
     pub public_registration_open: bool,
     pub is_cloud: bool,
+    /// Registration needs a Turnstile token (cloud, release builds).
+    pub captcha_required: bool,
 }
 
 #[derive(Deserialize, ToSchema)]

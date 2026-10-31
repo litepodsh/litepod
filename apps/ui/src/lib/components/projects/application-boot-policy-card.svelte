@@ -62,7 +62,7 @@
 	}
 </script>
 
-<Card.Root class="max-w-3xl overflow-hidden">
+<Card.Root class="max-w-[820px] overflow-hidden">
 	<Card.Header>
 		<div class="flex items-center gap-2">
 			<PowerIcon class="size-4 text-muted-foreground" />

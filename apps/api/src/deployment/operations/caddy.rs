@@ -1,4 +1,4 @@
-use super::super::{basic_auth, domains};
+use super::super::{basic_auth, domains, maintenance};
 
 use crate::{dtos::response::AppError, state::state::SharedState};
 
@@ -26,6 +26,7 @@ pub(crate) async fn caddy_route(
     // Strip the prefix back off so we can ask basic_auth about the domain.
     let domain_id = id.strip_prefix("litepod-route-").unwrap_or(id);
     let payload = basic_auth::load_payload_for_domain(state, domain_id).await?;
+    let maintenance = maintenance::load_payload_for_domain(state, domain_id).await?;
     let certificate = crate::deployment::certificates::load(state, id).await?;
     edit_caddy_config(state, |config| {
         apply_app_domain_to_config(
@@ -36,6 +37,7 @@ pub(crate) async fn caddy_route(
             container_port,
             https,
             payload.as_ref(),
+            maintenance.as_ref(),
         )?;
         crate::deployment::certificates::apply(config, id, hostname, https, &certificate, None)
     })
@@ -56,11 +58,14 @@ pub(crate) async fn caddy_application_routes(
         }
         let id = domains::route_id(domain_id);
         let auth = basic_auth::load_payload_for_domain(state, domain_id).await?;
+        // A deploy replaces the upstream, never the page: an application in
+        // maintenance stays in maintenance through its own rollout.
+        let maintenance = maintenance::load_payload_for_domain(state, domain_id).await?;
         let certificate = crate::deployment::certificates::load(state, &id).await?;
-        prepared.push((domain, id, container, port, auth, certificate));
+        prepared.push((domain, id, container, port, auth, maintenance, certificate));
     }
     edit_caddy_config(state, |config| {
-        for (domain, id, container, port, auth, certificate) in prepared {
+        for (domain, id, container, port, auth, maintenance, certificate) in prepared {
             apply_app_domain_to_config(
                 config,
                 &id,
@@ -69,6 +74,7 @@ pub(crate) async fn caddy_application_routes(
                 *port,
                 domain.https,
                 auth.as_ref(),
+                maintenance.as_ref(),
             )?;
             crate::deployment::certificates::apply(
                 config,
@@ -90,15 +96,41 @@ pub(crate) async fn caddy_application_routes(
 /// of those change. Best-effort: logs and continues on Caddy failure so the
 /// DB write that triggered this still succeeds.
 pub(crate) async fn reconcile_caddy_basicauth(state: &SharedState, domain_id: &str) {
-    let Ok(domain) = domains::get_by_id(state, domain_id).await else {
-        return;
-    };
-    let Ok(Some((container_name, container_port))) =
-        domains::caddy_target(state, &domain.application_id, &domain).await
+    if let Err(error) = reconcile_domain_route(state, domain_id).await {
+        tracing::warn!(
+            domain_id,
+            %error,
+            "could not reconcile the route after a basicauth change"
+        );
+    }
+}
+
+/// Rebuilds one domain's route from the database, which is where basic auth and
+/// maintenance mode live. Same work as `reconcile_caddy_basicauth`, but a failure
+/// is returned: maintenance mode is often switched on to hide an application,
+/// and "saved" must not mean "still public".
+///
+/// A domain with nothing to route to (container not running, no endpoint yet)
+/// is `Ok`: no route exists to change, and the one written when the application
+/// comes up reads the same database.
+pub(crate) async fn reconcile_domain_route(
+    state: &SharedState,
+    domain_id: &str,
+) -> Result<(), AppError> {
+    let domain = domains::get_by_id(state, domain_id).await?;
+    // A remote application's routes live on its server, not in the central
+    // Caddy: the edge fragment (or private-relay route) is rebuilt from the
+    // database, which now carries the authentication block.
+    if !domain.is_local && !domains::application_uses_local_caddy(state, &domain.application_id).await?
+    {
+        return crate::servers::ingress::sync_domain(state, &domain).await;
+    }
+    let Some((container_name, container_port)) =
+        domains::caddy_target(state, &domain.application_id, &domain).await?
     else {
-        return;
+        return Ok(());
     };
-    if let Err(error) = caddy_route(
+    caddy_route(
         state,
         &route_id_from_domain(domain_id),
         &domain.host,
@@ -107,14 +139,6 @@ pub(crate) async fn reconcile_caddy_basicauth(state: &SharedState, domain_id: &s
         domain.https,
     )
     .await
-    {
-        tracing::warn!(
-            domain_id,
-            host = %domain.host,
-            %error,
-            "could not reconcile Caddy route after basicauth change"
-        );
-    }
 }
 
 pub(super) fn route_id_from_domain(domain_id: &str) -> String {
@@ -214,8 +238,9 @@ pub(crate) async fn recover_missing_caddy_routes(state: &SharedState) -> Result<
             // Restore the authentication handler along with the route, never a
             // temporarily public proxy for an application protected by basic auth.
             let auth = basic_auth::load_payload_for_domain(state, &route.domain_id).await?;
+            let maintenance = maintenance::load_payload_for_domain(state, &route.domain_id).await?;
             let certificate = crate::deployment::certificates::load(state, &route.route_id).await?;
-            apps.push((route, auth, certificate));
+            apps.push((route, auth, maintenance, certificate));
         }
     }
     let manual = super::super::manual_routes::list_all(state).await?;
@@ -235,7 +260,7 @@ pub(crate) async fn recover_missing_caddy_routes(state: &SharedState) -> Result<
                 &state.caddy_server_upstream,
             )?;
         }
-        for (route, auth, certificate) in &apps {
+        for (route, auth, maintenance, certificate) in &apps {
             if route_present(config, &route.route_id, &route.host, route.https)
                 && crate::deployment::certificates::matches_config(
                     config,
@@ -262,6 +287,7 @@ pub(crate) async fn recover_missing_caddy_routes(state: &SharedState) -> Result<
                 port,
                 route.https,
                 auth.as_ref(),
+                maintenance.as_ref(),
             )?;
             crate::deployment::certificates::apply(
                 config,
@@ -338,6 +364,7 @@ pub(super) fn apply_app_domain_to_config(
     container_port: i64,
     https: bool,
     basicauth: Option<&basic_auth::BasicAuthPayload>,
+    maintenance: Option<&maintenance::MaintenancePayload>,
 ) -> Result<(), AppError> {
     let tls_policy_id = format!("{id}-tls");
     let apps = config
@@ -361,6 +388,28 @@ pub(super) fn apply_app_domain_to_config(
         .as_object_mut()
         .ok_or_else(|| AppError::InternalError("Caddy srv0 is invalid".into()))?;
 
+    // While a Railpack-built page serves the domain, an `errors` route on the same
+    // host covers the companion dying behind it. Any other state removes it.
+    let errors_id = maintenance::errors_route_id(id);
+    if let Some(errors) = server
+        .get_mut("errors")
+        .and_then(|errors| errors.get_mut("routes"))
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        errors.retain(|route| route.get("@id").and_then(serde_json::Value::as_str) != Some(errors_id.as_str()));
+    }
+    if let Some(page) = maintenance.filter(|page| page.companion.is_some()) {
+        let errors = server
+            .entry("errors")
+            .or_insert_with(|| serde_json::json!({ "routes": [] }))
+            .as_object_mut()
+            .ok_or_else(|| AppError::InternalError("Caddy errors config is invalid".into()))?
+            .entry("routes")
+            .or_insert_with(|| serde_json::json!([]))
+            .as_array_mut()
+            .ok_or_else(|| AppError::InternalError("Caddy error routes are invalid".into()))?;
+        errors.push(maintenance::errors_route(id, hostname, page));
+    }
     let routes = server
         .entry("routes")
         .or_insert_with(|| serde_json::json!([]))
@@ -373,13 +422,19 @@ pub(super) fn apply_app_domain_to_config(
     // we emit just the proxy handle so older routes with a stale auth handler
     // get cleaned up.
     let mut handles = Vec::with_capacity(2);
-    if let Some(payload) = basicauth {
-        handles.push(basic_auth::authentication_handle(payload)?);
+    if let Some(page) = maintenance {
+        // Everyone sees the page: no authentication challenge, and the upstream
+        // is never dialed, so the application can be restarted behind it.
+        handles.extend(maintenance::response_handles(page));
+    } else {
+        if let Some(payload) = basicauth {
+            handles.push(basic_auth::authentication_handle(payload)?);
+        }
+        handles.push(serde_json::json!({
+            "handler": "reverse_proxy",
+            "upstreams": [{ "dial": format!("{container_name}:{container_port}") }]
+        }));
     }
-    handles.push(serde_json::json!({
-        "handler": "reverse_proxy",
-        "upstreams": [{ "dial": format!("{container_name}:{container_port}") }]
-    }));
     // Caddy evaluates routes in order. The bootstrap Caddyfile installs
     // litepod's catch-all UI/API proxy first, so application host routes must be
     // prepended or they will never be reached.
@@ -573,6 +628,21 @@ pub(super) fn prune_orphans_in_config(
                 keep
             });
         }
+        if let Some(errors) = server
+            .get_mut("errors")
+            .and_then(|errors| errors.get_mut("routes"))
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            errors.retain(|route| {
+                match route.get("@id").and_then(serde_json::Value::as_str) {
+                    Some(id) => match id.strip_suffix("-maint-errors") {
+                        Some(base) => keep_route_ids.contains(base),
+                        None => true,
+                    },
+                    None => true,
+                }
+            });
+        }
         // Only prune host-keyed entries for hosts that lost their route and are
         // not still claimed by something we keep.
         dropped_hosts.retain(|host| !keep_hosts.contains(host));
@@ -641,6 +711,14 @@ pub(super) fn apply_app_domain_removal_to_config(
         .and_then(serde_json::Value::as_array_mut)
     {
         routes.retain(|route| route.get("@id").and_then(serde_json::Value::as_str) != Some(id));
+    }
+    let errors_id = maintenance::errors_route_id(id);
+    if let Some(errors) = server
+        .get_mut("errors")
+        .and_then(|errors| errors.get_mut("routes"))
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        errors.retain(|route| route.get("@id").and_then(serde_json::Value::as_str) != Some(errors_id.as_str()));
     }
     if let Some(conn_policies) = server
         .get_mut("tls_connection_policies")

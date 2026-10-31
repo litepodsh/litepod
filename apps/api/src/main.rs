@@ -1,3 +1,7 @@
+// The `exec` tool's JSON schema (`assistant/tools.rs`) is one `json!` with every
+// property of every action; each new property costs macro recursion depth.
+#![recursion_limit = "256"]
+
 use dotenvy::dotenv;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -31,6 +35,7 @@ mod scheduled_tasks;
 mod security;
 mod servers;
 mod state;
+mod telemetry;
 mod templates;
 #[cfg(test)]
 mod testing;
@@ -466,6 +471,7 @@ async fn async_main(sentry_kind: Option<&'static str>) {
     });
 
     crate::updater::spawn(shared_state.clone());
+    crate::telemetry::spawn(shared_state.clone());
     crate::backup::scheduler::spawn(shared_state.clone());
     crate::database_backup::scheduler::spawn(shared_state.clone());
     crate::scheduled_tasks::scheduler::spawn(shared_state.clone());

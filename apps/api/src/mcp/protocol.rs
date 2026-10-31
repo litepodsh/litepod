@@ -31,10 +31,17 @@ const DISCOVER_TTL_MS: u64 = 3_600_000;
 
 pub const INSTRUCTIONS: &str = "Litepod deploys and runs applications for this organization. \
     Use `get` to read; start with `resource: projects` when you have not seen a name yet. \
-    Before you deploy an app of your own, search the template catalog with `get` and \
-    `resource: templates` and `query`: the Litepod catalog has maintained templates with \
-    their secrets and domains worked out, and when it has one, offer it and ask the user \
-    which template they want instead of choosing for them. \
+    To deploy any named application (Uptime Kuma, n8n, Plausible, a database, ...), ALWAYS search the \
+    template catalog first with `get` and `resource: templates` and `query`, before creating anything \
+    and before writing a compose file or choosing an image such as `latest`: the Litepod catalog has \
+    maintained templates with their secrets and domains worked out. When it has one, offer it and ask \
+    the user which template they want instead of choosing for them, then use `create_from_template`. \
+    If the project the user names does not exist, create it (`exec` `create_project`, or pass the new name as \
+    `project` to `create_from_template`, `deploy_compose` or `deploy_static_site`) instead of stopping to ask. \
+    To search the web, use your own web search tool; Litepod's `get web_search` appears only when the \
+    organization set one up. `get repositories` lists the repositories the organization's Git providers \
+    can see, private ones included, and `get url` reads one public page. \
+    Write your own compose only when the catalog has nothing, or the user says so after hearing the options. \
     Use `exec` to change something: every action happens immediately and returns its result. \
     For `deploy_static_site`, send the site inline with `files` or `zip_base64` so it deploys in the same call.";
 
@@ -111,8 +118,12 @@ pub fn initialize(requested: Option<&str>, version: &str) -> Value {
 
 /// The assistant's own tools, in its own order (deterministic, as the spec
 /// asks, so clients and prompt caches can reuse it).
-pub fn tools_list() -> Value {
-    let tools: Vec<Value> = tools::definitions_with(capabilities::ACTIONS)
+///
+/// `web_search` is offered only when the organization has one set up and on:
+/// the client's own web search is the default, and this is the fallback for an
+/// agent that has none.
+pub fn tools_list(web_search: bool) -> Value {
+    let tools: Vec<Value> = tools::definitions_for(capabilities::ACTIONS, web_search)
         .into_iter()
         .map(|definition| {
             let function = definition.function;
@@ -155,7 +166,7 @@ mod tests {
 
     #[test]
     fn the_list_is_the_assistants_two_tools_with_hints() {
-        let list = tools_list();
+        let list = tools_list(true);
         assert_eq!(list["resultType"], "complete");
         assert!(list["ttlMs"].is_u64());
         let tools = list["tools"].as_array().unwrap();
@@ -167,8 +178,24 @@ mod tests {
     }
 
     #[test]
+    fn web_search_is_offered_only_when_asked_for() {
+        let with = tools_list(true)["tools"][0]["description"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let without = tools_list(false);
+        let without_description = without["tools"][0]["description"].as_str().unwrap();
+        let without_enum =
+            without["tools"][0]["inputSchema"]["properties"]["resource"]["enum"].to_string();
+        assert!(with.contains("web_search"));
+        assert!(!without_description.contains("`web_search`"));
+        assert!(!without_enum.contains("web_search"));
+        assert!(without_enum.contains("repositories"), "{without_enum}");
+    }
+
+    #[test]
     fn exec_says_what_runs_now_and_what_waits() {
-        let list = tools_list();
+        let list = tools_list(true);
         let exec = list["tools"][1]["description"].as_str().unwrap();
         assert!(exec.contains("Every action happens immediately"), "{exec}");
         assert!(!exec.contains("This NEVER performs it"), "{exec}");

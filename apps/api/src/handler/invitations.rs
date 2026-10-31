@@ -150,6 +150,7 @@ pub async fn eligible_organizations_handler(
                 audit_logs_enabled: row.audit_logs_enabled,
                 assistant_enabled: row.assistant_enabled,
                 mcp_enabled: row.mcp_enabled,
+                require_two_factor: row.require_two_factor,
                 audit_logs_retention_days: row.audit_logs_retention_days,
                 created_at: row.created_at,
             })

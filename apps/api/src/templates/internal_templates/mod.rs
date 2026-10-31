@@ -1,3 +1,4 @@
+pub mod connection;
 pub mod dragonflydb;
 pub mod helpers;
 pub mod keydb;

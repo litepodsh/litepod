@@ -8,7 +8,9 @@ export type NotificationAction =
 	| 'litepod_backup'
 	| 'docker_cleanup'
 	| 'litepod_restart'
-	| 'server_reboot';
+	| 'server_reboot'
+	| 'database_backup'
+	| 'security_alert';
 
 export type DeliveryStatus = 'pending' | 'sending' | 'delivered' | 'failed' | 'dead';
 

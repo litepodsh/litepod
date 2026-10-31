@@ -1,7 +1,9 @@
 <script lang="ts">
 	import CheckIcon from '@lucide/svelte/icons/check';
+	import CopyIcon from '@lucide/svelte/icons/copy';
 	import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import InfoIcon from '@lucide/svelte/icons/info';
 	import PackageIcon from '@lucide/svelte/icons/package';
 	import PowerIcon from '@lucide/svelte/icons/power';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
@@ -11,6 +13,7 @@
 	import DeleteConfirmControl from '#lib/components/custom/delete-confirm-control.svelte';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
+	import * as Popover from '#lib/components/ui/popover/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import {
 		checkServerDisk,
@@ -139,6 +142,26 @@
 		}
 	}
 
+	/** Run on the server (as the SSH user) to see what takes the space, then reclaim it. */
+	const recommendedCommands = [
+		{ label: 'servers.maintenance.cmd_disk', command: 'df -h /' },
+		{ label: 'servers.maintenance.cmd_podman_usage', command: 'podman system df' },
+		{
+			label: 'servers.maintenance.cmd_workspaces',
+			command: 'du -sh ~/.local/share/litepod/apps/* | sort -rh | head',
+		},
+		{ label: 'servers.maintenance.cmd_prune_images', command: 'podman image prune -a -f' },
+		{ label: 'servers.maintenance.cmd_prune_builder', command: 'podman builder prune -a -f' },
+		{ label: 'servers.maintenance.cmd_journal', command: 'journalctl --vacuum-size=200M' },
+	] as const;
+
+	function copyCommand(command: string) {
+		navigator.clipboard
+			.writeText(command)
+			.then(() => toast.success(t('servers.maintenance.command_copied')))
+			.catch(() => toast.error(t('servers.maintenance.command_copy_failed')));
+	}
+
 	function actionLabel(action: Action) {
 		return {
 			'update-packages': t('servers.maintenance.label_package_update'),
@@ -161,7 +184,47 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="sm:max-w-2xl">
 		<Dialog.Header>
-			<Dialog.Title>{t('servers.maintenance.title', { name: server?.name ?? '' })}</Dialog.Title>
+			<Dialog.Title class="flex items-center gap-2">
+				{t('servers.maintenance.title', { name: server?.name ?? '' })}
+				<Popover.Root>
+					<Popover.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon-sm"
+								title={t('servers.maintenance.commands_title')}
+								aria-label={t('servers.maintenance.commands_title')}>
+								<InfoIcon class="size-4" />
+							</Button>
+						{/snippet}
+					</Popover.Trigger>
+					<Popover.Content class="w-[26rem] space-y-2" align="start" sideOffset={6}>
+						<p class="text-sm font-medium">{t('servers.maintenance.commands_title')}</p>
+						<p class="text-xs text-muted-foreground">
+							{t('servers.maintenance.commands_description')}
+						</p>
+						<ul class="space-y-2">
+							{#each recommendedCommands as item}
+								<li class="space-y-1">
+									<p class="text-xs text-muted-foreground">{t(item.label)}</p>
+									<div class="flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1">
+										<code class="min-w-0 flex-1 text-xs break-all">{item.command}</code>
+										<Button
+											variant="ghost"
+											size="icon-sm"
+											title={t('servers.maintenance.copy_command')}
+											aria-label={t('servers.maintenance.copy_command')}
+											onclick={() => copyCommand(item.command)}>
+											<CopyIcon class="size-3.5" />
+										</Button>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					</Popover.Content>
+				</Popover.Root>
+			</Dialog.Title>
 			<Dialog.Description>
 				{t('servers.maintenance.description')}
 			</Dialog.Description>

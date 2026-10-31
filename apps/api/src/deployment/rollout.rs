@@ -18,6 +18,10 @@ use super::{domains, runtime_endpoints::RuntimeEndpoint};
 #[derive(Clone)]
 pub struct Rollout {
     pub name: String,
+    /// The release-less name of the application. Every release also answers to
+    /// it on the shared network, so other services can target a name that
+    /// survives redeploys.
+    pub stable_alias: String,
     pub previous_name: String,
     pub previous_project: String,
     pub project: String,
@@ -164,6 +168,7 @@ impl Rollout {
         }
         Ok(Self {
             name,
+            stable_alias: base,
             previous_name,
             previous_project,
             project,
@@ -761,6 +766,10 @@ pub async fn deploy_image(
                 path.into(),
                 "--network".into(),
                 state.podman_network.clone().into(),
+                "--network-alias".into(),
+                rollout.name.clone().into(),
+                "--network-alias".into(),
+                rollout.stable_alias.clone().into(),
                 "--publish".into(),
                 format!("127.0.0.1::{port}").into(),
             ];
@@ -788,7 +797,7 @@ pub async fn deploy_image(
                 network_options.insert(
                     network,
                     models::PerNetworkOptions {
-                        aliases: Some(vec![rollout.name.clone()]),
+                        aliases: Some(vec![rollout.name.clone(), rollout.stable_alias.clone()]),
                         interface_name: None,
                         static_ips: None,
                         static_mac: None,
@@ -1024,6 +1033,7 @@ mod tests {
             .bind(&app).execute(&state.db).await.unwrap();
         let rollout = Rollout {
             name: "candidate".into(),
+            stable_alias: "app".into(),
             previous_name: "old".into(),
             project: "candidate-project".into(),
             previous_project: "old-project".into(),

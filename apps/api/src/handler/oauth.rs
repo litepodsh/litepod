@@ -1348,7 +1348,11 @@ mod tests {
         let sessions = crate::git::repositories::oauth::list_sessions(&state, "editor")
             .await
             .unwrap();
-        assert_eq!(sessions.len(), 1, "one grant = one record, across rotations");
+        assert_eq!(
+            sessions.len(),
+            1,
+            "one grant = one record, across rotations"
+        );
         assert!(sessions[0].closed_at.is_none());
         cleanup_database(&path);
     }
@@ -1374,16 +1378,25 @@ mod tests {
     fn agent_detection_covers_the_known_hosts() {
         assert_eq!(agent_for("Claude Code", &[]), "claude");
         assert_eq!(
-            agent_for("whatever", &["https://claude.ai/api/mcp/auth_callback".into()]),
+            agent_for(
+                "whatever",
+                &["https://claude.ai/api/mcp/auth_callback".into()]
+            ),
             "claude"
         );
         assert_eq!(agent_for("ChatGPT", &[]), "chatgpt");
         assert_eq!(
-            agent_for("whatever", &["https://chatgpt.com/connector/oauth/a".into()]),
+            agent_for(
+                "whatever",
+                &["https://chatgpt.com/connector/oauth/a".into()]
+            ),
             "chatgpt"
         );
         assert_eq!(agent_for("Hermes", &[]), "hermes");
-        assert_eq!(agent_for("Some Tool", &["http://127.0.0.1:1234/cb".into()]), "other");
+        assert_eq!(
+            agent_for("Some Tool", &["http://127.0.0.1:1234/cb".into()]),
+            "other"
+        );
     }
 
     fn urlencoding(value: &str) -> String {

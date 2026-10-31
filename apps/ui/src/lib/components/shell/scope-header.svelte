@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import SearchableDropdown from '#lib/components/custom/searchable-dropdown.svelte';
 	import LitepodMark from '#lib/components/custom/litepod-mark.svelte';
+	import { branding, brandName } from '#lib/ee/branding/branding.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import Kbd from '#lib/components/ui/kbd/kbd.svelte';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
@@ -49,6 +50,21 @@
 		assistantState.available = activeOrganization?.assistant_enabled ?? false;
 		if (activeOrganization && getSelectedOrganizationId() !== activeOrganization.id)
 			setSelectedOrganizationId(activeOrganization.id);
+	});
+
+	// Settings flips `assistant_enabled` on its own copy of the organization;
+	// this list is the one the header icon reads, so it has to hear about it.
+	$effect(() => {
+		function sync(event: Event) {
+			const { id, assistant_enabled } = (
+				event as CustomEvent<{ id: string; assistant_enabled: boolean }>
+			).detail;
+			organizations = organizations.map((organization) =>
+				organization.id === id ? { ...organization, assistant_enabled } : organization,
+			);
+		}
+		window.addEventListener('organization-assistant-updated', sync);
+		return () => window.removeEventListener('organization-assistant-updated', sync);
 	});
 
 	$effect(() => primeOrganizationName(page.url.pathname));
@@ -102,9 +118,13 @@
 	<div class="shell-col flex h-full min-w-0 items-center gap-1.5 px-3 sm:px-5">
 		<a
 			href="/home"
-			aria-label="Litepod"
+			aria-label={brandName()}
 			class="grid size-8 shrink-0 place-items-center rounded-lg transition-colors hover:bg-muted">
-			<LitepodMark class="size-6" />
+			{#if branding.logo_url}
+				<img src={branding.logo_url} alt={brandName()} class="size-6 object-contain" />
+			{:else}
+				<LitepodMark class="size-6" />
+			{/if}
 		</a>
 
 		<nav aria-label={t('menu.header.scope')} class="flex min-w-0 items-center">
