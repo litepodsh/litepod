@@ -131,6 +131,8 @@ fn source_of(module: &str) -> Option<String> {
     let root = env!("CARGO_MANIFEST_DIR");
     let candidates = [
         format!("{root}/src/handler/{module}.rs"),
+        // Before `mod.rs`, which only re-exports (`crate::telemetry::handler`).
+        format!("{root}/src/{module}/handler.rs"),
         format!("{root}/src/{module}/mod.rs"),
         // Enterprise handlers (`crate::ee::handler::sso`).
         format!("{root}/src/ee/handler/{module}.rs"),

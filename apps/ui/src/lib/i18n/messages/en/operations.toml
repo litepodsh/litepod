@@ -11,6 +11,8 @@ title = "Admin"
 users_description = "All users and their organizations."
 users_title = "Users"
 
+security_description = "Sign-ins, failed logins and account changes, with IP and location. Suspicious ones are flagged."
+security_title = "Security"
 [billing]
 access_token = "Access token"
 accounts_description = "Every registered user and the Polar subscription currently linked to them."
@@ -170,6 +172,27 @@ empty = "You are not a member of any organization yet, so there is nothing to no
 loading = "Loading notifications"
 request_failed = "Could not load notifications."
 title = "Notifications"
+
+[security]
+action = "Event"
+by = "by {actor}"
+description = "Sign-ins, failed logins and account changes across every user. Suspicious events are flagged and sent to the Security Alert notification."
+device = "Device"
+empty = "No security events"
+empty_description = "Nothing matches these filters yet."
+filter_ip = "Filter by IP…"
+filter_this_ip = "Show only this IP"
+flag_distributed_failures = "Many IPs failing"
+flag_impossible_travel = "Impossible travel"
+flag_new_country = "New country"
+ip = "IP"
+load_more = "Load more"
+location = "Location"
+only_flagged = "Only suspicious"
+request_failed = "The security events request failed."
+title = "Security"
+user_activity = "Security activity"
+when = "When"
 
 [system]
 access_required = "Sysadmin access required"

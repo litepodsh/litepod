@@ -36,6 +36,7 @@ pub mod podman_console;
 pub mod projects;
 pub mod runtime;
 pub mod scheduled_tasks;
+pub mod security_events;
 pub mod server_groups;
 pub mod servers;
 pub mod sessions;

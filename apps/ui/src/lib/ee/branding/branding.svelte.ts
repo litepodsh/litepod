@@ -19,7 +19,7 @@ export function applyBranding(next: Branding) {
   Object.assign(branding, next);
 }
 
-/** Cloud and unlicensed builds have no endpoint (404): the defaults stay. */
+/** Cloud answers with the defaults; on a failure the defaults stay too. */
 export async function loadBranding() {
   try {
     applyBranding(await getBranding());

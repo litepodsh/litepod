@@ -10,6 +10,8 @@ export type RegistrationStatusResponse = {
 	setup_required: boolean;
 	public_registration_open: boolean;
 	is_cloud: boolean;
+	/** Registration shows the Turnstile widget (cloud, release builds). */
+	captcha_required: boolean;
 };
 
 export type AuthResponse = {

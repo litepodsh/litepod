@@ -5,6 +5,7 @@
 	import ReceiptIcon from '@lucide/svelte/icons/receipt';
 	import WalletIcon from '@lucide/svelte/icons/wallet';
 	import UsersIcon from '@lucide/svelte/icons/users';
+	import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import { t } from '#lib/i18n/index.svelte.js';
 
@@ -14,6 +15,12 @@
 			descriptionKey: 'operations.admin.users_description',
 			href: '/admin/users',
 			Icon: UsersIcon,
+		},
+		{
+			titleKey: 'operations.admin.security_title',
+			descriptionKey: 'operations.admin.security_description',
+			href: '/admin/security',
+			Icon: ShieldAlertIcon,
 		},
 		{
 			titleKey: 'operations.admin.debug_title',

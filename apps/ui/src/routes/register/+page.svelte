@@ -71,7 +71,7 @@
 				email = invitation.email;
 			} else {
 				registrationStatus = await getRegistrationStatus();
-				if (registrationStatus.is_cloud) loadTurnstileScript();
+				if (registrationStatus.captcha_required) loadTurnstileScript();
 			}
 		} catch (err) {
 			invitationUnavailable = !!token;
@@ -105,7 +105,7 @@
 				registrationSubmitMode(registrationStatus, false) === 'register'
 			) {
 				const turnstileToken = readTurnstileToken(turnstileEl);
-				if (registrationStatus.is_cloud && !turnstileToken) {
+				if (registrationStatus.captcha_required && !turnstileToken) {
 					error = t('auth.register.verification_challenge');
 					loading = false;
 					return;
@@ -138,7 +138,7 @@
 				invitationUnavailable = true;
 			}
 		} finally {
-			if (registrationStatus?.is_cloud) resetTurnstile(turnstileEl);
+			if (registrationStatus?.captcha_required) resetTurnstile(turnstileEl);
 			loading = false;
 		}
 	}
@@ -247,7 +247,7 @@
 									</FieldLabel>
 								</Field>
 							{/if}
-							{#if !inviteToken && registrationStatus?.is_cloud}
+							{#if !inviteToken && registrationStatus?.captcha_required}
 								<div
 									class="cf-turnstile"
 									data-sitekey={TURNSTILE_SITE_KEY}

@@ -11,6 +11,8 @@ title = "Administración"
 users_description = "Todos los usuarios y sus organizaciones."
 users_title = "Usuarios"
 
+security_description = "Inicios de sesión, intentos fallidos y cambios de cuenta, con IP y ubicación. Los sospechosos quedan marcados."
+security_title = "Seguridad"
 [billing]
 access_token = "Token de acceso"
 accounts_description = "Todos los usuarios registrados y la suscripción de Polar vinculada actualmente a ellos."
@@ -170,6 +172,27 @@ empty = "Aún no perteneces a ninguna organización, así que no hay nada sobre 
 loading = "Cargando notificaciones"
 request_failed = "No se pudieron cargar las notificaciones."
 title = "Notificaciones"
+
+[security]
+action = "Evento"
+by = "por {actor}"
+description = "Inicios de sesión, intentos fallidos y cambios de cuenta de todos los usuarios. Los eventos sospechosos se marcan y se envían a la notificación Alerta de seguridad."
+device = "Dispositivo"
+empty = "No hay eventos de seguridad"
+empty_description = "Todavía no hay nada que coincida con estos filtros."
+filter_ip = "Filtrar por IP…"
+filter_this_ip = "Mostrar solo esta IP"
+flag_distributed_failures = "Fallos desde muchas IP"
+flag_impossible_travel = "Viaje imposible"
+flag_new_country = "País nuevo"
+ip = "IP"
+load_more = "Cargar más"
+location = "Ubicación"
+only_flagged = "Solo sospechosos"
+request_failed = "No se pudieron cargar los eventos de seguridad."
+title = "Seguridad"
+user_activity = "Actividad de seguridad"
+when = "Fecha"
 
 [system]
 access_required = "Se requiere acceso de administrador del sistema"

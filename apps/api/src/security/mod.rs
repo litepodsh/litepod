@@ -1,4 +1,5 @@
 pub mod authz;
+pub mod login_anomaly;
 pub mod middleware;
 pub mod rate_limit;
 pub mod security_events;

@@ -160,3 +160,19 @@ pub async fn notify_server_reboot(
         emit(state, event).await;
     }
 }
+
+pub async fn notify_security_alert(
+    state: &SharedState,
+    flag: crate::security::login_anomaly::Flag,
+    subject: &str,
+    ip: &str,
+    place: Option<&str>,
+) {
+    let base = state.public_url.trim_end_matches('/');
+    let url = (!base.is_empty()).then(|| format!("{base}/admin/security?flagged=1"));
+    emit(
+        state,
+        event::security_alert(flag.key(), subject, ip, place, url),
+    )
+    .await;
+}

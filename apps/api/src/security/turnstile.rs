@@ -8,6 +8,12 @@ use std::net::IpAddr;
 
 use crate::dtos::response::AppError;
 
+/// Cloud asks for a captcha in release builds only: a debug build (`just api`)
+/// never does, so local development needs no Cloudflare keys.
+pub fn required(is_cloud: bool) -> bool {
+    is_cloud && !cfg!(debug_assertions)
+}
+
 const SITEVERIFY_URL: &str = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 /// Verifies a Turnstile response token against `TURNSTILE_SECRET`. Fails closed: a missing

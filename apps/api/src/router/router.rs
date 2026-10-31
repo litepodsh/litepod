@@ -34,7 +34,8 @@ use crate::{
         github_app, icons, invitations, maintenance, maintenance_site, mcp, notifications, oauth,
         onboarding,
         organization_apps, organizations, permissions, personal_access_tokens, podman_console,
-        projects, runtime, scheduled_tasks, server_groups, servers, sessions, settings, system,
+        projects, runtime, scheduled_tasks, security_events, server_groups, servers, sessions,
+        settings, system,
         templates, users, webhooks,
     },
     podman::terminal,
@@ -72,6 +73,7 @@ const METRICS_ALLOWED_PATHS: &[&str] = &[
     users::update_user_handler,
     users::delete_user_handler,
     users::set_user_disabled_handler,
+    security_events::list_security_events_handler,
     invitations::list_handler,
     invitations::create_handler,
     invitations::revoke_handler,
@@ -470,6 +472,7 @@ pub fn create_router(state: SharedState) -> Router {
                 .delete(users::delete_user_handler),
         )
         .route("/api/v1/users/{user_id}/disabled", put(users::set_user_disabled_handler))
+        .route("/api/v1/admin/security-events", get(security_events::list_security_events_handler))
         .route("/api/v1/invitations", get(invitations::list_handler).post(invitations::create_handler))
         .route("/api/v1/invitations/organizations", get(invitations::eligible_organizations_handler))
         .route("/api/v1/invitations/{id}/revoke", post(invitations::revoke_handler))
@@ -1326,9 +1329,10 @@ pub fn create_router(state: SharedState) -> Router {
 
 /// Enterprise identity (spec 3) is self-hosted only: on cloud these routes do
 /// not exist (404), so the cloud control plane never acts for a customer IdP.
+/// Branding reads stay, answering with the Litepod defaults.
 pub(crate) fn sso_routes_for_edition(state: SharedState) -> Router<SharedState> {
     if state.is_cloud {
-        Router::new()
+        Router::new().route("/api/v1/branding", get(branding::default_handler))
     } else {
         sso_routes(state.clone()).merge(branding_routes(state))
     }

@@ -5,6 +5,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import UserDisableDialog from '#lib/components/admin/user-disable-dialog.svelte';
+	import SecurityEventsTable from '#lib/components/admin/security-events-table.svelte';
 	import { listUsersWithOrgs, type UserWithOrgs } from '#lib/clients/auth-client.js';
 	import { toast } from '#lib/utils/toast.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -120,6 +121,11 @@
 					</table>
 				</div>
 			{/if}
+		</section>
+
+		<section class="space-y-2">
+			<h2 class="text-sm font-medium">{t('operations.security.user_activity')}</h2>
+			<SecurityEventsTable userId={user.id} />
 		</section>
 	{/if}
 </div>

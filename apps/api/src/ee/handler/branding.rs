@@ -34,6 +34,16 @@ async fn load(state: &SharedState) -> Result<Branding, AppError> {
     })
 }
 
+/// Cloud has no white-label, but every page still asks: answer with the
+/// defaults instead of a 404 (which also skips CORS and shows up as a CORS error).
+pub async fn default_handler() -> impl IntoResponse {
+    ok(Branding {
+        name: None,
+        logo_url: None,
+        favicon_url: None,
+    })
+}
+
 /// Public: the login page renders it before there is a session.
 pub async fn get_handler(State(state): State<SharedState>) -> Result<impl IntoResponse, AppError> {
     Ok(ok(load(&state).await?))

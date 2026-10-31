@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { canOpenPlatformSettings, registrationSubmitMode } from './cloud-registration';
 
 describe('cloud registration helpers', () => {
-	const cloud = { setup_required: false, public_registration_open: true, is_cloud: true };
+	const cloud = {
+		setup_required: false,
+		public_registration_open: true,
+		is_cloud: true,
+		captcha_required: true,
+	};
 
 	it('keeps cloud public registration open after first setup', () => {
 		expect(registrationSubmitMode(cloud, false)).toBe('register');

@@ -216,6 +216,10 @@ fn action_label(action: Action) -> (&'static str, &'static str) {
             "Database Backup",
             "Trigger the action when a database backup or restore completes.",
         ),
+        Action::SecurityAlert => (
+            "Security Alert",
+            "Trigger the action when a suspicious sign-in or a credential-stuffing pattern is detected.",
+        ),
     }
 }
 
