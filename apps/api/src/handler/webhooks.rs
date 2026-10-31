@@ -198,7 +198,7 @@ async fn trigger_push_deploys(
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(
         "SELECT a.id, a.watch_paths FROM applications a \
-         WHERE a.git_provider_id = ?1 AND a.auto_deploy = 1 AND a.deploy_type = 'git' AND a.git_branch = ?2 \
+         WHERE a.git_provider_id = ?1 AND a.auto_deploy = 1 AND a.deploy_type = 'git' AND a.git_branch = ?2 AND a.maintenance_for IS NULL \
            AND (a.git_repo_full_name = ?3 OR lower(a.git_url) LIKE '%/' || lower(?3) || '.git')",
     )
     .bind(provider_id)

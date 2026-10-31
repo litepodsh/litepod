@@ -780,7 +780,7 @@ pub async fn assigned_applications(
          FROM applications a
          INNER JOIN environments e ON e.id = a.environment_id
          INNER JOIN projects p ON p.id = e.project_id
-         WHERE a.server_id = ?1 AND p.organization_id = ?2
+         WHERE a.server_id = ?1 AND p.organization_id = ?2 AND a.maintenance_for IS NULL
          ORDER BY p.name ASC, e.name ASC, a.name ASC",
     )
     .bind(server_id)
@@ -817,7 +817,7 @@ pub async fn assigned_applications(
 /// One grouped query so listing servers stays a single round trip.
 pub async fn assigned_counts(state: &SharedState) -> Result<HashMap<String, u64>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query("SELECT server_id, COUNT(*) FROM applications WHERE server_id IS NOT NULL GROUP BY server_id")
+    let rows = sqlx::query("SELECT server_id, COUNT(*) FROM applications WHERE server_id IS NOT NULL AND maintenance_for IS NULL GROUP BY server_id")
         .fetch_all(&conn)
         .await
         .map_err(|error| AppError::DatabaseError(error.to_string()))?;

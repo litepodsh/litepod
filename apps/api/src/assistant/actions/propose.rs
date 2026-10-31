@@ -489,6 +489,61 @@ pub async fn propose_lifecycle(
     })
 }
 
+/// Stores a maintenance-mode change without applying it. A page that would be
+/// refused at confirm time (too large, not text) is refused now, so the card
+/// never promises something that cannot happen.
+pub async fn propose_maintenance(
+    state: &SharedState,
+    conversation_id: &str,
+    actor: &AuthUser,
+    target: &ActionTarget,
+    arguments: SetMaintenance,
+) -> Result<ActionDto, AppError> {
+    if let Some(page) = arguments.page_html.as_deref() {
+        deployment::maintenance::normalize_page(Some(page))?;
+    }
+    let name = &target.application_name;
+    let (title, effect) = if arguments.enabled {
+        (
+            format!("Turn on maintenance for {name}"),
+            format!(
+                "Visitors of every domain of {name} will see a maintenance page (HTTP 503) instead of the application. The containers keep running."
+            ),
+        )
+    } else {
+        (
+            format!("Turn off maintenance for {name}"),
+            format!("Visitors of {name} reach the application again."),
+        )
+    };
+    let effect = if arguments.page_html.is_some() {
+        format!("{effect} The maintenance page is replaced.")
+    } else {
+        effect
+    };
+    let summary = match arguments.reason.as_deref() {
+        Some(reason) => format!("{effect} {reason}"),
+        None => effect,
+    };
+    let stored = serde_json::to_string(&arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    store_action(
+        state,
+        conversation_id,
+        actor,
+        target,
+        SET_MAINTENANCE,
+        &stored,
+        title,
+        summary,
+    )
+    .await
+    .map(|action| ActionDto {
+        added: None,
+        ..action
+    })
+}
+
 /// Stores a rollback without running it.
 ///
 /// The run is resolved here, not at confirm time: with no `run` it is the

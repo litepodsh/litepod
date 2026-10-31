@@ -108,6 +108,41 @@ function createUpdateStore() {
 		}, 1_000);
 	}
 
+	// An instance backup runs before the install, and it can take minutes. The container only goes
+	// down once it finishes, so the grace timer would reload onto the old build. Poll the API
+	// instead: it going away means the install started; a note starting with "update cancelled"
+	// means the backup failed and nothing was touched.
+	const BACKUP_POLL_MS = 3_000;
+	const BACKUP_LIMIT_MS = 40 * 60_000;
+
+	function startBackupWait(startedVersion: string) {
+		clearTimers();
+		phase = 'preparing';
+		secondsLeft = 0;
+		const endsAt = Date.now() + BACKUP_LIMIT_MS;
+		let inFlight = false;
+		pollTimer = setInterval(async () => {
+			if (inFlight) return;
+			inFlight = true;
+			try {
+				const info = await getSystemVersion();
+				const note = info.state.last_check_note ?? '';
+				if (note.startsWith('update cancelled')) {
+					stopWithMessage(note);
+				} else if (info.state.current_version && info.state.current_version !== startedVersion) {
+					reload();
+				} else if (Date.now() > endsAt) {
+					stopWithMessage(t('common.update.install_failed'));
+				}
+			} catch {
+				// The API stopped answering: the install is replacing the container.
+				startGrace();
+			} finally {
+				inFlight = false;
+			}
+		}, BACKUP_POLL_MS);
+	}
+
 	function stopWithMessage(message: string, level: 'error' | 'warning' = 'error') {
 		clearTimers();
 		applying = false;
@@ -173,7 +208,10 @@ function createUpdateStore() {
 				caddy: core.caddy.target_tag,
 				dragonfly: core.dragonfly.target_tag,
 			});
-			if (result.triggered) {
+			if (result.triggered && result.backup_started) {
+				toast.info(t('common.update.backing_up'));
+				startBackupWait(state.current_version);
+			} else if (result.triggered) {
 				toast.info(t('common.update.installing'));
 				startGrace();
 			} else {

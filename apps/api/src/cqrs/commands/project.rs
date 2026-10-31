@@ -531,6 +531,7 @@ pub async fn delete_application(
     .await
     .map_err(AppError::DatabaseError)?
     .ok_or(AppError::ApplicationNotFound)?;
+    crate::deployment::maintenance_companion::teardown(state, application_id).await;
     crate::deployment::cleanup(state, application_id).await;
     project::delete_application(
         state,

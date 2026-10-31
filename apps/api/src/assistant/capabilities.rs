@@ -45,6 +45,7 @@ pub const ACTIONS: &[&str] = &[
     "add_domain",
     "update_domain",
     "delete_domain",
+    "set_maintenance",
     "create_project",
     "create_application",
     "update_project",
@@ -107,6 +108,11 @@ mod tests {
         );
         assert!(!mcp_direct("redeploy"));
         assert!(!mcp_direct("delete_project"));
+        // Maintenance mode is reachable over MCP the same way as any other
+        // change: auto-confirmed as the token's user, never run on the spot.
+        assert!(action_allowed("set_maintenance"));
+        assert!(!mcp_direct("set_maintenance"));
+        assert!(mcp_auto_confirm("set_maintenance"));
     }
 
     #[test]

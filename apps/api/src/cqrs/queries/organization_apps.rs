@@ -85,7 +85,7 @@ FROM applications a
 INNER JOIN environments e ON e.id = a.environment_id
 INNER JOIN projects p ON p.id = e.project_id
 LEFT JOIN application_deployments d ON d.application_id = a.id
-WHERE p.organization_id = ?1
+WHERE p.organization_id = ?1 AND a.maintenance_for IS NULL
 ORDER BY a.updated_at DESC";
 
 const DOMAINS_SQL: &str = "SELECT d.application_id, d.id, d.host, d.port, d.https, d.is_primary
@@ -93,7 +93,7 @@ FROM application_domains d
 INNER JOIN applications a ON a.id = d.application_id
 INNER JOIN environments e ON e.id = a.environment_id
 INNER JOIN projects p ON p.id = e.project_id
-WHERE p.organization_id = ?1
+WHERE p.organization_id = ?1 AND a.maintenance_for IS NULL
 ORDER BY d.created_at, d.id";
 
 /// Certificate names for the same domains. The join is keyed on `route_id`
@@ -107,7 +107,7 @@ WHERE dc.route_id IN (
     INNER JOIN applications a ON a.id = d.application_id
     INNER JOIN environments e ON e.id = a.environment_id
     INNER JOIN projects p ON p.id = e.project_id
-    WHERE p.organization_id = ?1
+    WHERE p.organization_id = ?1 AND a.maintenance_for IS NULL
 )";
 
 const REPLICAS_SQL: &str = "SELECT r.application_id, r.server_id, r.status
@@ -115,7 +115,7 @@ FROM application_replicas r
 INNER JOIN applications a ON a.id = r.application_id
 INNER JOIN environments e ON e.id = a.environment_id
 INNER JOIN projects p ON p.id = e.project_id
-WHERE p.organization_id = ?1
+WHERE p.organization_id = ?1 AND a.maintenance_for IS NULL
 ORDER BY r.application_id, r.server_id";
 
 const GROUP_MEMBERS_SQL: &str = "SELECT DISTINCT m.group_id, m.server_id
@@ -124,7 +124,7 @@ WHERE m.group_id IN (
     SELECT DISTINCT a.server_group_id FROM applications a
     INNER JOIN environments e ON e.id = a.environment_id
     INNER JOIN projects p ON p.id = e.project_id
-    WHERE p.organization_id = ?1 AND a.server_group_id IS NOT NULL
+    WHERE p.organization_id = ?1 AND a.server_group_id IS NOT NULL AND a.maintenance_for IS NULL
 )";
 
 /// Every application of the organization, with its domains, deployment state

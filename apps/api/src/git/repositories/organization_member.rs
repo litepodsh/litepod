@@ -12,6 +12,7 @@ pub struct OrganizationMemberRow {
     pub role_name: String,
     pub joined_at: String,
     pub disabled: bool,
+    pub two_factor_enabled: bool,
 }
 
 pub struct UserMembershipRow {
@@ -100,7 +101,7 @@ pub async fn list_members(
 ) -> Result<Vec<OrganizationMemberRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(
-        "SELECT u.id, u.email, u.name, tm.role_id, r.name as role_name, tm.joined_at, u.status_id = 4
+        "SELECT u.id, u.email, u.name, tm.role_id, r.name as role_name, tm.joined_at, u.status_id = 4, u.totp_enabled != 0
          FROM organization_members tm
          JOIN users u ON u.id = tm.user_id
          JOIN roles r ON r.id = tm.role_id
@@ -122,6 +123,7 @@ pub async fn list_members(
             role_name: row.try_get(4).unwrap(),
             joined_at: row.try_get(5).unwrap(),
             disabled: row.try_get(6).unwrap(),
+            two_factor_enabled: row.try_get(7).unwrap(),
         });
     }
     Ok(members)
@@ -153,4 +155,31 @@ pub async fn list_memberships_for_user(
         });
     }
     Ok(memberships)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn the_member_list_says_who_has_a_second_factor() {
+        let (state, path) = crate::testing::test_state().await;
+        sqlx::query("UPDATE users SET totp_enabled = 1 WHERE id = 'editor'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+
+        let members = list_members(&state, "organization-a").await.unwrap();
+        let flag = |id: &str| {
+            members
+                .iter()
+                .find(|member| member.user_id == id)
+                .unwrap_or_else(|| panic!("{id} is a member of organization-a"))
+                .two_factor_enabled
+        };
+        assert!(flag("editor"));
+        assert!(!flag("viewer"));
+
+        crate::testing::cleanup_database(&path);
+    }
 }

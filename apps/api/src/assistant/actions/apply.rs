@@ -607,6 +607,43 @@ pub(super) async fn apply_restart(
     })
 }
 
+/// Same service call the application's Maintenance card uses, so the route is
+/// rebuilt, a failed route restores the old state, and an application on a
+/// public-edge server is refused with the same message.
+pub(super) async fn apply_maintenance(
+    state: &SharedState,
+    stored: &StoredAction,
+) -> Result<Applied, AppError> {
+    let arguments: SetMaintenance = serde_json::from_str(&stored.arguments)
+        .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let maintenance = deployment::maintenance::update(
+        state,
+        &stored.application_id,
+        crate::dtos::deployment::UpdateMaintenanceRequest {
+            enabled: Some(arguments.enabled),
+            page_html: arguments.page_html,
+        },
+    )
+    .await?;
+
+    Ok(Applied {
+        audit_action: if maintenance.enabled {
+            "maintenance.enabled"
+        } else {
+            "maintenance.disabled"
+        },
+        added: Some(
+            if maintenance.enabled {
+                "maintenance mode on"
+            } else {
+                "maintenance mode off"
+            }
+            .into(),
+        ),
+        removed: None,
+    })
+}
+
 pub(super) async fn apply_lifecycle(
     state: &SharedState,
     actor: &AuthUser,

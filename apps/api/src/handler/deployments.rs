@@ -491,6 +491,122 @@ pub async fn delete_basic_auth_user_handler(
     Ok(ok(()))
 }
 
+pub async fn get_maintenance_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppRead>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(
+        deployment::maintenance::get(&state, &app.application_id).await?
+    ))
+}
+
+/// Keeps an uploaded ZIP as the application's maintenance site.
+pub async fn upload_maintenance_site_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    mut multipart: Multipart,
+) -> Result<impl IntoResponse, AppError> {
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::ValidationError(format!("Invalid multipart upload: {e}")))?
+        .ok_or_else(|| AppError::ValidationError("Choose a ZIP to upload".into()))?;
+    if field.name() != Some("archive") {
+        return Err(AppError::ValidationError(
+            "Upload field must be named archive".into(),
+        ));
+    }
+    let bytes = field
+        .bytes()
+        .await
+        .map_err(|e| AppError::ValidationError(format!("Could not read upload: {e}")))?;
+    let maintenance =
+        deployment::maintenance::upload_site(&state, &app.application_id, &bytes).await?;
+    // The files are not logged: only that a site was uploaded, and which one.
+    let metadata = serde_json::json!({ "site": maintenance.site.as_ref().map(|site| &site.id) })
+        .to_string();
+    audit_log::record(
+        &state,
+        &app.organization_id,
+        &app.user,
+        "maintenance.site_uploaded",
+        Some("application"),
+        Some(&app.application_id),
+        Some(&app.application_name),
+        Some(&metadata),
+        None,
+        None,
+        None,
+    )
+    .await
+    .ok();
+    Ok(created(maintenance))
+}
+
+pub async fn delete_maintenance_site_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+) -> Result<impl IntoResponse, AppError> {
+    let maintenance = deployment::maintenance::remove_site(&state, &app.application_id).await?;
+    audit_log::record(
+        &state,
+        &app.organization_id,
+        &app.user,
+        "maintenance.site_removed",
+        Some("application"),
+        Some(&app.application_id),
+        Some(&app.application_name),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .ok();
+    Ok(ok(maintenance))
+}
+
+pub async fn update_maintenance_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    Json(request): Json<UpdateMaintenanceRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let previous = deployment::maintenance::get(&state, &app.application_id).await?;
+    let page_changed = request.page_html.is_some();
+    let maintenance =
+        deployment::maintenance::update(&state, &app.application_id, request).await?;
+    if maintenance.enabled != previous.enabled || page_changed {
+        // The page body is not logged: only that the mode or the page changed.
+        let metadata =
+            serde_json::json!({ "enabled": maintenance.enabled, "page_changed": page_changed })
+                .to_string();
+        audit_log::record(
+            &state,
+            &app.organization_id,
+            &app.user,
+            if maintenance.enabled != previous.enabled {
+                if maintenance.enabled {
+                    "maintenance.enabled"
+                } else {
+                    "maintenance.disabled"
+                }
+            } else {
+                "maintenance.page_updated"
+            },
+            Some("application"),
+            Some(&app.application_id),
+            Some(&app.application_name),
+            Some(&metadata),
+            None,
+            None,
+            None,
+        )
+        .await
+        .ok();
+    }
+    Ok(ok(maintenance))
+}
+
 pub async fn list_domains_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::AppRead>,

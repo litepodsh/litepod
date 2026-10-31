@@ -281,6 +281,20 @@ async fn domain_server(
     application_server(state, &domain.application_id).await
 }
 
+/// Whether a domain is routed by a public-edge server's own Caddy (built by the
+/// edge helper script) rather than by the central Caddy. The central Caddy
+/// serves local-server domains and private-relay domains alike.
+pub(crate) async fn domain_is_public_edge(
+    state: &SharedState,
+    domain: &DomainDto,
+) -> Result<bool, AppError> {
+    if domain.is_local || domains::application_uses_local_caddy(state, &domain.application_id).await? {
+        return Ok(false);
+    }
+    let server = domain_server(state, domain).await?;
+    Ok(matches!(server.ingress_mode, IngressMode::PublicEdge))
+}
+
 /// The remote endpoint a domain's own Compose proxy route targets, for an
 /// application with more than one publicly routed service. `None` for a
 /// domain with no proxy route - a non-Compose remote deploy (git/static),

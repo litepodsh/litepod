@@ -31,7 +31,8 @@ use crate::{
         access, account, application_network_probe, application_network_stats,
         application_networks, assistant, auth, backup, billing, caddy_console, catalog_templates,
         compose, containers, dashboard, database_backup, debug, deployments, git_providers,
-        github_app, icons, invitations, maintenance, mcp, notifications, oauth, onboarding,
+        github_app, icons, invitations, maintenance, maintenance_site, mcp, notifications, oauth,
+        onboarding,
         organization_apps, organizations, permissions, personal_access_tokens, podman_console,
         projects, runtime, scheduled_tasks, server_groups, servers, sessions, settings, system,
         templates, users, webhooks,
@@ -901,6 +902,18 @@ pub fn create_router(state: SharedState) -> Router {
             get(deployments::get_basic_auth_handler).put(deployments::update_basic_auth_handler),
         )
         .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/maintenance",
+            get(deployments::get_maintenance_handler).put(deployments::update_maintenance_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/maintenance/site",
+            post(deployments::upload_maintenance_site_handler)
+                .delete(deployments::delete_maintenance_site_handler)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    crate::deployment::maintenance::MAX_SITE_ARCHIVE_BYTES + 1024 * 1024,
+                )),
+        )
+        .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/basic-auth/users",
             post(deployments::add_basic_auth_user_handler),
         )
@@ -1013,6 +1026,11 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}/attach", post(deployments::attach_managed_volume_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}/detach", post(deployments::detach_managed_volume_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}", delete(deployments::delete_managed_volume_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/containers/{container_id}/files", get(crate::handler::container_files::list_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/containers/{container_id}/files/file", get(crate::handler::container_files::read_handler).put(crate::handler::container_files::save_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/containers/{container_id}/files/download", get(crate::handler::container_files::download_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/containers/{container_id}/files/entries", post(crate::handler::container_files::create_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/containers/{container_id}/files/upload", post(crate::handler::container_files::upload_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}/workspace", get(deployments::managed_workspace_list_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}/workspace/file", get(deployments::managed_workspace_file_handler).put(deployments::managed_workspace_save_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}/workspace/download", get(deployments::managed_workspace_download_handler))
@@ -1274,6 +1292,20 @@ pub fn create_router(state: SharedState) -> Router {
             global_rate_limit_middleware,
         ))
         .merge(api_routes)
+        // Added after the rate limiter's layer on purpose (see the handler): Caddy sends
+        // every visitor of every application in maintenance through here.
+        .route(
+            "/__litepod/maintenance/{application_id}",
+            get(maintenance_site::serve_site_handler),
+        )
+        .route(
+            "/__litepod/maintenance/{application_id}/",
+            get(maintenance_site::serve_site_handler),
+        )
+        .route(
+            "/__litepod/maintenance/{application_id}/{*path}",
+            get(maintenance_site::serve_site_handler),
+        )
         .fallback(ui_fallback)
         .layer(middleware::from_fn_with_state(
             state.clone(),

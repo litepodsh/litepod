@@ -153,7 +153,28 @@ pub async fn is_upload(state: &SharedState, application_id: &str) -> Result<bool
 pub fn unpack(archive: &Path, destination: &Path) -> Result<String, String> {
     let bytes = std::fs::read(archive)
         .map_err(|error| format!("The uploaded source is missing, upload it again: {error}"))?;
-    let (mut zip, paths) = inspect(&bytes)?;
+    unpack_bytes(&bytes, destination, &Limits::SOURCE)
+}
+
+/// How big an archive may be once opened. A source tree is allowed a lot; a page
+/// somebody serves to visitors is not.
+pub struct Limits {
+    pub max_entries: usize,
+    pub max_unpacked_bytes: u64,
+}
+
+impl Limits {
+    pub const SOURCE: Limits = Limits {
+        max_entries: MAX_ENTRIES,
+        max_unpacked_bytes: MAX_UNPACKED_BYTES,
+    };
+}
+
+/// [`unpack`] for an archive already in memory, with its own [`Limits`].
+///
+/// Blocking: call inside `tokio::task::spawn_blocking`.
+pub fn unpack_bytes(bytes: &[u8], destination: &Path, limits: &Limits) -> Result<String, String> {
+    let (mut zip, paths) = inspect_with(bytes, limits)?;
     let root = shared_root(&paths);
 
     std::fs::create_dir_all(destination).map_err(|error| error.to_string())?;
@@ -185,17 +206,27 @@ pub fn unpack(archive: &Path, destination: &Path) -> Result<String, String> {
         }
     }
 
-    Ok(short_id(&bytes))
+    Ok(short_id(bytes))
 }
 
 /// Reads the ZIP's directory and checks it without unpacking anything: valid,
 /// within the entry and size limits, every path safe, and at least one file.
 /// Returns the archive and the cleaned path of each entry, by index.
 fn inspect(bytes: &[u8]) -> Result<(zip::ZipArchive<Cursor<&[u8]>>, Vec<PathBuf>), String> {
+    inspect_with(bytes, &Limits::SOURCE)
+}
+
+fn inspect_with<'a>(
+    bytes: &'a [u8],
+    limits: &Limits,
+) -> Result<(zip::ZipArchive<Cursor<&'a [u8]>>, Vec<PathBuf>), String> {
     let mut zip = zip::ZipArchive::new(Cursor::new(bytes))
         .map_err(|error| format!("The uploaded source is not a valid ZIP: {error}"))?;
-    if zip.len() > MAX_ENTRIES {
-        return Err(format!("The archive has more than {MAX_ENTRIES} entries"));
+    if zip.len() > limits.max_entries {
+        return Err(format!(
+            "The archive has more than {} entries",
+            limits.max_entries
+        ));
     }
     let mut declared = 0u64;
     let mut files = 0usize;
@@ -209,13 +240,24 @@ fn inspect(bytes: &[u8]) -> Result<(zip::ZipArchive<Cursor<&[u8]>>, Vec<PathBuf>
         }
         paths.push(path);
     }
-    if declared > MAX_UNPACKED_BYTES {
-        return Err("The archive unpacks to more than 1 GB".into());
+    if declared > limits.max_unpacked_bytes {
+        return Err(format!(
+            "The archive unpacks to more than {}",
+            human_bytes(limits.max_unpacked_bytes)
+        ));
     }
     if files == 0 {
         return Err("The archive has no files in it".into());
     }
     Ok((zip, paths))
+}
+
+fn human_bytes(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{} GB", bytes / (1024 * 1024 * 1024))
+    } else {
+        format!("{} MB", bytes / (1024 * 1024))
+    }
 }
 
 pub fn archive_file(state: &SharedState, application_id: &str) -> PathBuf {

@@ -55,6 +55,7 @@
 	let scheduleEnabled = $state(false);
 	let scheduleInterval = $state<'daily' | 'weekly'>('daily');
 	let scheduleTime = $state('03:00');
+	let backupBeforeUpdate = $state(false);
 
 	let history = $state<BackupRecordDto[]>([]);
 	let confirmBackupId = $state<string | null>(null);
@@ -132,6 +133,7 @@
 		scheduleEnabled = config?.schedule_enabled ?? false;
 		scheduleInterval = config?.schedule_interval ?? 'daily';
 		scheduleTime = config?.schedule_time ?? '03:00';
+		backupBeforeUpdate = config?.backup_before_update ?? false;
 	}
 
 	async function saveConfig() {
@@ -146,6 +148,7 @@
 				schedule_enabled: scheduleEnabled,
 				schedule_interval: scheduleEnabled ? scheduleInterval : null,
 				schedule_time: scheduleEnabled ? scheduleTime : null,
+				backup_before_update: backupBeforeUpdate,
 			});
 			applyConfig(saved);
 			secretAccessKey = '';
@@ -354,6 +357,15 @@
 						</p>
 					</div>
 					<SoftSwitch id="schedule-enabled" bind:checked={scheduleEnabled} />
+				</div>
+				<div class="flex items-center justify-between gap-4">
+					<div class="min-w-0">
+						<Label for="backup-before-update">{t('account.backups.backup_before_update')}</Label>
+						<p class="mt-1 text-xs text-muted-foreground">
+							{t('account.backups.backup_before_update_hint')}
+						</p>
+					</div>
+					<SoftSwitch id="backup-before-update" bind:checked={backupBeforeUpdate} />
 				</div>
 				<div
 					class="grid gap-4 transition-opacity duration-200 motion-reduce:transition-none sm:grid-cols-2"

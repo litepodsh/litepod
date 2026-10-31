@@ -6,6 +6,8 @@
 	import * as Collapsible from '#lib/components/ui/collapsible/index.js';
 	import OsIcon from '#lib/components/os-icon.svelte';
 	import * as Sheet from '#lib/components/ui/sheet/index.js';
+	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import VolumeFileWorkspace from '#lib/components/volumes/volume-file-workspace.svelte';
 	import { toast } from '#lib/utils/toast.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { containerStatusTone, isRunning } from '#lib/utils/container-status.js';
@@ -17,6 +19,7 @@
 	} from '#lib/clients/container-metrics-client.js';
 	import {
 		containerAction,
+		containerFilesWorkspace,
 		fetchDeploymentLogs,
 		inspectApplicationContainer,
 		listReplicaContainers,
@@ -33,6 +36,7 @@
 import InfoIcon from '@lucide/svelte/icons/info';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
+	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 
 	type Row = {
@@ -107,6 +111,9 @@ import InfoIcon from '@lucide/svelte/icons/info';
 					]
 				: [],
 	);
+
+	// The file explorer opens one container at a time, in a dialog.
+	let filesFor = $state<string | null>(null);
 
 	let replicas = $state<ReplicaContainersDto[]>([]);
 	let replicasLoading = $state(false);
@@ -425,6 +432,14 @@ import InfoIcon from '@lucide/svelte/icons/info';
 						disabled={!isUp}
 						onclick={() => onOpenTerminal(row.containerName)}
 						><TerminalIcon />{t('projects.application.terminal')}</Button>
+					{#if allowedHere('app.exec')}
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={!isUp}
+							onclick={() => (filesFor = row.containerName)}
+							><FolderOpenIcon />{t('projects.application_containers.files')}</Button>
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -654,3 +669,33 @@ import InfoIcon from '@lucide/svelte/icons/info';
 		{/if}
 	</Sheet.Content>
 </Sheet.Root>
+
+<Dialog.Root
+	open={!!filesFor}
+	onOpenChange={(open) => {
+		if (!open) filesFor = null;
+	}}>
+	<Dialog.Content
+		class="flex h-[95vh] w-[95vw] max-w-[95vw] min-w-0 flex-col overflow-hidden sm:max-w-[95vw]">
+		<Dialog.Header>
+			<Dialog.Title class="font-mono text-sm"
+				>{t('projects.application_containers.files_dialog_title', {
+					name: filesFor ?? '',
+				})}</Dialog.Title>
+			<Dialog.Description>{t('projects.application_containers.files_hint')}</Dialog.Description>
+		</Dialog.Header>
+		{#if filesFor}{#key filesFor}
+				<div class="min-h-0 flex-1 overflow-hidden">
+					<VolumeFileWorkspace
+						title={filesFor}
+						client={containerFilesWorkspace(
+							organizationId,
+							projectId,
+							environmentId,
+							applicationId,
+							filesFor,
+						)} />
+				</div>
+			{/key}{/if}
+	</Dialog.Content>
+</Dialog.Root>

@@ -454,6 +454,7 @@ not_found = "Organization not found."
 notifications = "Notifications"
 people = "People"
 people_hint = "Manage who can access this organization and what they can do."
+security = "Security"
 settings = "Organization settings"
 
 [edit]
@@ -504,6 +505,8 @@ removing = "Removing…"
 role_change_failed = "Failed to change role"
 role_changed = "Role changed"
 title = "Members"
+two_factor_off = "No 2FA"
+two_factor_on = "2FA on"
 
 [metrics_retention]
 description = "Container CPU and memory history older than this is deleted automatically. 1 to {max} days, default {default}."
@@ -1106,6 +1109,15 @@ title = "MCP server"
 token_hint = "Authenticate with a personal access token that has the write scope."
 update_failed = "Failed to update the MCP setting"
 without_oauth = "Without OAuth"
+
+[two_factor]
+all_set = "Every member has two-factor authentication."
+description = "Members without two-factor authentication are refused until they set it up on their own account. It applies to every way of signing in and to access tokens. The instance administrator is exempt."
+missing = "{count} of {total} members do not have two-factor authentication yet. They are refused until they set it up."
+own_first = "Set up two-factor authentication on your own account first, so you are not locked out."
+own_first_link = "Set it up"
+title = "Require two-factor authentication"
+update_failed = "Failed to update the two-factor setting"
 
 [oauth]
 title = "Connect to MCP"

@@ -235,6 +235,14 @@ const ACTION_HELP: &[(&str, &str)] = &[
     ),
     ("delete_domain", "`delete_domain` (needs `domain`)"),
     (
+        "set_maintenance",
+        "`set_maintenance` (needs `application` and `enabled`. `true` makes every domain of the application \
+        answer with a maintenance page (HTTP 503) instead of the application, which keeps running; `false` \
+        puts the application back. Optionally `page_html`: the whole HTML document to show, kept for next \
+        time, or a blank value to go back to the default page. Not available for applications on a \
+        public-edge server)",
+    ),
+    (
         "create_project",
         "`create_project` (needs `name`, optionally `description`; takes no `application`)",
     ),
@@ -464,6 +472,8 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
                         "host": { "type": "string", "description": "Hostname to serve the application on." },
                         "port": { "type": "integer", "description": "The port this host fronts." },
                         "https": { "type": "boolean" },
+                        "enabled": { "type": "boolean", "description": "`set_maintenance` only: `true` turns maintenance mode on, `false` off." },
+                        "page_html": { "type": "string", "description": "`set_maintenance` only: the complete HTML page visitors see (one document, styles and images inline, up to 512 KiB). Blank goes back to the default page." },
                         "is_primary": { "type": "boolean", "description": "Make this the application's main URL." },
                         "files": { "type": "object", "additionalProperties": { "type": "string" }, "description": "`deploy_static_site` (with an `index.html` at the root) or `deploy_zip`: the files inline, path to text content." },
                         "zip_base64": { "type": "string", "description": "`deploy_static_site` (with `index.html` at its root) or `deploy_zip`: the files inline as a base64 ZIP." },
@@ -1502,6 +1512,33 @@ async fn exec(
             }
         }
 
+        "set_maintenance" => {
+            let Some(enabled) = arguments.get("enabled").and_then(|value| value.as_bool()) else {
+                return ToolOutcome::failure(
+                    "`enabled` is required: true to turn maintenance mode on, false to turn it off",
+                );
+            };
+            match actions::propose_maintenance(
+                state,
+                conversation_id,
+                actor,
+                &resolved.target,
+                actions::SetMaintenance {
+                    enabled,
+                    page_html: string_of(arguments, "page_html"),
+                    reason,
+                },
+            )
+            .await
+            {
+                Ok(action) => ToolOutcome::proposed(
+                    action,
+                    "Maintenance mode has not changed. The user has to confirm this in the panel.",
+                ),
+                Err(error) => ToolOutcome::failure(error.to_string()),
+            }
+        }
+
         "start" | "stop" => {
             let tool = if action == "start" {
                 actions::START_APPLICATION
@@ -1550,7 +1587,7 @@ async fn exec(
         }
 
         other => ToolOutcome::failure(format!(
-            "`{other}` is not an action. Use set_environment_variable, delete_environment_variable, update_application, set_source, redeploy, restart, rollback, set_compose_file, add_domain, update_domain, delete_domain, create_application, create_project, update_project or delete_project."
+            "`{other}` is not an action. Use set_environment_variable, delete_environment_variable, update_application, set_source, redeploy, restart, rollback, set_compose_file, add_domain, update_domain, delete_domain, set_maintenance, create_application, create_project, update_project or delete_project."
         )),
     }
 }

@@ -39,6 +39,8 @@ pub const UPDATE_DOMAIN: &str = "update_domain";
 
 pub const DELETE_DOMAIN: &str = "delete_domain";
 
+pub const SET_MAINTENANCE: &str = "set_maintenance";
+
 pub const DEPLOY_STATIC_SITE: &str = "deploy_static_site";
 
 pub const CREATE_FROM_TEMPLATE: &str = "create_from_template";
@@ -133,6 +135,19 @@ pub struct Rollback {
 pub struct Restart {
     #[serde(default)]
     pub container: Option<String>,
+}
+
+/// Validated arguments for [`SET_MAINTENANCE`]: turn the mode on or off, and
+/// optionally replace the page visitors see. Without `page_html` the page the
+/// application already has (or the default) is kept.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetMaintenance {
+    pub enabled: bool,
+    #[serde(default)]
+    pub page_html: Option<String>,
+    /// The one line the user reads before deciding.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Validated arguments for [`SET_COMPOSE_FILE`]. Always the whole document: a
@@ -426,6 +441,7 @@ impl ActionTarget {
             _ => {
                 let tab = match tool {
                     ADD_DOMAIN | UPDATE_DOMAIN | DELETE_DOMAIN => "domains",
+                    SET_MAINTENANCE => "advanced",
                     LINK_DATABASE => "networks",
                     _ => "environment",
                 };

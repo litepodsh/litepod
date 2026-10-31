@@ -561,13 +561,17 @@ pub(crate) async fn run(
     application_id: String,
     run_id: String,
 ) -> Result<(), String> {
-    if let Err(error) = pipeline(&state, &application_id, &run_id).await {
-        let _ = super::history::finish(&state, &run_id, "failed", Some(&error)).await;
-        super::rollout::record_failure(&state, &application_id, &error).await;
-        return Err(error);
+    let outcome = pipeline(&state, &application_id, &run_id).await;
+    if let Err(error) = &outcome {
+        let _ = super::history::finish(&state, &run_id, "failed", Some(error)).await;
+        super::rollout::record_failure(&state, &application_id, error).await;
     } else {
         let _ = super::history::finish(&state, &run_id, "succeeded", None).await;
     }
+    // A maintenance companion is parked (or its failure recorded) right here,
+    // before anything can route to it.
+    super::maintenance_companion::on_build_finished(&state, &application_id, &outcome).await;
+    outcome?;
     if super::source::get(&state, &application_id)
         .await
         .map(|source| source.build_method != "compose")

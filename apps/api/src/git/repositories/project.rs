@@ -380,7 +380,7 @@ pub async fn list_applications(
 ) -> Result<Vec<ApplicationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(&format!(
-        "SELECT {QUALIFIED_APPLICATION_COLUMNS} FROM applications a INNER JOIN environments e ON e.id = a.environment_id INNER JOIN projects p ON p.id = e.project_id WHERE a.environment_id = ?1 AND e.project_id = ?2 AND p.organization_id = ?3 ORDER BY a.created_at ASC"
+        "SELECT {QUALIFIED_APPLICATION_COLUMNS} FROM applications a INNER JOIN environments e ON e.id = a.environment_id INNER JOIN projects p ON p.id = e.project_id WHERE a.environment_id = ?1 AND e.project_id = ?2 AND p.organization_id = ?3 AND a.maintenance_for IS NULL ORDER BY a.created_at ASC"
     ))
     .bind(environment_id)
     .bind(project_id)

@@ -17,6 +17,9 @@ pub struct OrganizationRow {
     pub assistant_enabled: bool,
     /// The MCP server's kill switch. Off until someone turns it on.
     pub mcp_enabled: bool,
+    /// Every member must have two-factor authentication to act in the
+    /// organization. Off until an admin turns it on.
+    pub require_two_factor: bool,
     #[allow(dead_code)] // surfaced in audit reports; not read by current consumers.
     pub created_by: String,
     pub created_at: String,
@@ -139,10 +142,11 @@ fn row_to_organization(row: &sqlx::sqlite::SqliteRow) -> OrganizationRow {
         created_by: row.try_get(11).unwrap(),
         created_at: row.try_get(12).unwrap(),
         mcp_enabled: row.try_get::<i64, _>(13).unwrap_or(0) != 0,
+        require_two_factor: row.try_get::<i64, _>(14).unwrap_or(0) != 0,
     }
 }
 
-const ORGANIZATION_COLUMNS: &str = "id, name, slug, description, icon, icon_bg, plan, is_root, audit_logs_enabled, audit_logs_retention_days, assistant_enabled, created_by, created_at, mcp_enabled";
+const ORGANIZATION_COLUMNS: &str = "id, name, slug, description, icon, icon_bg, plan, is_root, audit_logs_enabled, audit_logs_retention_days, assistant_enabled, created_by, created_at, mcp_enabled, require_two_factor";
 
 pub async fn get_organization_by_id(state: &SharedState, id: &str) -> Option<OrganizationRow> {
     let conn = crate::git::repositories::db::get_conn(state).await;
@@ -176,7 +180,7 @@ pub async fn list_organizations_for_user(
 ) -> Result<Vec<OrganizationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(
-        "SELECT t.id, t.name, t.slug, t.description, t.icon, t.icon_bg, t.plan, t.is_root, t.audit_logs_enabled, t.audit_logs_retention_days, t.assistant_enabled, t.created_by, t.created_at, t.mcp_enabled
+        "SELECT t.id, t.name, t.slug, t.description, t.icon, t.icon_bg, t.plan, t.is_root, t.audit_logs_enabled, t.audit_logs_retention_days, t.assistant_enabled, t.created_by, t.created_at, t.mcp_enabled, t.require_two_factor
          FROM organizations t
          INNER JOIN organization_members tm ON tm.organization_id = t.id
          WHERE tm.user_id = ?1
@@ -216,7 +220,7 @@ pub async fn list_admin_organizations_for_user(
 ) -> Result<Vec<OrganizationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(
-        "SELECT t.id, t.name, t.slug, t.description, t.icon, t.icon_bg, t.plan, t.is_root, t.audit_logs_enabled, t.audit_logs_retention_days, t.assistant_enabled, t.created_by, t.created_at, t.mcp_enabled
+        "SELECT t.id, t.name, t.slug, t.description, t.icon, t.icon_bg, t.plan, t.is_root, t.audit_logs_enabled, t.audit_logs_retention_days, t.assistant_enabled, t.created_by, t.created_at, t.mcp_enabled, t.require_two_factor
          FROM organizations t
          JOIN organization_members tm ON tm.organization_id = t.id
          WHERE tm.user_id = ?1 AND tm.role_id = 1
@@ -326,6 +330,35 @@ pub async fn set_mcp_enabled(state: &SharedState, id: &str, enabled: bool) -> Re
     Ok(())
 }
 
+/// Separate from `update_organization` for the same reason as `set_mcp_enabled`.
+pub async fn set_require_two_factor(
+    state: &SharedState,
+    id: &str,
+    required: bool,
+) -> Result<(), String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query("UPDATE organizations SET require_two_factor = ?1 WHERE id = ?2")
+        .bind(i64::from(required))
+        .bind(id)
+        .execute(&conn)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Whether `id` requires two-factor authentication. One column read, so the
+/// organization extractor can ask it on every request.
+pub async fn requires_two_factor(state: &SharedState, id: &str) -> Result<bool, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let required: Option<i64> =
+        sqlx::query_scalar("SELECT require_two_factor FROM organizations WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&conn)
+            .await
+            .map_err(|e| e.to_string())?;
+    Ok(required.unwrap_or(0) != 0)
+}
+
 pub async fn delete_organization(state: &SharedState, id: &str) -> Result<(), String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     sqlx::query("DELETE FROM organizations WHERE id = ?1")
@@ -365,6 +398,41 @@ mod mcp_toggle_tests {
             .await
             .unwrap();
         assert!(!other.mcp_enabled);
+
+        crate::testing::cleanup_database(&path);
+    }
+}
+
+#[cfg(test)]
+mod require_two_factor_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn two_factor_is_not_required_until_an_admin_asks() {
+        let (state, path) = crate::testing::test_state().await;
+
+        let before = get_organization_by_id(&state, "organization-a")
+            .await
+            .unwrap();
+        assert!(
+            !before.require_two_factor,
+            "an organization must not start by requiring 2FA"
+        );
+        assert!(!requires_two_factor(&state, "organization-a").await.unwrap());
+
+        set_require_two_factor(&state, "organization-a", true)
+            .await
+            .unwrap();
+        let after = get_organization_by_id(&state, "organization-a")
+            .await
+            .unwrap();
+        assert!(after.require_two_factor);
+        assert!(requires_two_factor(&state, "organization-a").await.unwrap());
+
+        // Only the organization asked about changes.
+        assert!(!requires_two_factor(&state, "organization-b").await.unwrap());
+        // An organization that does not exist requires nothing.
+        assert!(!requires_two_factor(&state, "missing").await.unwrap());
 
         crate::testing::cleanup_database(&path);
     }

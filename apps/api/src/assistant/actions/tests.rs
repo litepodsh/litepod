@@ -113,6 +113,99 @@ async fn proposing_writes_nothing_until_the_change_is_confirmed() {
 }
 
 #[tokio::test]
+async fn maintenance_is_stored_and_changes_nothing_until_confirmed() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+
+    let action = propose_maintenance(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        SetMaintenance {
+            enabled: true,
+            page_html: Some("<h1>Back at 5</h1>".into()),
+            reason: Some("migrating the database".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(action.status, "pending");
+    assert_eq!(action.tool, SET_MAINTENANCE);
+    assert!(action.title.starts_with("Turn on maintenance"), "{}", action.title);
+    assert!(action.summary.contains("migrating the database"), "{}", action.summary);
+    assert!(action.route.ends_with("?tab=advanced"), "{}", action.route);
+    assert!(
+        !deployment::maintenance::get(&state, &target.application_id)
+            .await
+            .unwrap()
+            .enabled,
+        "proposing must not put the application in maintenance"
+    );
+
+    let applied = confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+    assert_eq!(applied.status, "applied");
+    let on = deployment::maintenance::get(&state, &target.application_id)
+        .await
+        .unwrap();
+    assert!(on.enabled);
+    assert_eq!(on.custom_html.as_deref(), Some("<h1>Back at 5</h1>"));
+
+    // Off again, keeping the page for next time.
+    let off = propose_maintenance(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        SetMaintenance {
+            enabled: false,
+            page_html: None,
+            reason: None,
+        },
+    )
+    .await
+    .unwrap();
+    confirm(&state, "organization-a", &actor, &off.id)
+        .await
+        .unwrap();
+    let after = deployment::maintenance::get(&state, &target.application_id)
+        .await
+        .unwrap();
+    assert!(!after.enabled);
+    assert_eq!(after.custom_html.as_deref(), Some("<h1>Back at 5</h1>"));
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn an_unusable_maintenance_page_is_refused_before_it_is_stored() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+
+    let refused = propose_maintenance(
+        &state,
+        &chat,
+        &auth_user("editor"),
+        &target,
+        SetMaintenance {
+            enabled: true,
+            page_html: Some("a".repeat(deployment::maintenance::MAX_PAGE_BYTES + 1)),
+            reason: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(refused, crate::dtos::response::AppError::ValidationError(_)));
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
 async fn the_card_never_carries_the_secret() {
     let (state, path) = test_state().await;
     let target = target(&state, "organization-a").await;
@@ -1623,6 +1716,7 @@ fn every_stored_proposal_is_an_allowed_action() {
         ADD_DOMAIN,
         UPDATE_DOMAIN,
         DELETE_DOMAIN,
+        SET_MAINTENANCE,
         DEPLOY_STATIC_SITE,
         CREATE_FROM_TEMPLATE,
         DEPLOY_COMPOSE,

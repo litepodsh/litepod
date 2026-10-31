@@ -105,4 +105,44 @@ describe('updateState.startUpdate', () => {
 		);
 		expect(updateState.applying).toBe(false);
 	});
+
+	it('waits for the backup without the grace timer, then reloads once the version changes', async () => {
+		vi.useFakeTimers();
+		try {
+			getSystemVersion.mockResolvedValueOnce(systemVersion());
+			applyUpdate.mockResolvedValue({ triggered: true, backup_started: true, note: 'backup' });
+
+			await updateState.startUpdate();
+
+			expect(toast.info).toHaveBeenCalledWith(
+				'Backing up before updating. The update starts when the backup finishes.',
+			);
+			expect(updateState.applying).toBe(true);
+			expect(updateState.phase).toBe('preparing');
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('stops with the reason when the backup failed and the update was cancelled', async () => {
+		vi.useFakeTimers();
+		try {
+			getSystemVersion.mockResolvedValueOnce(systemVersion());
+			applyUpdate.mockResolvedValue({ triggered: true, backup_started: true, note: 'backup' });
+			await updateState.startUpdate();
+
+			const cancelled = systemVersion();
+			cancelled.state.last_check_note = 'update cancelled: backup before update failed: no space';
+			getSystemVersion.mockResolvedValue(cancelled);
+			await vi.advanceTimersByTimeAsync(3_100);
+
+			expect(toast.error).toHaveBeenCalledWith(
+				'update cancelled: backup before update failed: no space',
+			);
+			expect(updateState.applying).toBe(false);
+			expect(updateState.phase).toBe('idle');
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });

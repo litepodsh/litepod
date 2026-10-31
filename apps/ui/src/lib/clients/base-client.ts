@@ -14,12 +14,30 @@ type ApiResponse<T> = {
 export class ApiError extends Error {
 	captchaRequired?: boolean;
 	status: number;
-	constructor(message: string, status: number, captchaRequired?: boolean) {
+	/** Machine-readable reason beside the message, when the API gives one. */
+	code?: string;
+	constructor(message: string, status: number, captchaRequired?: boolean, code?: string) {
 		super(message);
 		this.name = 'ApiError';
 		this.status = status;
 		this.captchaRequired = captchaRequired;
+		this.code = code;
 	}
+}
+
+/** The API refuses an organization route when the organization requires
+ *  two-factor authentication and the account has none. */
+export const TWO_FACTOR_REQUIRED = 'two_factor_required';
+
+/** Sends the user to set up 2FA, remembering where they were so setup can
+ *  bring them back. Not from the account page itself, which has to stay
+ *  reachable to do the setup. */
+function redirectToTwoFactorSetup() {
+	if (typeof window === 'undefined' || window.location.pathname.startsWith('/account')) return;
+	const next = `${window.location.pathname}${window.location.search}`;
+	window.location.assign(
+		`/account?tab=security&two_factor=required&next=${encodeURIComponent(next)}`,
+	);
 }
 
 async function handleResponse<T>(res: Response): Promise<ApiResponse<T>> {
@@ -48,10 +66,12 @@ async function handleResponse<T>(res: Response): Promise<ApiResponse<T>> {
 
 	const body = JSON.parse(raw);
 	if (!res.ok) {
+		if (res.status === 403 && body.code === TWO_FACTOR_REQUIRED) redirectToTwoFactorSetup();
 		throw new ApiError(
 			body.error || `${res.status} ${res.statusText}`,
 			res.status,
 			body.captcha_required,
+			body.code,
 		);
 	}
 	return body;

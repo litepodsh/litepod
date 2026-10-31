@@ -14,6 +14,8 @@ export type OrganizationDto = {
 	assistant_enabled: boolean;
 	/** The MCP endpoint answers only while this is true. */
 	mcp_enabled: boolean;
+	/** Members without two-factor authentication are refused until they set it up. */
+	require_two_factor: boolean;
 	audit_logs_retention_days: number;
 	created_at: string;
 };
@@ -69,6 +71,7 @@ export async function updateOrganization(
 		audit_logs_enabled?: boolean;
 		assistant_enabled?: boolean;
 		mcp_enabled?: boolean;
+		require_two_factor?: boolean;
 		audit_logs_retention_days?: number;
 	},
 ): Promise<OrganizationDto> {
@@ -115,6 +118,9 @@ export type OrganizationMemberDto = {
 	joined_at: string;
 	/** Disabled by a SysAdmin: cannot sign in by any method. */
 	disabled: boolean;
+	/** Whether the member has two-factor authentication. `null` when the caller
+	 *  may not see it: only people who can manage members are told. */
+	two_factor_enabled: boolean | null;
 };
 
 export async function listMembers(organizationId: string): Promise<OrganizationMemberDto[]> {

@@ -170,6 +170,8 @@ pub async fn post_check_update_handler(
 pub struct UpdateApplyResponse {
     pub triggered: bool,
     pub note: String,
+    /// True when an instance backup runs first; the install follows only if it succeeds.
+    pub backup_started: bool,
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -245,6 +247,7 @@ pub async fn post_apply_update_handler(
                 data: Some(UpdateApplyResponse {
                     triggered: false,
                     note,
+                    backup_started: false,
                 }),
             }),
         )
@@ -270,12 +273,37 @@ pub async fn post_apply_update_handler(
                 data: Some(UpdateApplyResponse {
                     triggered: false,
                     note,
+                    backup_started: false,
                 }),
             }),
         )
             .into_response();
     }
 
+    // The backup is started here, not in the task below, so a missing S3 target or a backup
+    // already running refuses the request instead of failing silently after "install started".
+    let backup = if crate::backup::config::backup_before_update(&state)
+        .await
+        .unwrap_or(false)
+    {
+        match crate::backup::run::start(&state, "manual", Some(user.user_id.clone())).await {
+            Ok(record) => Some(record.id),
+            Err(error) => {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(ApiResponse::<UpdateApplyResponse> {
+                        error: Some(format!("update not started: backup before update failed to start: {error}")),
+                        data: None,
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        None
+    };
+
+    let backup_started = backup.is_some();
     let state_for_task = state.clone();
     let target = request.target_version;
     let channel = request.channel;
@@ -289,6 +317,16 @@ pub async fn post_apply_update_handler(
     )
     .await;
     tokio::spawn(async move {
+        if let Some(backup_id) = backup {
+            if let Err(error) = crate::backup::run::wait_for(&state_for_task, &backup_id).await {
+                tracing::error!(%error, "updater: backup before update failed; update cancelled");
+                let mut s = state_for_task.update_state.write().await;
+                if s.channel == channel && s.latest_version == target {
+                    s.last_check_note = format!("update cancelled: backup before update failed: {error}");
+                }
+                return;
+            }
+        }
         if let Err(e) =
             updater::apply_release(&state_for_task, target.clone(), channel, core_targets).await
         {
@@ -305,7 +343,13 @@ pub async fn post_apply_update_handler(
             error: None,
             data: Some(UpdateApplyResponse {
                 triggered: true,
-                note: "install started".into(),
+                backup_started,
+                note: if backup_started {
+                    "backup started; install follows when it finishes"
+                } else {
+                    "install started"
+                }
+                .into(),
             }),
         }),
     )

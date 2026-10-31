@@ -23,6 +23,7 @@
 	import MetricsRetentionSetting from '#lib/components/settings/metrics-retention-setting.svelte';
 	import AssistantSettingsPanel from '#lib/components/organizations/assistant-settings-panel.svelte';
 	import McpSettingsPanel from '#lib/components/organizations/mcp-settings-panel.svelte';
+	import TwoFactorSettingsPanel from '#lib/components/organizations/two-factor-settings-panel.svelte';
 	import BackupTargetsPanel from '#lib/components/organizations/backup-targets-panel.svelte';
 	import NotificationsPanel from '#lib/components/organizations/notifications/notifications-panel.svelte';
 	import InvitationsPanel from '#lib/components/users/invitations-panel.svelte';
@@ -44,6 +45,7 @@
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import PlugIcon from '@lucide/svelte/icons/plug';
 	import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
+	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
 	import { t } from '#lib/i18n/index.svelte.js';
 
@@ -54,6 +56,7 @@
 		'members',
 		'access',
 		'authentication',
+		'security',
 		'notifications',
 		'backup-storage',
 		'assistant',
@@ -105,6 +108,9 @@
 		{ value: 'access', label: t('organizations.access.access'), icon: KeyRoundIcon },
 		...(ssoAvailable && allowed('org.sso.manage')
 			? [{ value: 'authentication', label: t('organizations.sso.authentication'), icon: LockIcon }]
+			: []),
+		...(canManage
+			? [{ value: 'security', label: t('organizations.detail.security'), icon: ShieldCheckIcon }]
 			: []),
 		{ value: 'notifications', label: t('organizations.detail.notifications'), icon: BellIcon },
 		...(allowed('backup.targets.manage')
@@ -289,6 +295,13 @@
 					</div>
 				{:else if visibleTab === 'authentication' && ssoAvailable}
 					<SsoPanel {organizationId} />
+				{:else if visibleTab === 'security' && canManage}
+					<TwoFactorSettingsPanel
+						{organizationId}
+						bind:organization
+						{members}
+						{myUserId}
+						{isSysadmin} />
 				{:else if visibleTab === 'notifications'}
 					<NotificationsPanel {organizationId} {canManage} />
 				{:else if visibleTab === 'backup-storage'}

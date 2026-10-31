@@ -321,6 +321,7 @@ search = "Search terminal"
 
 [update]
 applying = "Applying update…"
+backing_up = "Backing up before updating. The update starts when the backup finishes."
 checking_in = "Checking the server in"
 core_targets_incomplete = "The shown core-service targets are incomplete. Check again before installing."
 install_failed = "Install failed"

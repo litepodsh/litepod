@@ -1699,7 +1699,7 @@ async fn readable_applications(
     let rows = sqlx::query(
         "SELECT a.id, e.project_id, a.environment_id FROM applications a \
          JOIN environments e ON e.id = a.environment_id \
-         JOIN projects p ON p.id = e.project_id WHERE p.organization_id = ?1",
+         JOIN projects p ON p.id = e.project_id WHERE p.organization_id = ?1 AND a.maintenance_for IS NULL",
     )
     .bind(&org.organization_id)
     .fetch_all(&conn)

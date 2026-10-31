@@ -8,7 +8,6 @@
 	import ApplicationEnvironmentTab from '#lib/components/projects/application-environment-tab.svelte';
 	import ApplicationContainersTab from '#lib/components/projects/application-containers-tab.svelte';
 	import ApplicationNetworksTab from '#lib/components/projects/application-networks-tab.svelte';
-	import ApplicationMapTab from '#lib/components/projects/application-map-tab.svelte';
 	import ApplicationVolumesTab from '#lib/components/projects/application-volumes-tab.svelte';
 	import ApplicationDomainsTab from '#lib/components/projects/application-domains-tab.svelte';
 	import PostgresResourceDetail from '#lib/components/projects/postgres-resource-detail.svelte';
@@ -35,6 +34,7 @@
 	import ApplicationTasksTab from '#lib/components/projects/application-tasks-tab.svelte';
 	import ApplicationAdvancedTab from '#lib/components/projects/application-advanced-tab.svelte';
 	import ApplicationBootPolicyCard from '#lib/components/projects/application-boot-policy-card.svelte';
+	import ApplicationMaintenanceCard from '#lib/components/projects/application-maintenance-card.svelte';
 	import DatabaseBackupTab from '#lib/components/projects/database-backup-tab.svelte';
 	import ApplicationFormDialog from '#lib/components/projects/application-form-dialog.svelte';
 	import DeleteResourceDialog from '#lib/components/projects/delete-resource-dialog.svelte';
@@ -115,6 +115,7 @@
 		saveComposeProxyRoute,
 		getDomainMarkers,
 		getBasicAuth,
+		getMaintenance,
 		updateBasicAuth,
 		addBasicAuthUser,
 		deleteBasicAuthUser,
@@ -287,6 +288,17 @@
 	let pinServers = $state<ServerSummaryDto[]>([]);
 	let source = $state<SourceConfigDto | null>(null);
 	let basicAuth = $state<BasicAuthConfigDto | null>(null);
+	/** Visitors are being shown the maintenance page. Read once the application is known,
+	 *  and kept current by the Maintenance card when it is switched. */
+	let maintenanceEnabled = $state(false);
+	$effect(() => {
+		if (!organizationId || !environment) return;
+		getMaintenance(organizationId, projectId, environment.id, applicationId)
+			.then((state) => (maintenanceEnabled = state.enabled))
+			.catch(() => {
+				// A header hint: not worth an error toast when the read is refused.
+			});
+	});
 	let gitProviders = $state<GitProviderDto[]>([]);
 	let deployHook = $state<DeployHookDto | null>(null);
 	let healthCheck = $state<HealthCheckDto | null>(null);
@@ -337,10 +349,8 @@
 		{ value: 'domains', label: t('projects.application.domains') },
 		{ value: 'deployment', label: t('projects.application.deployment') },
 		{ value: 'containers', label: t('projects.application.containers') },
-		{ value: 'volumes', label: t('projects.application.volumes') },
 		{ value: 'terminal', label: t('projects.application.terminal') },
 		{ value: 'logs', label: t('projects.application.logs') },
-		{ value: 'metrics', label: t('projects.application.metrics') },
 		{ value: 'analytics', label: t('projects.application.analytics') },
 		{ value: 'tasks', label: t('projects.application.tasks') },
 		{ value: 'advanced', label: t('projects.application.advanced') },
@@ -370,14 +380,6 @@
 	// three consecutive empty states; the container one already says what to do.
 	const hasNetworkData = $derived(
 		(networkOverview?.networks.length ?? 0) > 0 || (networkOverview?.containers.length ?? 0) > 0,
-	);
-	// Status by container name for the Map tab's LEDs (the /networks payload has no status).
-	const mapStatuses = $derived(
-		source?.deploy_type === 'compose'
-			? Object.fromEntries(composeServiceStatuses.map((s) => [s.container_name, s.status]))
-			: containerStatus?.container_name
-				? { [containerStatus.container_name]: containerStatus.status }
-				: {},
 	);
 	function buildTabItems() {
 		const target = { projectId, environmentId: environment?.id };
@@ -412,8 +414,13 @@
 
 	// Tab selection mirrors ?tab= so it survives reload and deep links. Local
 	// state stays the source of truth for rendering; the URL follows it.
-	// Networks and Map were folded into Containers; keep their links working.
-	const MERGED_TABS: Record<string, string> = { networks: 'containers', map: 'containers' };
+	// Networks, Map, Volumes and Metrics were folded into Containers; keep their links working.
+	const MERGED_TABS: Record<string, string> = {
+		networks: 'containers',
+		map: 'containers',
+		volumes: 'containers',
+		metrics: 'containers',
+	};
 
 	function tabFromUrl(url: typeof page.url) {
 		const requested = url.searchParams.get('tab');
@@ -535,7 +542,6 @@
 			'domains',
 			'environment',
 			'networks',
-			'map',
 			'volumes',
 		].includes(value);
 	}
@@ -626,9 +632,13 @@
 
 	const deferredTabs = createDeferredTabLoader({
 		// Containers renders the container list, the network overview and the
-		// topology map, so opening it has to fetch both sides.
+		// volumes and metrics, so opening it has to fetch all of them.
 		containers: async () => {
-			await Promise.all([refreshRuntimeStatus(source?.deploy_type), refreshNetworks()]);
+			await Promise.all([
+				refreshRuntimeStatus(source?.deploy_type),
+				refreshNetworks(),
+				refreshVolumeState(),
+			]);
 		},
 		deployment: refreshDeploymentRuns,
 		domains: async () => {
@@ -647,7 +657,6 @@
 		},
 		environment: refreshEnvironmentVariables,
 		networks: refreshNetworks,
-		map: refreshNetworks,
 		volumes: refreshVolumeState,
 	});
 
@@ -2234,6 +2243,12 @@
 				? t('projects.environment.running')
 				: t('projects.environment.stopped')}</span>
 	{/if}
+	{#if maintenanceEnabled}
+		<!-- Visitors see the maintenance page, whatever the containers are doing. -->
+		<span
+			class="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+			title={t('projects.maintenance.on_hint')}>{t('projects.maintenance.active_badge')}</span>
+	{/if}
 {/snippet}
 
 {#snippet heroMeta()}
@@ -2632,6 +2647,18 @@
 								{projectId}
 								environmentId={environment.id}
 								{applicationId} />
+							{#if !isInfrastructureTemplate}
+								<ApplicationMaintenanceCard
+									{organizationId}
+									{projectId}
+									environmentId={environment.id}
+									{applicationId}
+									onChange={(enabled) => (maintenanceEnabled = enabled)}
+									canWrite={allowed('app.update', {
+										projectId,
+										environmentId: environment.id,
+									})} />
+							{/if}
 						{/if}
 					</div>
 				{:else if activeTab === 'deployment'}<ApplicationDeploymentTab
@@ -2716,34 +2743,32 @@
 								{resourceConsumers}
 								{resourceLinksLoading}
 								isResource={isInfrastructureTemplate}
-								onToggleResourceLink={toggleResourceLink} />
-							<ApplicationMapTab
-								overview={networkOverview}
-								statuses={mapStatuses}
+								onToggleResourceLink={toggleResourceLink}
 								organizationId={organizationId ?? ''}
 								serverId={application?.server?.id ?? null}
-								loading={refreshingTab}
-								error={networkError}
-								onRefresh={() => deferredTabs.refresh('map')}
 								onProbe={probeNetworks}
 								onStats={statsNetworks} />
 						{/if}
+						<ApplicationVolumesTab
+							{volumes}
+							{managedVolumes}
+							isCompose={source?.deploy_type === 'compose' ||
+								(source?.deploy_type === 'git' && source?.build_method === 'compose')}
+							composeServices={composeServices.map((service) => service.name)}
+							{busy}
+							onRefresh={refreshVolumeState}
+							onCreateManagedVolume={handleCreateManagedVolume}
+							onAttachManagedVolume={handleAttachManagedVolume}
+							onDetachManagedVolume={handleDetachManagedVolume}
+							onDeleteManagedVolume={handleDeleteManagedVolume}
+							{workspaceFor}
+							{managedWorkspaceFor} />
+						<ApplicationMetricsTab
+							organizationId={organizationId ?? ''}
+							{projectId}
+							environmentId={environment.id}
+							{applicationId} />
 					</div>
-				{:else if activeTab === 'volumes'}
-					<ApplicationVolumesTab
-						{volumes}
-						{managedVolumes}
-						isCompose={source?.deploy_type === 'compose' ||
-							(source?.deploy_type === 'git' && source?.build_method === 'compose')}
-						composeServices={composeServices.map((service) => service.name)}
-						{busy}
-						onRefresh={refreshVolumeState}
-						onCreateManagedVolume={handleCreateManagedVolume}
-						onAttachManagedVolume={handleAttachManagedVolume}
-						onDetachManagedVolume={handleDetachManagedVolume}
-						onDeleteManagedVolume={handleDeleteManagedVolume}
-						{workspaceFor}
-						{managedWorkspaceFor} />
 				{:else if activeTab === 'terminal'}
 					<ApplicationTerminalTab
 						{organizationId}
@@ -2757,13 +2782,6 @@
 						{organizationId}
 						server={hostServer}
 						onOpenChange={(next) => (hostShellOpen = next)} />
-				{:else if activeTab === 'metrics'}
-					<ApplicationMetricsTab
-						organizationId={organizationId ?? ''}
-						{projectId}
-						environmentId={environment.id}
-						{applicationId}
-						containerNames={metricsContainerNames} />
 				{:else if activeTab === 'analytics'}
 					<AnalyticsPanel
 						description={t('analytics.panel.app_description')}

@@ -1,3 +1,7 @@
+// The `exec` tool's JSON schema (`assistant/tools.rs`) is one `json!` with every
+// property of every action; each new property costs macro recursion depth.
+#![recursion_limit = "256"]
+
 use dotenvy::dotenv;
 use std::net::SocketAddr;
 use std::str::FromStr;

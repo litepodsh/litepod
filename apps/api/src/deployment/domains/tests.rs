@@ -1753,6 +1753,244 @@ async fn generate_with_secondary_keeps_the_primary() {
     cleanup(path);
 }
 
+async fn add_domain(state: &SharedState, host: &str) -> DomainDto {
+    create(
+        state,
+        "application-1",
+        CreateDomainRequest {
+            server_id: None,
+            certificate: Default::default(),
+            host: host.into(),
+            port: 80,
+            https: None,
+            is_primary: None,
+        },
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn maintenance_is_off_by_default_and_a_blank_page_goes_back_to_the_default() {
+    use crate::deployment::maintenance;
+
+    let (state, path) = test_state(false).await;
+    let domain = add_domain(&state, "app.example.com").await;
+
+    let initial = maintenance::get(&state, "application-1").await.unwrap();
+    assert!(!initial.enabled);
+    assert_eq!(initial.custom_html, None);
+    assert!(initial.default_html.contains("<html"));
+    assert!(
+        maintenance::load_payload_for_domain(&state, &domain.id)
+            .await
+            .unwrap()
+            .is_none(),
+        "no route may answer with a page before someone turns it on"
+    );
+
+    let on = maintenance::update(
+        &state,
+        "application-1",
+        UpdateMaintenanceRequest {
+            enabled: Some(true),
+            page_html: Some("<h1>Back at 5</h1>".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(on.enabled);
+    let payload = maintenance::load_payload_for_domain(&state, &domain.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(payload.html, "<h1>Back at 5</h1>");
+
+    // A blank page is the way back to the template; the mode stays on.
+    let blank = maintenance::update(
+        &state,
+        "application-1",
+        UpdateMaintenanceRequest {
+            enabled: None,
+            page_html: Some("   ".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(blank.enabled);
+    assert_eq!(blank.custom_html, None);
+    let payload = maintenance::load_payload_for_domain(&state, &domain.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(payload.html, maintenance::DEFAULT_PAGE);
+
+    let off = maintenance::update(
+        &state,
+        "application-1",
+        UpdateMaintenanceRequest {
+            enabled: Some(false),
+            page_html: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!off.enabled);
+    assert!(
+        maintenance::load_payload_for_domain(&state, &domain.id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    cleanup(path);
+}
+
+#[tokio::test]
+async fn a_page_saved_while_off_is_kept_and_used_when_the_mode_comes_on() {
+    use crate::deployment::maintenance;
+
+    let (state, path) = test_state(false).await;
+    let domain = add_domain(&state, "app.example.com").await;
+
+    maintenance::update(
+        &state,
+        "application-1",
+        UpdateMaintenanceRequest {
+            enabled: None,
+            page_html: Some("<p>prepared</p>".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        maintenance::load_payload_for_domain(&state, &domain.id)
+            .await
+            .unwrap()
+            .is_none(),
+        "saving a page must not put the application in maintenance"
+    );
+
+    maintenance::update(
+        &state,
+        "application-1",
+        UpdateMaintenanceRequest {
+            enabled: Some(true),
+            page_html: None,
+        },
+    )
+    .await
+    .unwrap();
+    let payload = maintenance::load_payload_for_domain(&state, &domain.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(payload.html, "<p>prepared</p>");
+    cleanup(path);
+}
+
+#[tokio::test]
+async fn an_oversized_page_is_refused_and_changes_nothing() {
+    use crate::deployment::maintenance;
+
+    let (state, path) = test_state(false).await;
+    let refused = maintenance::update(
+        &state,
+        "application-1",
+        UpdateMaintenanceRequest {
+            enabled: Some(true),
+            page_html: Some("a".repeat(maintenance::MAX_PAGE_BYTES + 1)),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(refused, AppError::ValidationError(_)));
+    assert!(!maintenance::get(&state, "application-1").await.unwrap().enabled);
+    cleanup(path);
+}
+
+#[tokio::test]
+async fn maintenance_follows_the_domain_not_the_application_next_door() {
+    use crate::deployment::maintenance;
+
+    let (state, path) = test_state(false).await;
+    let domain = add_domain(&state, "app.example.com").await;
+    sqlx::query("INSERT INTO applications (id, environment_id, name, server_id, created_at, updated_at) VALUES ('application-2','environment-1','Other','local',1,1)")
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO application_domains (id, application_id, host, port, https, is_primary, created_at, updated_at) VALUES ('domain-other','application-2','other.example.com',80,0,1,1,1)")
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    maintenance::update(
+        &state,
+        "application-1",
+        UpdateMaintenanceRequest {
+            enabled: Some(true),
+            page_html: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        maintenance::load_payload_for_domain(&state, &domain.id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        maintenance::load_payload_for_domain(&state, "domain-other")
+            .await
+            .unwrap()
+            .is_none(),
+        "turning one application's mode on must not reach another application's domain"
+    );
+    cleanup(path);
+}
+
+#[tokio::test]
+async fn maintenance_is_refused_for_a_public_edge_application_until_it_is_supported() {
+    use crate::deployment::maintenance;
+
+    let (state, path) = test_state(false).await;
+    sqlx::query(
+        "INSERT INTO servers (id, kind, name, organization_id, ingress_mode, state, ssh_host, ssh_port, ssh_user, created_at, updated_at) VALUES ('server-2','ssh','Remote','organization-1','public_edge','ready','r.example.test',22,'litepod',1,1)",
+    )
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO applications (id, environment_id, name, server_id, created_at, updated_at) VALUES ('application-edge','environment-1','Edge','server-2',1,1)")
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO application_domains (id, application_id, host, port, https, is_primary, created_at, updated_at) VALUES ('domain-edge','application-edge','edge.example.com',80,1,1,1,1)")
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let refused = maintenance::update(
+        &state,
+        "application-edge",
+        UpdateMaintenanceRequest {
+            enabled: Some(true),
+            page_html: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(&refused, AppError::ValidationError(message) if message.contains("public-edge")),
+        "{refused:?}"
+    );
+    assert!(
+        !maintenance::get(&state, "application-edge").await.unwrap().enabled,
+        "a refused request must not leave the mode on in the database"
+    );
+    cleanup(path);
+}
+
 #[tokio::test]
 async fn deleting_the_last_basic_auth_user_unprotects_the_domains() {
     use crate::deployment::basic_auth;

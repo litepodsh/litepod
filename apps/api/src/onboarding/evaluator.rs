@@ -92,7 +92,7 @@ async fn load_resources(
         .await?
     } else {
         sqlx::query(
-            "SELECT a.id, a.deploy_type, CASE WHEN a.source_upload = 1 THEN 'upload' ELSE a.git_url END FROM applications a JOIN environments e ON e.id = a.environment_id JOIN projects p ON p.id = e.project_id WHERE p.organization_id = ?1 ORDER BY a.created_at LIMIT 1",
+            "SELECT a.id, a.deploy_type, CASE WHEN a.source_upload = 1 THEN 'upload' ELSE a.git_url END FROM applications a JOIN environments e ON e.id = a.environment_id JOIN projects p ON p.id = e.project_id WHERE p.organization_id = ?1 AND a.maintenance_for IS NULL ORDER BY a.created_at LIMIT 1",
         )
         .bind(organization_id)
         .fetch_optional(&conn)

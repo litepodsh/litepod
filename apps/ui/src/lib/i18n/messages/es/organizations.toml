@@ -454,6 +454,7 @@ not_found = "No se encontró la organización."
 notifications = "Notificaciones"
 people = "Personas"
 people_hint = "Administra quién puede acceder a esta organización y lo que puede hacer."
+security = "Seguridad"
 settings = "Configuración de la organización"
 
 [edit]
@@ -504,6 +505,8 @@ removing = "Eliminando…"
 role_change_failed = "No se pudo cambiar el rol"
 role_changed = "Rol cambiado"
 title = "Miembros"
+two_factor_off = "Sin 2FA"
+two_factor_on = "2FA activo"
 
 [metrics_retention]
 description = "El historial de CPU y memoria de los contenedores más antiguo que esto se elimina automáticamente. De 1 a {max} días, {default} por defecto."
@@ -1106,6 +1109,15 @@ title = "Servidor MCP"
 token_hint = "Autentícate con un token de acceso personal con el scope write."
 update_failed = "No se pudo actualizar el ajuste de MCP"
 without_oauth = "Sin OAuth"
+
+[two_factor]
+all_set = "Todos los miembros tienen autenticación en dos pasos."
+description = "A los miembros sin autenticación en dos pasos se les niega el acceso hasta que la activen en su propia cuenta. Aplica a todas las formas de iniciar sesión y a los tokens de acceso. El administrador de la instancia está exento."
+missing = "{count} de {total} miembros aún no tienen autenticación en dos pasos. Se les niega el acceso hasta que la activen."
+own_first = "Activa primero la autenticación en dos pasos en tu propia cuenta, para no quedarte fuera."
+own_first_link = "Activarla"
+title = "Exigir autenticación en dos pasos"
+update_failed = "No se pudo actualizar la configuración de dos pasos"
 
 [oauth]
 title = "Conectar a MCP"

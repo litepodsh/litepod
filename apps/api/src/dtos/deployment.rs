@@ -688,6 +688,42 @@ pub struct UpdateBasicAuthRequest {
     pub protected_domain_ids: Option<Vec<String>>,
 }
 
+/// Maintenance mode of one application.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct MaintenanceDto {
+    /// While true, every domain of the application answers with the 503 page.
+    pub enabled: bool,
+    /// The visitor's own page. `None` means the default template is served.
+    pub custom_html: Option<String>,
+    /// The default template, so the UI can preview it.
+    pub default_html: String,
+    /// An uploaded site (a ZIP with its own files) that takes the place of the
+    /// inline page while it is there.
+    pub site: Option<MaintenanceSiteDto>,
+    /// State of the Railpack build behind the site: `none`, `building`, `ready`
+    /// or `failed`.
+    pub companion_status: String,
+    /// Why the last build failed.
+    pub companion_error: Option<String>,
+}
+
+/// What the uploaded maintenance site holds.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct MaintenanceSiteDto {
+    /// Short id of the upload (first 12 hex characters of its SHA-256).
+    pub id: String,
+    pub files: usize,
+    pub bytes: u64,
+}
+
+/// PUT body. Absent keys are left unchanged. An empty (or blank) `page_html`
+/// goes back to the default template.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateMaintenanceRequest {
+    pub enabled: Option<bool>,
+    pub page_html: Option<String>,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddBasicAuthUserRequest {
     pub username: String,

@@ -231,6 +231,7 @@ fn application_domain_route_precedes_litepod_catch_all() {
         80,
         false,
         None,
+        None,
     )
     .unwrap();
 
@@ -243,6 +244,169 @@ fn application_domain_route_precedes_litepod_catch_all() {
         "litepod-123.216.250.119.183.sslip.io"
     );
     assert_eq!(routes[1]["@id"], "litepod-default");
+}
+
+#[test]
+fn maintenance_replaces_the_proxy_and_the_auth_challenge_but_keeps_tls() {
+    let mut config = serde_json::json!({
+        "apps": {
+            "http": {
+                "servers": {
+                    "srv0": {
+                        "listen": [":80"],
+                        "routes": [{ "@id": "litepod-default" }],
+                        "automatic_https": { "disable": true }
+                    }
+                }
+            }
+        }
+    });
+    let auth = crate::deployment::basic_auth::BasicAuthPayload {
+        realm: "Restricted".into(),
+        accounts: vec![("admin".into(), "$2a$12$hash".into())],
+    };
+    let page = crate::deployment::maintenance::MaintenancePayload {
+        html: "<p>back soon</p>".into(),
+        site: None,
+        companion: None,
+    };
+
+    apply_app_domain_to_config(
+        &mut config,
+        "litepod-route-domain-1",
+        "test.litepod.sh",
+        "static-app",
+        80,
+        true,
+        Some(&auth),
+        Some(&page),
+    )
+    .unwrap();
+
+    let server = &config["apps"]["http"]["servers"]["srv0"];
+    let handles = server["routes"][0]["handle"].as_array().unwrap();
+    assert_eq!(handles.len(), 1, "only the page: no auth challenge, no proxy");
+    assert_eq!(handles[0]["handler"], "static_response");
+    assert_eq!(handles[0]["status_code"], 503);
+    // The route still terminates TLS for the host, so the page is served over HTTPS.
+    assert!(server["listen"].as_array().unwrap().iter().any(|v| v == ":443"));
+    assert!(
+        server["tls_connection_policies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|policy| policy["match"]["sni"][0] == "test.litepod.sh")
+    );
+
+    // Turning it off rebuilds the same route with the proxy (and auth) back.
+    apply_app_domain_to_config(
+        &mut config,
+        "litepod-route-domain-1",
+        "test.litepod.sh",
+        "static-app",
+        80,
+        true,
+        Some(&auth),
+        None,
+    )
+    .unwrap();
+    let handles = config["apps"]["http"]["servers"]["srv0"]["routes"][0]["handle"]
+        .as_array()
+        .unwrap();
+    assert_eq!(handles[0]["handler"], "authentication");
+    assert_eq!(handles[1]["handler"], "reverse_proxy");
+}
+
+#[test]
+fn a_live_companion_is_proxied_with_a_forced_503_and_a_per_host_fallback() {
+    let mut config = serde_json::json!({
+        "apps": { "http": { "servers": { "srv0": {
+            "listen": [":80"],
+            "routes": [{ "@id": "litepod-default" }],
+            "automatic_https": { "disable": true }
+        }}}}
+    });
+    let page = crate::deployment::maintenance::MaintenancePayload {
+        html: "<p>back soon</p>".into(),
+        site: None,
+        companion: Some("maintenance-page:80".into()),
+    };
+    apply_app_domain_to_config(
+        &mut config, "litepod-route-domain-1", "app.test", "app", 80, false, None, Some(&page),
+    )
+    .unwrap();
+
+    let server = &config["apps"]["http"]["servers"]["srv0"];
+    let handles = server["routes"][0]["handle"].as_array().unwrap();
+    // Headers must come BEFORE the proxy: inside `handle_response` Caddy drops them.
+    assert_eq!(handles[0]["handler"], "headers");
+    assert_eq!(handles[1]["handler"], "reverse_proxy");
+    assert_eq!(handles[1]["upstreams"][0]["dial"], "maintenance-page:80");
+    let forced = &handles[1]["handle_response"][0];
+    assert_eq!(forced["status_code"], "503");
+    assert_eq!(forced["match"]["headers"]["Content-Type"][0], "text/html*");
+    assert_eq!(forced["routes"][0]["handle"][0]["handler"], "copy_response");
+
+    // If the container dies behind the route, this host (only) answers the inline page.
+    let errors = server["errors"]["routes"].as_array().unwrap();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0]["@id"], "litepod-route-domain-1-maint-errors");
+    assert_eq!(errors[0]["match"][0]["host"][0], "app.test");
+    assert_eq!(errors[0]["handle"][0]["status_code"], 503);
+
+    // Rebuilding the same route is idempotent: still one fallback.
+    apply_app_domain_to_config(
+        &mut config, "litepod-route-domain-1", "app.test", "app", 80, false, None, Some(&page),
+    )
+    .unwrap();
+    assert_eq!(config["apps"]["http"]["servers"]["srv0"]["errors"]["routes"].as_array().unwrap().len(), 1);
+
+    // Back to the application: the proxy returns and the fallback is gone.
+    apply_app_domain_to_config(
+        &mut config, "litepod-route-domain-1", "app.test", "app", 80, false, None, None,
+    )
+    .unwrap();
+    let server = &config["apps"]["http"]["servers"]["srv0"];
+    assert_eq!(server["routes"][0]["handle"][0]["upstreams"][0]["dial"], "app:80");
+    assert!(server["errors"]["routes"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn the_fallback_goes_with_its_route_on_delete_and_on_prune() {
+    let page = crate::deployment::maintenance::MaintenancePayload {
+        html: "x".into(),
+        site: None,
+        companion: Some("maintenance-page:80".into()),
+    };
+    let build = || {
+        let mut config = serde_json::json!({
+            "apps": { "http": { "servers": { "srv0": {
+                "listen": [":80"], "routes": [{ "@id": "litepod-default" }],
+                "automatic_https": { "disable": true }
+            }}}}
+        });
+        apply_app_domain_to_config(
+            &mut config, "litepod-route-domain-1", "app.test", "app", 80, false, None, Some(&page),
+        )
+        .unwrap();
+        config
+    };
+    let count = |config: &serde_json::Value| {
+        config["apps"]["http"]["servers"]["srv0"]["errors"]["routes"].as_array().unwrap().len()
+    };
+
+    let mut deleted = build();
+    apply_app_domain_removal_to_config(&mut deleted, "litepod-route-domain-1", "app.test").unwrap();
+    assert_eq!(count(&deleted), 0, "deleting the domain leaves no fallback behind");
+
+    let mut pruned = build();
+    prune_orphans_in_config(&mut pruned, &Default::default(), &Default::default());
+    assert_eq!(count(&pruned), 0, "an orphaned fallback is pruned");
+
+    let mut kept = build();
+    let keep: std::collections::HashSet<String> = ["litepod-route-domain-1".to_string()].into();
+    prune_orphans_in_config(&mut kept, &keep, &Default::default());
+    assert_eq!(count(&kept), 1, "a fallback whose route is kept stays");
 }
 
 #[test]
@@ -268,6 +432,7 @@ fn https_application_domain_enables_tls_before_the_catch_all() {
         "static-app",
         80,
         true,
+        None,
         None,
     )
     .unwrap();

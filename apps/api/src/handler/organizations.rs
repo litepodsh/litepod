@@ -80,6 +80,14 @@ pub async fn update_organization_handler(
     Json(req): Json<UpdateOrganizationRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let organization_id = org.organization_id;
+    if req.require_two_factor == Some(true) {
+        organization_cmd::ensure_can_require_two_factor(
+            &state,
+            &org.user.user_id,
+            org.user.is_sysadmin,
+        )
+        .await?;
+    }
     let organization =
         organization_cmd::update_organization(&state, &organization_id, &req).await?;
     audit_log::record(
@@ -97,6 +105,25 @@ pub async fn update_organization_handler(
     )
     .await
     .ok();
+    // The requirement locks members out, so its changes get a row of their own
+    // rather than hiding inside a generic "organization.updated".
+    if let Some(required) = req.require_two_factor {
+        audit_log::record(
+            &state,
+            &organization_id,
+            &org.user,
+            "organization.two_factor_requirement_changed",
+            Some("organization"),
+            Some(&organization_id),
+            Some(&organization.name),
+            Some(&format!("{{\"required\":{required}}}")),
+            None,
+            None,
+            None,
+        )
+        .await
+        .ok();
+    }
     Ok(ok(organization))
 }
 
@@ -126,7 +153,12 @@ pub async fn list_members_handler(
     RequireOrg(org, _): RequireOrg<perm::OrgRead>,
 ) -> Result<impl IntoResponse, AppError> {
     let organization_id = org.organization_id;
-    let members = organization_q::list_members(&state, &organization_id).await?;
+    let include_two_factor = org.permissions.allows(
+        crate::security::authz::Permission::OrgMembersManage,
+        crate::security::authz::Target::Org,
+    );
+    let members =
+        organization_q::list_members(&state, &organization_id, include_two_factor).await?;
     Ok(ok(members))
 }
 
@@ -373,6 +405,7 @@ pub async fn upload_icon_handler(
             audit_logs_enabled: None,
             assistant_enabled: None,
             mcp_enabled: None,
+            require_two_factor: None,
             audit_logs_retention_days: None,
         },
     )

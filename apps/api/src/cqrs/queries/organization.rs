@@ -25,6 +25,7 @@ pub async fn list_my_organizations(
             audit_logs_enabled: r.audit_logs_enabled,
             assistant_enabled: r.assistant_enabled,
             mcp_enabled: r.mcp_enabled,
+            require_two_factor: r.require_two_factor,
             audit_logs_retention_days: r.audit_logs_retention_days,
             created_at: r.created_at,
         })
@@ -49,6 +50,7 @@ pub async fn list_all_organizations(state: &SharedState) -> Result<Vec<Organizat
             audit_logs_enabled: r.audit_logs_enabled,
             assistant_enabled: r.assistant_enabled,
             mcp_enabled: r.mcp_enabled,
+            require_two_factor: r.require_two_factor,
             audit_logs_retention_days: r.audit_logs_retention_days,
             created_at: r.created_at,
         })
@@ -75,14 +77,18 @@ pub async fn get_organization(
         audit_logs_enabled: row.audit_logs_enabled,
         assistant_enabled: row.assistant_enabled,
         mcp_enabled: row.mcp_enabled,
+        require_two_factor: row.require_two_factor,
         audit_logs_retention_days: row.audit_logs_retention_days,
         created_at: row.created_at,
     })
 }
 
+/// `include_two_factor` is for callers who can manage members: who has a
+/// second factor is not something every member needs to see about the others.
 pub async fn list_members(
     state: &SharedState,
     organization_id: &str,
+    include_two_factor: bool,
 ) -> Result<Vec<OrganizationMemberDto>, AppError> {
     let rows = organization_member::list_members(state, organization_id)
         .await
@@ -98,6 +104,7 @@ pub async fn list_members(
             role_name: r.role_name,
             joined_at: r.joined_at,
             disabled: r.disabled,
+            two_factor_enabled: include_two_factor.then_some(r.two_factor_enabled),
         })
         .collect())
 }
