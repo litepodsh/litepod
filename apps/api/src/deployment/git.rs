@@ -81,19 +81,80 @@ fn railpack_container_context(project_path: &str) -> Result<String, String> {
     })
 }
 
+/// Vets a submodule's fetch URL from inside the blocking clone task, where the
+/// async SSRF guards (`ssrf::assert_host`) can't be awaited.
+///
+/// `.gitmodules` is attacker-controlled: a submodule URL can point at an
+/// internal address (SSRF) or at a third-party host that would receive the
+/// parent repo's credentials as HTTP basic auth (token leak). This mirrors
+/// `ssrf::assert_host` with a blocking resolver, and decides credential reuse.
+///
+/// Returns whether the parent's credentials may be sent to this submodule:
+/// only when its host matches the parent repo's. A relative submodule path
+/// resolves against the parent's own remote (same host, already validated), so
+/// it inherits the credentials; an scp/ssh-style URL carries no HTTP token.
+fn vet_submodule_url(raw: &str, parent_host: &str, allow_private: bool) -> Result<bool, String> {
+    use std::net::ToSocketAddrs;
+
+    let raw = raw.trim();
+    // Relative to the parent remote (`./sub`, `../sub`, `/sub`): same host as
+    // the parent, which was validated before the clone.
+    if raw.starts_with("./") || raw.starts_with("../") || raw.starts_with('/') {
+        return Ok(true);
+    }
+    let Ok(url) = url::Url::parse(raw) else {
+        // scp-style `git@host:path` or other non-URL: SSH auth, never the HTTP
+        // token, so there is nothing to leak. Leave resolution to git.
+        return Ok(false);
+    };
+    if !matches!(url.scheme(), "http" | "https" | "git") {
+        return Ok(false);
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "Submodule URL has no host".to_string())?;
+    let port = url.port_or_known_default().unwrap_or(443);
+    let mut resolved = false;
+    for address in (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("Could not resolve submodule host {host}: {e}"))?
+    {
+        resolved = true;
+        if !allow_private && !crate::security::ssrf::is_public(address.ip()) {
+            return Err(format!(
+                "Submodule host {host} resolves to a non-public address ({}) and will not be fetched",
+                address.ip()
+            ));
+        }
+    }
+    if !resolved {
+        return Err(format!("Submodule host {host} did not resolve to any address"));
+    }
+    Ok(host.eq_ignore_ascii_case(parent_host))
+}
+
 /// Initializes and fetches every submodule the checked-out tree declares,
 /// recursively (a submodule can itself have submodules). Reuses the parent
-/// repo's own credentials - the common case where private submodules live on
-/// the same host/org as the parent - rather than asking for a second set.
+/// repo's own credentials only for submodules on the parent's host (see
+/// `vet_submodule_url`), and refuses any whose URL points at a non-public
+/// address unless the provider is explicitly self-hosted (`allow_private`).
 fn update_submodules(
     repo: &git2::Repository,
     credentials: Option<(&str, &str)>,
+    parent_host: &str,
+    allow_private: bool,
 ) -> Result<(), String> {
     let submodules = repo.submodules().map_err(|e| e.to_string())?;
     for mut submodule in submodules {
         submodule.init(true).map_err(|e| e.to_string())?;
+        let name = submodule.name().unwrap_or("?").to_string();
+        let submodule_url = submodule.url().unwrap_or_default().to_string();
+        let send_credentials = vet_submodule_url(&submodule_url, parent_host, allow_private)
+            .map_err(|e| format!("Submodule '{name}': {e}"))?;
         let mut callbacks = git2::RemoteCallbacks::new();
-        if let Some((username, password)) = credentials {
+        if send_credentials
+            && let Some((username, password)) = credentials
+        {
             let username = username.to_string();
             let password = password.to_string();
             callbacks.credentials(move |_url, username_from_url, _allowed| {
@@ -106,11 +167,12 @@ fn update_submodules(
         update_opts.fetch(fetch);
         submodule
             .update(true, Some(&mut update_opts))
-            .map_err(|e| format!("Submodule '{}': {e}", submodule.name().unwrap_or("?")))?;
+            .map_err(|e| format!("Submodule '{name}': {e}"))?;
         // Recurse: the submodule's own working tree may declare its own
-        // submodules, only discoverable once `update` has checked it out.
+        // submodules, only discoverable once `update` has checked it out. The
+        // parent host carries down so credentials never cross to a new host.
         if let Ok(nested) = submodule.open() {
-            update_submodules(&nested, credentials)?;
+            update_submodules(&nested, credentials, parent_host, allow_private)?;
         }
     }
     Ok(())
@@ -211,7 +273,13 @@ fn clone_repo(
     credentials: Option<(&str, &str)>,
     destination: &Path,
     progress_tx: Option<Sender<String>>,
+    allow_private: bool,
 ) -> Result<(String, String, Option<String>, Option<String>), String> {
+    // Credentials follow to a submodule only if it is on this same host.
+    let parent_host = url::Url::parse(repo_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .unwrap_or_default();
     let password = credentials.map(|(_, p)| p).unwrap_or("");
     let username = credentials.map(|(u, _)| u.to_string());
     let password_owned = credentials.map(|(_, p)| p.to_string());
@@ -358,7 +426,7 @@ fn clone_repo(
                     }
                     _ => commit,
                 };
-                update_submodules(&repo, credentials)?;
+                update_submodules(&repo, credentials, &parent_host, allow_private)?;
                 pull_lfs_if_needed(destination, credentials)?;
                 let author = commit.author();
                 return Ok((
@@ -1040,7 +1108,12 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
         unpack_upload(state, application_id, run_id, &repo, target_sha.as_deref()).await?;
     } else {
         let repository_url = source.git_url.as_deref().unwrap_or_default();
-        let credentials: Option<(String, String)> = if let Some(provider_id) =
+        // `allow_private` carries to the submodule guard: private addresses are
+        // tolerated only for an explicitly self-hosted provider, never for an
+        // anonymous public clone.
+        let (credentials, allow_private): (Option<(String, String)>, bool) = if let Some(
+            provider_id,
+        ) =
             source.git_provider_id.clone()
         {
             let (provider_host, allow_private) =
@@ -1057,16 +1130,17 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
             let resolved = git_providers::resolve_credentials(state, &provider_id)
                 .await
                 .map_err(|e| e.to_string())?;
-            Some((resolved.username, resolved.secret))
+            (Some((resolved.username, resolved.secret)), allow_private)
         } else {
             // No saved provider: anonymous public clone, or credentials the user
             // embedded in the pasted URL and that were saved (encrypted) at source-save time.
             crate::security::ssrf::validate_public_url(repository_url)
                 .await
                 .map_err(|e| e.to_string())?;
-            git_providers::application_git_credentials(state, application_id)
+            let credentials = git_providers::application_git_credentials(state, application_id)
                 .await
-                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+            (credentials, false)
         };
         let _ =
             super::history::append(state, run_id, "info", "Preparing repository workspace").await;
@@ -1103,6 +1177,7 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
                         .map(|(u, p)| (u.as_str(), p.as_str())),
                     &destination,
                     Some(progress_tx),
+                    allow_private,
                 )
             });
             let mut progress_tick = tokio::time::interval(std::time::Duration::from_millis(250));
@@ -1300,7 +1375,40 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
 
 #[cfg(test)]
 mod tests {
-    use super::{pull_lfs_if_needed, railpack_container_context};
+    use super::{pull_lfs_if_needed, railpack_container_context, vet_submodule_url};
+
+    #[test]
+    fn submodule_credentials_cross_a_host_boundary_only_when_hosts_match() {
+        // Literal public IPs so the test needs no DNS. Same host → creds follow.
+        assert_eq!(
+            vet_submodule_url("https://93.184.216.34/acme/lib.git", "93.184.216.34", false),
+            Ok(true)
+        );
+        // A third-party host an attacker put in .gitmodules → no token sent.
+        assert_eq!(
+            vet_submodule_url("https://93.184.216.34/collect", "example.org", false),
+            Ok(false)
+        );
+        // Relative submodule resolves against the parent's remote → same host.
+        assert_eq!(vet_submodule_url("../sibling.git", "example.org", false), Ok(true));
+        // scp/ssh-style carries no HTTP token.
+        assert_eq!(
+            vet_submodule_url("git@github.com:acme/lib.git", "github.com", false),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn submodule_pointing_at_an_internal_address_is_refused() {
+        // Literal private/link-local IPs resolve to themselves (no DNS needed).
+        assert!(vet_submodule_url("http://169.254.169.254/latest/meta-data", "github.com", false).is_err());
+        assert!(vet_submodule_url("http://127.0.0.1/x", "github.com", false).is_err());
+        // Allowed when the provider is explicitly self-hosted.
+        assert_eq!(
+            vet_submodule_url("http://127.0.0.1/x", "127.0.0.1", true),
+            Ok(true)
+        );
+    }
 
     #[test]
     fn lfs_pull_is_a_no_op_without_a_gitattributes_lfs_filter() {
