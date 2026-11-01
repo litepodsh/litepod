@@ -311,7 +311,9 @@ pub async fn login_ban_middleware(
                 .ephemeral
                 .record_login_failure(
                     &remote_key,
-                    config.auth_max_attempts,
+                    config
+                        .auth_max_attempts
+                        .saturating_mul(IP_BAN_ATTEMPT_MULTIPLIER),
                     (config.auth_ban_minutes.max(1) as u64) * 60,
                 )
                 .await
@@ -329,7 +331,10 @@ pub async fn login_ban_middleware(
     if !guard.config.enabled {
         return response;
     }
-    let max_attempts = guard.config.auth_max_attempts;
+    let max_attempts = guard
+        .config
+        .auth_max_attempts
+        .saturating_mul(IP_BAN_ATTEMPT_MULTIPLIER);
     let ban_minutes = guard.config.auth_ban_minutes;
     let entry = guard.login_attempts.entry(ip).or_default();
     if response.status() == StatusCode::OK {
@@ -342,6 +347,59 @@ pub async fn login_ban_middleware(
         }
     }
     response
+}
+
+/// The per-IP ban is a backstop, not the primary control: the per-account ban
+/// (`account_login_*`) locks a brute-forced account across every IP. So the IP
+/// ban only trips on mass flooding — this many times the per-account threshold
+/// of total failures from one address — which keeps a shared office/NAT IP from
+/// being blocked by normal, scattered mistyped passwords.
+const IP_BAN_ATTEMPT_MULTIPLIER: u32 = 10;
+
+/// Per-account login key, digested so a raw email never becomes a store key.
+/// Normalized (trim + lowercase) so the counter follows the account, not the
+/// exact casing typed.
+pub(crate) fn account_login_key(email: &str) -> String {
+    let digest = crate::utils::security::digest_token(&email.trim().to_ascii_lowercase());
+    format!("litepod:login-account:{digest}")
+}
+
+/// Seconds left on an account's login ban, or `None` when it is not banned — or
+/// the store is unreachable, in which case this **fails open**: the per-IP
+/// layers still apply, and refusing every login during a Dragonfly blip would be
+/// worse than briefly losing the per-account lock.
+pub(crate) async fn account_login_ban_remaining(state: &SharedState, email: &str) -> Option<u64> {
+    state
+        .ephemeral
+        .remaining_ttl(&format!("{}:ban", account_login_key(email)))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Records one failed attempt against the account and bans it past the
+/// configured threshold. Best-effort; honours the global rate-limit toggle.
+pub(crate) async fn record_account_login_failure(state: &SharedState, email: &str) {
+    let config = state.rate_limiter.read().await.config;
+    if !config.enabled {
+        return;
+    }
+    let _ = state
+        .ephemeral
+        .record_login_failure(
+            &account_login_key(email),
+            config.auth_max_attempts,
+            (config.auth_ban_minutes.max(1) as u64) * 60,
+        )
+        .await;
+}
+
+/// Clears an account's failure counter and ban. Called on a correct password so
+/// the next person to use a shared machine starts clean.
+pub(crate) async fn clear_account_login(state: &SharedState, email: &str) {
+    let key = account_login_key(email);
+    let _ = state.ephemeral.delete(&format!("{key}:failures")).await;
+    let _ = state.ephemeral.delete(&format!("{key}:ban")).await;
 }
 
 /// Failed logins at or above this count (same IP, tracked by `login_ban_middleware`) require
@@ -370,6 +428,29 @@ pub(crate) async fn login_failed_attempts(state: &SharedState, ip: IpAddr) -> u3
         .get(&ip)
         .map(|entry| entry.failed_count)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod account_key_tests {
+    use super::account_login_key;
+
+    #[test]
+    fn account_key_is_normalized_and_does_not_leak_the_email() {
+        // Same account regardless of casing or surrounding whitespace.
+        assert_eq!(
+            account_login_key("  User@Example.com "),
+            account_login_key("user@example.com")
+        );
+        // Different accounts get different keys.
+        assert_ne!(
+            account_login_key("a@example.com"),
+            account_login_key("b@example.com")
+        );
+        // The raw address never appears in the store key (it is digested).
+        let key = account_login_key("victim@example.com");
+        assert!(key.starts_with("litepod:login-account:"));
+        assert!(!key.contains("victim@example.com"), "email leaked into key: {key}");
+    }
 }
 
 #[cfg(test)]

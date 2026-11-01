@@ -22,7 +22,8 @@ use crate::dtos::response::{AppError, accepted, created, ok};
 use crate::git::repositories::user;
 use crate::security::middleware::auth::AuthUser;
 use crate::security::middleware::rate_limit::{
-    LOGIN_CAPTCHA_THRESHOLD, client_ip_from_parts, login_failed_attempts,
+    LOGIN_CAPTCHA_THRESHOLD, account_login_ban_remaining, clear_account_login, client_ip_from_parts,
+    login_failed_attempts, record_account_login_failure,
 };
 use crate::security::middleware::request_context::RequestContext;
 use crate::state::state::SharedState;
@@ -343,6 +344,23 @@ pub async fn login_handler(
     Json(req): Json<LoginRequest>,
 ) -> Result<(CookieJar, axum::response::Response), AppError> {
     let remote_ip = client_ip_from_parts(&headers, Some(connect_info));
+
+    // Per-account brute-force lock: refuse early if this account is temporarily
+    // banned, whatever IP it comes from. Keyed on the account, not the IP, so
+    // many users behind one shared address are never blocked for each other.
+    if let Some(retry_after) = account_login_ban_remaining(&state, &req.email).await {
+        let body = Json(LoginErrorResponse {
+            error: "Too many failed login attempts for this account, try again later".into(),
+            captcha_required: false,
+        });
+        let mut response = (StatusCode::TOO_MANY_REQUESTS, body).into_response();
+        response.headers_mut().insert(
+            axum::http::header::RETRY_AFTER,
+            axum::http::HeaderValue::from(retry_after),
+        );
+        return Ok((jar, response));
+    }
+
     let prior_failures = login_failed_attempts(&state, remote_ip).await;
     let captcha_required =
         crate::security::turnstile::required(state.is_cloud) && prior_failures >= LOGIN_CAPTCHA_THRESHOLD;
@@ -366,6 +384,9 @@ pub async fn login_handler(
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     match auth::login(&state, &req.email, &req.password, user_agent).await {
         Ok(auth::LoginOutcome::Authenticated(outcome)) => {
+            // Correct password: reset the account's failure counter so a shared
+            // machine's next user starts clean.
+            clear_account_login(&state, &req.email).await;
             let (resp, token) = *outcome;
             let actor = crate::security::middleware::auth::AuthUser {
                 user_id: resp.user.user_id.clone(),
@@ -397,15 +418,23 @@ pub async fn login_handler(
         }
         // Password accepted, second factor still owed. Deliberately no cookie on
         // this path — the jar goes back untouched.
-        Ok(auth::LoginOutcome::TotpRequired { challenge_token }) => Ok((
-            jar,
-            ok(TotpChallengeResponse {
-                totp_required: true,
-                challenge_token,
-            })
-            .into_response(),
-        )),
+        Ok(auth::LoginOutcome::TotpRequired { challenge_token }) => {
+            // First factor was correct, so the password is not being brute-forced:
+            // clear the account counter, same as a full login.
+            clear_account_login(&state, &req.email).await;
+            Ok((
+                jar,
+                ok(TotpChallengeResponse {
+                    totp_required: true,
+                    challenge_token,
+                })
+                .into_response(),
+            ))
+        }
         Err(AppError::InvalidCredentials) => {
+            // Count this failure against the account (not just the IP), so a
+            // brute force on one user locks that account across every address.
+            record_account_login_failure(&state, &req.email).await;
             // `login_ban_middleware` increments the same counter after this response lands,
             // so predict its post-increment value to tell the frontend whether the *next*
             // attempt needs the widget.
