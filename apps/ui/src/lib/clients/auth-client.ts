@@ -54,10 +54,17 @@ export async function setup(
 	email: string,
 	password: string,
 	confirmPassword: string,
+	setupToken?: string,
 ): Promise<AuthResponse> {
 	const resp = await api<AuthResponse>('/api/v1/auth/setup', {
 		method: 'POST',
-		body: JSON.stringify({ name, email, password, confirm_password: confirmPassword }),
+		body: JSON.stringify({
+			name,
+			email,
+			password,
+			confirm_password: confirmPassword,
+			setup_token: setupToken,
+		}),
 	});
 	return resp.data!;
 }

@@ -34,6 +34,7 @@
 	let email = $state('');
 	let password = $state('');
 	let confirmPassword = $state('');
+	let setupToken = $state('');
 	let error = $state('');
 	let loading = $state(false);
 	let inviteToken = $state('');
@@ -126,7 +127,7 @@
 					goto('/home');
 				}
 			} else {
-				await setup(name, email, password, confirmPassword);
+				await setup(name, email, password, confirmPassword, setupToken || undefined);
 				toast.success(t('auth.register.administrator_created'));
 				goto('/home');
 			}
@@ -228,6 +229,18 @@
 									autocomplete="new-password"
 									disabled={loading}
 									bind:value={confirmPassword} /></Field>
+							{#if !inviteToken && !registrationStatus?.is_cloud}
+								<Field
+									><FieldLabel for="setup-token-{id}"
+										>{t('auth.register.setup_token')}</FieldLabel
+									><Input
+										id="setup-token-{id}"
+										type="password"
+										autocomplete="off"
+										placeholder={t('auth.register.setup_token_hint')}
+										disabled={loading}
+										bind:value={setupToken} /></Field>
+							{/if}
 							{#if termsRequired}
 								<Field orientation="horizontal">
 									<Checkbox id="accept-terms-{id}" bind:checked={acceptTerms} disabled={loading} />

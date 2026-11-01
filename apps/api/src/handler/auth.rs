@@ -131,6 +131,21 @@ pub async fn registration_status_handler(
     }))
 }
 
+/// Constant-time comparison for the one-time setup token. Length mismatch and
+/// content mismatch both return false; the content compare is constant-time in
+/// the (fixed) token length, so a wrong guess leaks no timing signal.
+fn setup_token_matches(expected: &str, supplied: &str) -> bool {
+    let (a, b) = (expected.as_bytes(), supplied.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/auth/setup",
@@ -151,6 +166,16 @@ pub async fn setup_handler(
         return Err(AppError::ValidationError(
             "Passwords do not match".to_string(),
         ));
+    }
+    // A configured one-time token stops anyone on the network from claiming the
+    // first administrator before the operator does. Dev and legacy installs
+    // leave `SETUP_TOKEN` unset and keep the open flow.
+    let expected_token = std::env::var("SETUP_TOKEN").unwrap_or_default();
+    if !expected_token.is_empty() {
+        let supplied = req.setup_token.as_deref().unwrap_or_default();
+        if !setup_token_matches(&expected_token, supplied) {
+            return Err(AppError::SetupTokenInvalid);
+        }
     }
     let count = user::count_sysadmins(&state)
         .await
@@ -657,6 +682,15 @@ mod tests {
 
     use super::*;
     use crate::testing::cleanup_database;
+
+    #[test]
+    fn setup_token_compare_is_exact_and_constant_time() {
+        let token = "a".repeat(64);
+        assert!(setup_token_matches(&token, &token));
+        assert!(!setup_token_matches(&token, &"b".repeat(64)));
+        assert!(!setup_token_matches(&token, &token[..63]));
+        assert!(!setup_token_matches(&token, ""));
+    }
 
     #[tokio::test]
     async fn logout_of_an_sso_session_redirects_to_the_idp_or_sets_reauth() {

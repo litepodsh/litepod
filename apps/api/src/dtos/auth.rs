@@ -23,6 +23,11 @@ pub struct SetupRequest {
     pub email: String,
     pub password: String,
     pub confirm_password: String,
+    /// One-time install token, required only when `SETUP_TOKEN` is configured on
+    /// the server (a self-hosted install that wants to stop anyone on the network
+    /// from claiming the first administrator). Optional for dev and legacy installs.
+    #[serde(default)]
+    pub setup_token: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
