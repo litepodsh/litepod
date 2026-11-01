@@ -1,13 +1,4 @@
 services:
-  buildkit:
-    image: docker.io/moby/buildkit:latest
-    container_name: litepod-buildkit
-    privileged: true
-    command: ["--addr", "tcp://0.0.0.0:1234"]
-    volumes:
-      - buildkit_cache:/var/lib/buildkit
-    restart: unless-stopped
-
   caddy:
     image: docker.io/library/caddy:${CADDY_IMAGE_TAG:-2.11.4}
     container_name: litepod-caddy
@@ -29,7 +20,7 @@ services:
       DFLY_requirepass: ${DFLY_PASSWORD:?Set DFLY_PASSWORD in apps/.env}
 
   app:
-    image: ${LITEPOD_IMAGE_REPO:-docker.io/litepod/litepod}:${LITEPOD_IMAGE_TAG:-v0.3.27}
+    image: ${LITEPOD_IMAGE_REPO:-docker.io/litepod/litepod}:${LITEPOD_IMAGE_TAG:-v0.3.28}
     container_name: litepod-api
     environment:
       APP_ENV: production
@@ -41,6 +32,8 @@ services:
       DATABASE_PATH: /var/lib/litepod/litepod.db
       HASH_SECRET: ${HASH_SECRET:?Set HASH_SECRET in apps/.env}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in apps/.env}
+      # Optional one-time setup token; when set, /auth/setup requires it.
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
       # Unused on self-hosted (IS_CLOUD unset) — the register handler only checks
       # Turnstile on the cloud path. Kept optional here.
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
@@ -61,7 +54,7 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL in apps/.env}
       CORS_ORIGINS: ${PUBLIC_URL:?Set PUBLIC_URL in apps/.env}
       LITEPOD_IMAGE_REPO: ${LITEPOD_IMAGE_REPO:-docker.io/litepod/litepod}
-      LITEPOD_IMAGE_TAG: ${LITEPOD_IMAGE_TAG:-v0.3.27}
+      LITEPOD_IMAGE_TAG: ${LITEPOD_IMAGE_TAG:-v0.3.28}
       LITEPOD_UPDATE_CHANNEL: ${LITEPOD_UPDATE_CHANNEL:-stable}
       LITEPOD_VERSION_MANIFEST_URL: ${LITEPOD_VERSION_MANIFEST_URL:-https://litepod.sh/version.json}
       LITEPOD_UPDATE_INTERVAL: ${LITEPOD_UPDATE_INTERVAL:-3600}
@@ -78,7 +71,6 @@ services:
 volumes:
   caddy_data:
   caddy_config:
-  buildkit_cache:
   litepod_data:
     name: litepod_data
 

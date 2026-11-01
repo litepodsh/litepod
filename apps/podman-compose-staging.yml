@@ -1,15 +1,4 @@
 services:
-  # Build daemon for Railpack deploys. Not published to the host: only the
-  # Podman network can reach it.
-  buildkit:
-    image: docker.io/moby/buildkit:latest
-    container_name: litepod-buildkit
-    privileged: true
-    command: ["--addr", "tcp://0.0.0.0:1234"]
-    volumes:
-      - buildkit_cache:/var/lib/buildkit
-    restart: unless-stopped
-
   caddy:
     image: caddy:${CADDY_IMAGE_TAG:-2.11.4}
     container_name: litepod-caddy
@@ -48,6 +37,8 @@ services:
       DATABASE_PATH: /var/lib/litepod/litepod.db
       HASH_SECRET: ${HASH_SECRET:?Set HASH_SECRET in apps/.env}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in apps/.env}
+      # Optional one-time setup token; when set, /auth/setup requires it.
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       CADDY_URL: http://litepod-caddy:2019
       CADDY_ADMIN_URL: http://litepod-caddy:2019
@@ -86,7 +77,6 @@ services:
 volumes:
   caddy_data:
   caddy_config:
-  buildkit_cache:
   litepod_data:
     name: litepod_data
 
