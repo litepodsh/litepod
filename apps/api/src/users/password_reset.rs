@@ -28,7 +28,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dtos::response::AppError;
-use crate::git::repositories::{session, user};
+use crate::git::repositories::{oauth, personal_access_token, session, user};
 use crate::state::state::SharedState;
 use crate::utils::security;
 
@@ -157,8 +157,16 @@ pub async fn confirm(
 
     // Everything, with no exception for the caller: a reset is the response to a
     // possible compromise, and the intruder's session is indistinguishable here.
+    // Sessions, personal access tokens and OAuth grants all go — a non-browser
+    // credential left alive would keep the intruder in past the reset.
     if let Err(error) = session::revoke_all_for_user(state, &record.user_id).await {
         tracing::error!(%error, user_id = %record.user_id, "password reset but sessions were not revoked");
+    }
+    if let Err(error) = personal_access_token::revoke_all_for_user(state, &record.user_id).await {
+        tracing::error!(%error, user_id = %record.user_id, "password reset but personal access tokens were not revoked");
+    }
+    if let Err(error) = oauth::revoke_all_grants_for_user(state, &record.user_id).await {
+        tracing::error!(%error, user_id = %record.user_id, "password reset but OAuth grants were not revoked");
     }
     let _ = state.ephemeral.delete(&cooldown_key(&record.user_id)).await;
 

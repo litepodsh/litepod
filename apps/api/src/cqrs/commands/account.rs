@@ -51,6 +51,16 @@ pub async fn change_password(
         // reporting it. Loud, because a stale session surviving matters.
         tracing::error!(%error, %user_id, "password changed but other sessions were not revoked");
     }
+    // Non-browser credentials too: a personal access token or OAuth grant is
+    // never the current session, so all of them go, same as other sessions.
+    if let Err(error) =
+        repositories::personal_access_token::revoke_all_for_user(state, user_id).await
+    {
+        tracing::error!(%error, %user_id, "password changed but personal access tokens were not revoked");
+    }
+    if let Err(error) = crate::git::repositories::oauth::revoke_all_grants_for_user(state, user_id).await {
+        tracing::error!(%error, %user_id, "password changed but OAuth grants were not revoked");
+    }
 
     Ok(())
 }
@@ -295,4 +305,56 @@ fn generate_recovery_codes() -> Vec<String> {
         codes.push(code);
     }
     codes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::{cleanup_database, test_state};
+
+    #[tokio::test]
+    async fn changing_the_password_revokes_personal_access_tokens() {
+        let (state, path) = test_state().await;
+        // Give `viewer` a real, known password so the current-password check passes.
+        let hashed = security::hash_password("current-pass-123".to_string());
+        sqlx::query("UPDATE users SET hashed_password = ?1 WHERE id = 'viewer'")
+            .bind(hashed)
+            .execute(&state.db)
+            .await
+            .unwrap();
+
+        let pat = security::generate_token();
+        repositories::personal_access_token::create(
+            &state, "pat-1", "viewer", "ci", &pat, "lp_abc", "[\"read\"]", None, None,
+        )
+        .await
+        .unwrap();
+        assert!(
+            repositories::personal_access_token::find_active_by_digest(&state, &pat)
+                .await
+                .unwrap()
+                .is_some(),
+            "token is active before the change"
+        );
+
+        change_password(
+            &state,
+            "viewer",
+            "current-pass-123",
+            "new-pass-123",
+            "new-pass-123",
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            repositories::personal_access_token::find_active_by_digest(&state, &pat)
+                .await
+                .unwrap()
+                .is_none(),
+            "a personal access token must not survive a password change"
+        );
+        cleanup_database(&path);
+    }
 }
