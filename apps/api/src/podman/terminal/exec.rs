@@ -114,8 +114,13 @@ pub async fn server_exec_ws_handler(
         String,
         String,
     )>,
+    headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<axum::response::Response, AppError> {
+    if !crate::security::middleware::csrf::websocket_origin_allowed(&state, &headers).await {
+        tracing::warn!(server = %server_id, "terminal: rejected cross-origin exec WebSocket upgrade");
+        return Err(AppError::InsufficientPermissions);
+    }
     // Session row opens at upgrade (when the shell is about to start), not at
     // exec creation — same lifecycle as the remote-host console in `host.rs`.
     let session_id = crate::podman::terminal::session::start_exec_session(
@@ -311,6 +316,7 @@ pub async fn exec_ws_handler(
         container_id,
         exec_id,
     )): Path<(String, String, String, String, String, String)>,
+    headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<axum::response::Response, AppError> {
     // Same ownership check as exec creation: the exec_id alone doesn't prove this
@@ -319,6 +325,10 @@ pub async fn exec_ws_handler(
         crate::handler::deployments::container_names(&state, &app.application_id).await?;
     if !valid_containers.contains(&container_id) {
         return Err(AppError::ResourceNotFound);
+    }
+    if !crate::security::middleware::csrf::websocket_origin_allowed(&state, &headers).await {
+        tracing::warn!(container_id = %container_id, "terminal: rejected cross-origin exec WebSocket upgrade");
+        return Err(AppError::InsufficientPermissions);
     }
 
     // Session row opens at upgrade (when the shell is about to start), not at
