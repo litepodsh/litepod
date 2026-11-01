@@ -40,6 +40,10 @@ pub struct UpdateState {
     pub current_version: String,
     /// Version the manifest publishes, e.g. `v0.1.19`.
     pub latest_version: String,
+    /// Immutable digest the manifest publishes for `latest_version` (`sha256:…`),
+    /// or `None` when the channel does not pin one. Present means the updater
+    /// pulls by digest; `None` falls back to the mutable tag.
+    pub latest_digest: Option<String>,
     /// True when `latest_version` is strictly newer than `current_version`.
     pub update_available: bool,
     /// ISO-8601 timestamp of the last manifest check attempt.
@@ -202,6 +206,7 @@ pub async fn detect_once(state: &SharedState) -> bool {
             s.update_available = false;
             s.last_check_at = Some(Utc::now());
             s.last_check_succeeded = false;
+            s.latest_digest = None;
             s.last_check_note = format!("manifest lookup failed for {}: {error}", channel.as_str());
             return false;
         }
@@ -216,6 +221,22 @@ pub async fn detect_once(state: &SharedState) -> bool {
             snapshot.last_check_succeeded = false;
             snapshot.last_check_note = error.to_string();
             snapshot.update_available = false;
+            snapshot.latest_digest = None;
+            return false;
+        }
+    };
+    // A pinned digest is part of the same integrity decision as the version:
+    // an unreadable digest is refused, never silently downgraded to the tag.
+    let app_digest = match entry.app_digest() {
+        Ok(digest) => digest,
+        Err(error) => {
+            let mut snapshot = state.update_state.write().await;
+            snapshot.channel = channel;
+            snapshot.last_check_at = Some(Utc::now());
+            snapshot.last_check_succeeded = false;
+            snapshot.last_check_note = error.to_string();
+            snapshot.update_available = false;
+            snapshot.latest_digest = None;
             return false;
         }
     };
@@ -228,6 +249,7 @@ pub async fn detect_once(state: &SharedState) -> bool {
             snapshot.last_check_succeeded = false;
             snapshot.last_check_note = error.to_string();
             snapshot.update_available = false;
+            snapshot.latest_digest = None;
             return false;
         }
     };
@@ -251,6 +273,7 @@ pub async fn detect_once(state: &SharedState) -> bool {
         s.update_available = false;
         s.last_check_at = Some(Utc::now());
         s.last_check_succeeded = false;
+        s.latest_digest = None;
         s.last_check_note = note;
         return false;
     };
@@ -266,6 +289,7 @@ pub async fn detect_once(state: &SharedState) -> bool {
         s.channel = channel;
         s.current_version = current.clone();
         s.latest_version = latest.clone();
+        s.latest_digest = app_digest.clone();
         s.core_services = core_services;
         s.update_available = needs_update;
         s.last_check_at = Some(Utc::now());
@@ -289,6 +313,7 @@ pub async fn apply_now(
     state: &SharedState,
     target: String,
     channel: UpdateChannel,
+    digest: Option<String>,
 ) -> Result<(), apply::ApplyError> {
     if target.is_empty() {
         return Err(apply::ApplyError::Recreate(
@@ -296,7 +321,13 @@ pub async fn apply_now(
         ));
     }
 
-    let image = format!("{}:{}", state.image_repo, target);
+    // Pin by immutable digest when the manifest publishes one; otherwise fall
+    // back to the (mutable) tag. A digest reference cannot be re-pointed, so a
+    // compromised registry account cannot substitute a different image.
+    let image = match digest {
+        Some(digest) => format!("{}@{}", state.image_repo, digest),
+        None => format!("{}:{}", state.image_repo, target),
+    };
     tracing::warn!(
         container = %state.container_name,
         image = %image,
@@ -344,12 +375,13 @@ pub async fn apply_release(
     target: String,
     channel: UpdateChannel,
     core_targets: check::CoreServiceTargets,
+    app_digest: Option<String>,
 ) -> Result<(), core::CoreUpdateError> {
     core::apply_core_services(state, core_targets).await?;
     if running_version(state).await == target {
         return Ok(());
     }
-    apply_now(state, target, channel)
+    apply_now(state, target, channel, app_digest)
         .await
         .map_err(|error| core::CoreUpdateError::Message(error.to_string()))
 }
@@ -459,7 +491,7 @@ mod tests {
             config.image_repo = "docker.io/litepod/litepod".into();
             config.data_dir = dir.clone();
             config.stack_env_file = (failure != "no_env").then_some(env_path.clone());
-            let result = super::apply_now(&state, "v0.1.72".into(), UpdateChannel::Stable).await;
+            let result = super::apply_now(&state, "v0.1.72".into(), UpdateChannel::Stable, None).await;
             let calls = calls.lock().unwrap();
             if matches!(failure, "none" | "no_env") {
                 assert!(result.is_ok(), "{failure}: {result:?}; {calls:?}");

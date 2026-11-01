@@ -308,6 +308,9 @@ pub async fn post_apply_update_handler(
     let target = request.target_version;
     let channel = request.channel;
     let core_targets = request.core_services;
+    // The manifest digest for the confirmed target, from the same snapshot the
+    // request was validated against — no round-trip through the UI needed.
+    let app_digest = snapshot.latest_digest.clone();
     let _ = crate::security::security_events::record(
         &state,
         None,
@@ -328,7 +331,7 @@ pub async fn post_apply_update_handler(
             }
         }
         if let Err(e) =
-            updater::apply_release(&state_for_task, target.clone(), channel, core_targets).await
+            updater::apply_release(&state_for_task, target.clone(), channel, core_targets, app_digest).await
         {
             tracing::error!(error = %e, "updater: manual install failed");
             let mut s = state_for_task.update_state.write().await;
@@ -365,6 +368,7 @@ mod tests {
             channel: updater::UpdateChannel::Alpha,
             current_version: "v1.0.0-alpha.1".into(),
             latest_version: "v1.0.0-alpha.2".into(),
+            latest_digest: None,
             update_available: true,
             last_check_at: None,
             last_check_succeeded: true,

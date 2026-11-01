@@ -18,6 +18,7 @@ import sys
 
 
 TAG_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+DIGEST_CHARS = set("0123456789abcdefABCDEF")
 
 
 def core_tag(name: str) -> str:
@@ -33,6 +34,23 @@ def core_tag(name: str) -> str:
     return tag
 
 
+def app_digest() -> str | None:
+    """The immutable image digest to pin this release to, or None when unset.
+
+    Optional: an unsigned release still falls back to the mutable tag. When
+    provided it must be `sha256:` + 64 hex characters, the form the registry
+    reports as `Digest:`.
+    """
+    digest = os.environ.get("DIGEST", "").strip()
+    if not digest:
+        return None
+    if len(digest) != len("sha256:") + 64 or not digest.startswith("sha256:"):
+        raise ValueError("DIGEST must be sha256: followed by 64 hex characters")
+    if any(char not in DIGEST_CHARS for char in digest[len("sha256:"):]):
+        raise ValueError("DIGEST must be sha256: followed by 64 hex characters")
+    return digest
+
+
 def main() -> int:
     version = os.environ.get("VERSION", "").strip()
     if not version:
@@ -45,6 +63,7 @@ def main() -> int:
     try:
         caddy_tag = core_tag("CADDY_TAG")
         dragonfly_tag = core_tag("DRAGONFLY_TAG")
+        digest = app_digest()
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
@@ -74,6 +93,8 @@ def main() -> int:
     doc["schema"] = 1
     entry["version"] = version
     entry["released_at"] = timestamp
+    if digest is not None:
+        entry["digest"] = digest
     entry["caddy"] = {"tag": caddy_tag, "released_at": timestamp}
     entry["dragonfly"] = {"tag": dragonfly_tag, "released_at": timestamp}
     if channel == "stable":
