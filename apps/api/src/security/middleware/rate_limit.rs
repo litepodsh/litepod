@@ -37,13 +37,15 @@ fn client_ip(request: &Request<Body>) -> IpAddr {
 /// address — unlimited brute force from one machine.
 ///
 /// The deployed topology is a reverse proxy on the same host or the same podman
-/// network (`podman-compose.yml` puts Caddy in front), so the peer address for a
-/// legitimately proxied request is always loopback or a private range. A request
-/// arriving straight from a public address is not coming through the proxy, and
-/// its header is not evidence of anything.
+/// network (`podman-compose.yml` puts Caddy in front). An application container
+/// also sits on a private address on that network, so "any private peer" would
+/// let a tenant forge the header — the proxy is therefore recognized by its
+/// resolved address (`proxy_peer`), not by the address range it happens to be
+/// in.
 ///
 /// `TRUSTED_PROXY_IPS` overrides this with a comma-separated list of exact peer
-/// addresses, for deployments whose proxy sits on a public address (a managed
+/// addresses, for deployments whose proxy sits on an address that is not the
+/// loopback, a link-local address, or the resolved Caddy address (a managed
 /// load balancer, say).
 fn peer_may_set_forwarded_for(peer: IpAddr) -> bool {
     if let Ok(list) = std::env::var("TRUSTED_PROXY_IPS") {
@@ -55,19 +57,53 @@ fn peer_may_set_forwarded_for(peer: IpAddr) -> bool {
                 .any(|allowed| allowed == peer);
         }
     }
-    match peer {
-        IpAddr::V4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
-        IpAddr::V6(ip) => {
-            ip.is_loopback()
-                // Unique local (fc00::/7) and link-local (fe80::/10).
-                || (ip.segments()[0] & 0xfe00) == 0xfc00
-                || (ip.segments()[0] & 0xffc0) == 0xfe80
-                // IPv4-mapped: judge by the address actually carried.
-                || ip
-                    .to_ipv4_mapped()
-                    .is_some_and(|v4| v4.is_loopback() || v4.is_private() || v4.is_link_local())
-        }
+    trusted_proxy_peer(peer, proxy_peer())
+}
+
+/// The control-plane reverse proxy's address on the shared network, resolved on
+/// demand and cached briefly. Caddy is the only host that may legitimately set
+/// `X-Forwarded-For`; an application container shares the private range, so the
+/// range itself is not trusted. The hostname is stable within a network
+/// lifetime, and a short TTL re-resolves it after Caddy is recreated (a core
+/// service update), when its address may change.
+fn proxy_peer() -> Option<IpAddr> {
+    use std::net::ToSocketAddrs;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static CADDY: Mutex<Option<(Instant, Option<IpAddr>)>> = Mutex::new(None);
+    const TTL: Duration = Duration::from_secs(60);
+
+    let mut cache = CADDY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((at, ip)) = *cache
+        && at.elapsed() < TTL
+    {
+        return ip;
     }
+    let ip = ("litepod-caddy", 80u16)
+        .to_socket_addrs()
+        .ok()
+        .and_then(|addrs| {
+            addrs
+                .map(|addr| addr.ip())
+                .find(|ip| matches!(ip, IpAddr::V4(v4) if !v4.is_loopback()))
+        });
+    *cache = Some((Instant::now(), ip));
+    ip
+}
+
+/// Pure trust decision for a peer, given the resolved proxy address. Loopback
+/// (a same-host proxy dialing a published port) and link-local (host-gateway)
+/// peers are always the proxy, never a tenant.
+fn trusted_proxy_peer(peer: IpAddr, proxy: Option<IpAddr>) -> bool {
+    match peer {
+        IpAddr::V4(ip) if ip.is_loopback() || ip.is_link_local() => return true,
+        // IPv6 loopback (`::1`) and link-local (`fe80::/10`).
+        IpAddr::V6(ip) if ip.is_loopback() || (ip.segments()[0] & 0xffc0) == 0xfe80 => {
+            return true;
+        }
+        _ => {}
+    }
+    proxy == Some(peer)
 }
 
 /// The address to attribute this request to, for rate limiting and login bans.
@@ -477,9 +513,12 @@ mod forwarded_for_tests {
     }
 
     #[test]
-    fn a_proxy_on_the_podman_network_is_believed() {
+    fn a_private_peer_is_not_believed_without_the_proxy() {
+        // An application container sits on the same private range as Caddy, so a
+        // private peer is no longer trusted unless it matches the resolved proxy
+        // address (unresolvable here, so the spoofed header is ignored).
         let ip = client_ip_from_parts(&headers_with("1.2.3.4"), peer("10.89.0.2"));
-        assert_eq!(ip.to_string(), "1.2.3.4");
+        assert_eq!(ip.to_string(), "10.89.0.2");
     }
 
     #[test]
@@ -498,5 +537,21 @@ mod forwarded_for_tests {
     fn no_header_means_the_peer() {
         let ip = client_ip_from_parts(&HeaderMap::new(), peer("198.51.100.7"));
         assert_eq!(ip.to_string(), "198.51.100.7");
+    }
+
+    #[test]
+    fn trusted_peer_is_loopback_link_local_or_the_resolved_proxy() {
+        // Loopback and link-local peers are always the proxy.
+        assert!(trusted_proxy_peer("127.0.0.1".parse().unwrap(), None));
+        assert!(trusted_proxy_peer("169.254.0.1".parse().unwrap(), None));
+        assert!(trusted_proxy_peer("::1".parse().unwrap(), None));
+        // A private or public peer is only trusted when it is the proxy itself.
+        assert!(!trusted_proxy_peer("10.89.0.2".parse().unwrap(), None));
+        assert!(!trusted_proxy_peer("203.0.113.9".parse().unwrap(), None));
+        assert!(
+            trusted_proxy_peer("10.89.0.2".parse().unwrap(), Some("10.89.0.2".parse().unwrap()))
+        );
+        // IPv6 unique-local (fc00::/7) is a tenant range, not the proxy.
+        assert!(!trusted_proxy_peer("fc00::1".parse().unwrap(), None));
     }
 }
