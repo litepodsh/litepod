@@ -1122,6 +1122,7 @@ update_failed = "No se pudo actualizar la configuración de dos pasos"
 [oauth]
 title = "Conectar a MCP"
 wants_access = "{client} quiere usar {organization} a través de MCP"
+unverified = "Esta aplicación eligió su propio nombre; litepod no lo verificó. Aprueba solo si la reconoces y si iniciaste esto tú."
 can_do = "Puede leer esta organización y arrancar o detener sus aplicaciones. Cualquier otro cambio se propone para que alguien lo confirme."
 redirect_note = "Volverás a {host}"
 remote_warning = "La conexión quedará guardada en la cuenta de {host} que inició esta solicitud. Aprueba solo si acabas de iniciarla tú. Si alguien te envió este enlace, deniégalo."
