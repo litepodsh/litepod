@@ -406,6 +406,7 @@ async fn create_with_origin_locked(
     let server_id = resolve_domain_server(state, application_id, request.server_id.clone()).await?;
     let effective_server_id =
         effective_domain_server(state, application_id, server_id.clone()).await?;
+    reject_reserved_host(state, &host).await?;
     validate_domain_for_application(state, &effective_server_id, &host).await?;
     reject_conflicting_public_host(state, &effective_server_id, &host, request.port, None).await?;
 
@@ -500,6 +501,7 @@ pub async fn update(
     };
     let effective_server_id =
         effective_domain_server(state, application_id, server_id.clone()).await?;
+    reject_reserved_host(state, &host).await?;
     validate_domain_for_application(state, &effective_server_id, &host).await?;
     reject_conflicting_public_host(state, &effective_server_id, &host, port, Some(domain_id))
         .await?;
