@@ -6,6 +6,7 @@
 //! `send_once` is the network half, shared by the worker and the "Test
 //! Notification" button.
 
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use crate::dtos::response::AppError;
@@ -36,11 +37,14 @@ pub enum SendOutcome {
 /// A dedicated client: redirects are disabled because following one would let
 /// an allowlisted host bounce us to an arbitrary internal address, undoing
 /// `url_guard`.
-fn client() -> Result<reqwest::Client, String> {
+fn client(host: &str, addrs: &[SocketAddr]) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent("litepod-notifications")
+        // Pin to the addresses `resolve_validated` already checked, so the POST
+        // cannot be rebound to an internal address between check and connect.
+        .resolve_to_addrs(host, addrs)
         .build()
         .map_err(|error| format!("http client init: {error}"))
 }
@@ -97,17 +101,20 @@ pub async fn send_once(
             return SendOutcome::Permanent(error);
         }
     }
-    if let Err(error) = url_guard::assert_public_host(&url).await {
-        tracing::warn!(
-            provider = kind.key(),
-            target = %target,
-            error = %error,
-            "notification blocked: destination is not a public address"
-        );
-        return SendOutcome::Permanent(error);
-    }
+    let addresses = match url_guard::resolve_validated(&url, false).await {
+        Ok(addresses) => addresses,
+        Err(error) => {
+            tracing::warn!(
+                provider = kind.key(),
+                target = %target,
+                error = %error,
+                "notification blocked: destination is not a public address"
+            );
+            return SendOutcome::Permanent(error);
+        }
+    };
 
-    let client = match client() {
+    let client = match client(&host, &addresses) {
         Ok(client) => client,
         Err(error) => return SendOutcome::Transient(error),
     };

@@ -14,7 +14,7 @@ use url::{Host, Url};
 
 use super::provider::ProviderKind;
 
-pub use crate::security::ssrf::assert_public_host;
+pub use crate::security::ssrf::resolve_validated;
 #[cfg(test)]
 use crate::security::ssrf::is_public;
 
