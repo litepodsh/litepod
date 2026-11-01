@@ -80,6 +80,18 @@ clean data="false":
     @if [ "{{data}}" = "true" ]; then echo "Removing api/data (local db + app state)..."; rm -rf api/data; fi
     @echo "Done."
 
+# Wipe ALL local state: stops compose and deletes its named volumes, build
+# artifacts, and everything the API generates under api/ (db, metrics, deployed
+# applications, generated compose files, assistant uploads). Irreversible, dev only.
+clean-all:
+    @echo "Stopping compose and removing its volumes..."
+    @podman compose -f podman-compose.yml down -v || true
+    @echo "Removing build artifacts..."
+    @rm -rf ui/node_modules ui/.svelte-kit api/target
+    @echo "Removing local api state (data, applications, compose, assistant_uploads)..."
+    @rm -rf api/data api/applications api/compose api/assistant_uploads
+    @echo "Done."
+
 # Clean everything and run dev again
 reload: clean dev
 
