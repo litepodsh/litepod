@@ -103,6 +103,43 @@ fn without_session(request: &Request) -> bool {
     !session_cookie
 }
 
+/// Every origin a browser request may legitimately come from: `CORS_ORIGINS`
+/// (fixed at container start from `PUBLIC_URL`) plus the active server domain.
+/// `CORS_ORIGINS` is fixed at container start from PUBLIC_URL; when the operator
+/// later sets a server domain in settings, requests arrive with that domain's
+/// Origin and would 403 — `public_base_url()` resolves the configured domain
+/// (falling back to PUBLIC_URL), so the active domain is always allowed without
+/// a redeploy.
+pub async fn allowed_origins(state: &SharedState) -> Vec<String> {
+    let mut allowed = cors_allowed_origins();
+    allowed.push(normalize_origin(
+        &crate::handler::settings::public_base_url(state).await,
+    ));
+    allowed
+}
+
+/// Whether a WebSocket upgrade's `Origin` is trustworthy. WebSocket upgrades
+/// arrive as GET, which `origin_guard` deliberately skips (GET is normally
+/// safe) — but a cross-site page can open a WebSocket to a terminal endpoint
+/// and ride the victim's session cookie, because WebSockets are not subject to
+/// CORS. Every terminal/console upgrade must call this before `on_upgrade`.
+///
+/// A missing `Origin` is a non-browser client (curl, a CLI) that carries no
+/// cookie and cannot be hijacked this way, so it is allowed.
+pub async fn websocket_origin_allowed(
+    state: &SharedState,
+    headers: &axum::http::HeaderMap,
+) -> bool {
+    let Some(origin) = headers
+        .get(axum::http::header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return true;
+    };
+    let origin = normalize_origin(origin);
+    allowed_origins(state).await.iter().any(|a| a == &origin)
+}
+
 pub async fn origin_guard(
     State(state): State<SharedState>,
     request: Request,
@@ -126,14 +163,7 @@ pub async fn origin_guard(
         return Ok(next.run(request).await);
     }
 
-    // CORS_ORIGINS is fixed at container start from PUBLIC_URL. When the operator later sets a
-    // server domain in settings, requests now arrive with that domain's Origin and would 403.
-    // public_base_url() resolves the configured domain (falling back to PUBLIC_URL), so the
-    // active domain is always allowed without a redeploy.
-    let mut allowed_origins = cors_allowed_origins();
-    allowed_origins.push(normalize_origin(
-        &crate::handler::settings::public_base_url(&state).await,
-    ));
+    let allowed_origins = allowed_origins(&state).await;
 
     let origin = request
         .headers()
@@ -321,6 +351,33 @@ mod tests {
         assert!(!is_mcp_path("/api/v1/organizations//mcp"));
         assert!(!is_mcp_path("/api/v1/organizations/org/projects/p/mcp"));
         assert!(!is_mcp_path("/api/v1/organizations/org/mcp/extra"));
+    }
+
+    #[tokio::test]
+    async fn websocket_origin_must_be_allowed_but_may_be_absent() {
+        let (state, path) = crate::testing::test_state().await;
+        let header = |value: Option<&str>| {
+            let mut headers = axum::http::HeaderMap::new();
+            if let Some(value) = value {
+                headers.insert(axum::http::header::ORIGIN, value.parse().unwrap());
+            }
+            headers
+        };
+        let allowed = cors_allowed_origins();
+        let first = allowed.first().expect("at least one allowed origin");
+        assert!(
+            websocket_origin_allowed(&state, &header(Some(first))).await,
+            "the configured UI origin must be allowed"
+        );
+        assert!(
+            !websocket_origin_allowed(&state, &header(Some("https://evil.example"))).await,
+            "a cross-site origin must be refused"
+        );
+        assert!(
+            websocket_origin_allowed(&state, &header(None)).await,
+            "a non-browser client sends no Origin and must not be blocked"
+        );
+        crate::testing::cleanup_database(&path);
     }
 
     #[test]

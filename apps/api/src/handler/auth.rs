@@ -22,7 +22,8 @@ use crate::dtos::response::{AppError, accepted, created, ok};
 use crate::git::repositories::user;
 use crate::security::middleware::auth::AuthUser;
 use crate::security::middleware::rate_limit::{
-    LOGIN_CAPTCHA_THRESHOLD, client_ip_from_parts, login_failed_attempts,
+    LOGIN_CAPTCHA_THRESHOLD, account_login_ban_remaining, clear_account_login, client_ip_from_parts,
+    login_failed_attempts, record_account_login_failure,
 };
 use crate::security::middleware::request_context::RequestContext;
 use crate::state::state::SharedState;
@@ -130,6 +131,21 @@ pub async fn registration_status_handler(
     }))
 }
 
+/// Constant-time comparison for the one-time setup token. Length mismatch and
+/// content mismatch both return false; the content compare is constant-time in
+/// the (fixed) token length, so a wrong guess leaks no timing signal.
+fn setup_token_matches(expected: &str, supplied: &str) -> bool {
+    let (a, b) = (expected.as_bytes(), supplied.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/auth/setup",
@@ -150,6 +166,16 @@ pub async fn setup_handler(
         return Err(AppError::ValidationError(
             "Passwords do not match".to_string(),
         ));
+    }
+    // A configured one-time token stops anyone on the network from claiming the
+    // first administrator before the operator does. Dev and legacy installs
+    // leave `SETUP_TOKEN` unset and keep the open flow.
+    let expected_token = std::env::var("SETUP_TOKEN").unwrap_or_default();
+    if !expected_token.is_empty() {
+        let supplied = req.setup_token.as_deref().unwrap_or_default();
+        if !setup_token_matches(&expected_token, supplied) {
+            return Err(AppError::SetupTokenInvalid);
+        }
     }
     let count = user::count_sysadmins(&state)
         .await
@@ -343,6 +369,23 @@ pub async fn login_handler(
     Json(req): Json<LoginRequest>,
 ) -> Result<(CookieJar, axum::response::Response), AppError> {
     let remote_ip = client_ip_from_parts(&headers, Some(connect_info));
+
+    // Per-account brute-force lock: refuse early if this account is temporarily
+    // banned, whatever IP it comes from. Keyed on the account, not the IP, so
+    // many users behind one shared address are never blocked for each other.
+    if let Some(retry_after) = account_login_ban_remaining(&state, &req.email).await {
+        let body = Json(LoginErrorResponse {
+            error: "Too many failed login attempts for this account, try again later".into(),
+            captcha_required: false,
+        });
+        let mut response = (StatusCode::TOO_MANY_REQUESTS, body).into_response();
+        response.headers_mut().insert(
+            axum::http::header::RETRY_AFTER,
+            axum::http::HeaderValue::from(retry_after),
+        );
+        return Ok((jar, response));
+    }
+
     let prior_failures = login_failed_attempts(&state, remote_ip).await;
     let captcha_required =
         crate::security::turnstile::required(state.is_cloud) && prior_failures >= LOGIN_CAPTCHA_THRESHOLD;
@@ -366,6 +409,9 @@ pub async fn login_handler(
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     match auth::login(&state, &req.email, &req.password, user_agent).await {
         Ok(auth::LoginOutcome::Authenticated(outcome)) => {
+            // Correct password: reset the account's failure counter so a shared
+            // machine's next user starts clean.
+            clear_account_login(&state, &req.email).await;
             let (resp, token) = *outcome;
             let actor = crate::security::middleware::auth::AuthUser {
                 user_id: resp.user.user_id.clone(),
@@ -397,15 +443,23 @@ pub async fn login_handler(
         }
         // Password accepted, second factor still owed. Deliberately no cookie on
         // this path — the jar goes back untouched.
-        Ok(auth::LoginOutcome::TotpRequired { challenge_token }) => Ok((
-            jar,
-            ok(TotpChallengeResponse {
-                totp_required: true,
-                challenge_token,
-            })
-            .into_response(),
-        )),
+        Ok(auth::LoginOutcome::TotpRequired { challenge_token }) => {
+            // First factor was correct, so the password is not being brute-forced:
+            // clear the account counter, same as a full login.
+            clear_account_login(&state, &req.email).await;
+            Ok((
+                jar,
+                ok(TotpChallengeResponse {
+                    totp_required: true,
+                    challenge_token,
+                })
+                .into_response(),
+            ))
+        }
         Err(AppError::InvalidCredentials) => {
+            // Count this failure against the account (not just the IP), so a
+            // brute force on one user locks that account across every address.
+            record_account_login_failure(&state, &req.email).await;
             // `login_ban_middleware` increments the same counter after this response lands,
             // so predict its post-increment value to tell the frontend whether the *next*
             // attempt needs the widget.
@@ -628,6 +682,15 @@ mod tests {
 
     use super::*;
     use crate::testing::cleanup_database;
+
+    #[test]
+    fn setup_token_compare_is_exact_and_constant_time() {
+        let token = "a".repeat(64);
+        assert!(setup_token_matches(&token, &token));
+        assert!(!setup_token_matches(&token, &"b".repeat(64)));
+        assert!(!setup_token_matches(&token, &token[..63]));
+        assert!(!setup_token_matches(&token, ""));
+    }
 
     #[tokio::test]
     async fn logout_of_an_sso_session_redirects_to_the_idp_or_sets_reauth() {

@@ -1519,6 +1519,15 @@ fn is_static_asset_path(path: &str) -> bool {
 
 pub(crate) async fn ui_fallback(req: Request<Body>) -> impl IntoResponse {
     let path = req.uri().path().to_string();
+    // Caddy terminates TLS and forwards the original scheme. HSTS is only sent
+    // for an https request, so a self-hosted install on plain http (or `just
+    // dev`) is never told to upgrade to a port it isn't serving. Browsers ignore
+    // an HSTS header received over http anyway; this keeps it off the wire there.
+    let is_https = req
+        .headers()
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|proto| proto.eq_ignore_ascii_case("https"));
     // API paths are never UI routes: an unknown one is a real 404, not the SPA
     // shell. On cloud this is how the absent SSO/SCIM routes answer (spec 3).
     if is_secret_probe_path(&path) || path.starts_with("/api/") || path.starts_with("/scim/") {
@@ -1556,10 +1565,26 @@ pub(crate) async fn ui_fallback(req: Request<Body>) -> impl IntoResponse {
         header::X_FRAME_OPTIONS,
         header::HeaderValue::from_static("DENY"),
     );
+    // `frame-ancestors` (clickjacking) plus two directives that harden without
+    // touching script/style loading: `base-uri` stops an injected <base> from
+    // repointing every relative URL, `object-src` kills plugin vectors.
+    //
+    // A strict `script-src` is deliberately NOT set here: the SvelteKit shell
+    // runs one inline hydration script whose content (and hash) changes every
+    // build, so locking it down needs build-time CSP hashes in the UI plus
+    // browser testing of Turnstile and the Monaco editor. Tracked separately.
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
-        header::HeaderValue::from_static("frame-ancestors 'none'"),
+        header::HeaderValue::from_static(
+            "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+        ),
     );
+    if is_https {
+        headers.insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            header::HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        );
+    }
     res
 }
 
@@ -1713,10 +1738,40 @@ mod tests {
             );
             assert_eq!(
                 response.headers()[axum::http::header::CONTENT_SECURITY_POLICY],
-                "frame-ancestors 'none'",
+                "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
                 "{uri}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn hsts_is_sent_only_for_https_requests() {
+        // Plain http (or `just dev`, no proxy): no HSTS, so an http-only install
+        // is never locked to a port it does not serve.
+        let plain = ui_fallback(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .into_response();
+        assert!(
+            !plain
+                .headers()
+                .contains_key(axum::http::header::STRICT_TRANSPORT_SECURITY),
+            "HSTS must not be sent over http"
+        );
+
+        // Behind Caddy's TLS: X-Forwarded-Proto: https → HSTS.
+        let secure = ui_fallback(
+            Request::builder()
+                .uri("/")
+                .header("x-forwarded-proto", "https")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .into_response();
+        assert_eq!(
+            secure.headers()[axum::http::header::STRICT_TRANSPORT_SECURITY],
+            "max-age=31536000; includeSubDomains"
+        );
     }
 
     /// `/docs` renders the full OpenAPI spec — every route, parameter and body

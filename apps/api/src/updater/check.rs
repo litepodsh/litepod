@@ -17,12 +17,19 @@ pub enum ManifestError {
     MissingCoreService(String),
     #[error("manifest publishes invalid {service} tag `{tag}`")]
     InvalidCoreTag { service: String, tag: String },
+    #[error("manifest publishes invalid {kind} digest `{digest}`")]
+    InvalidDigest { kind: String, digest: String },
 }
 
 /// A published version and its optional release metadata for one update channel.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChannelEntry {
     pub version: String,
+    /// Immutable image digest for this release (`sha256:…`). When present, the
+    /// updater pulls `repo@sha256:…` instead of the mutable `repo:version` tag,
+    /// so a re-pointed tag cannot substitute a different image.
+    #[serde(default)]
+    pub digest: Option<String>,
     #[serde(default)]
     pub caddy: Option<CoreServiceEntry>,
     #[serde(default)]
@@ -78,6 +85,7 @@ impl Manifest {
             if let Some(version) = &self.version {
                 return Ok(ChannelEntry {
                     version: version.clone(),
+                    digest: None,
                     caddy: None,
                     dragonfly: None,
                     released_at: self.released_at.clone(),
@@ -113,6 +121,32 @@ impl ChannelEntry {
             }
         }
         Ok(CoreServiceTargets { caddy, dragonfly })
+    }
+}
+
+/// Whether `digest` is an immutable image digest reference: `sha256:` followed
+/// by 64 hex characters, the form registries return as `Digest:`.
+pub fn is_valid_digest(digest: &str) -> bool {
+    let Some(hex) = digest.strip_prefix("sha256:") else {
+        return false;
+    };
+    hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+impl ChannelEntry {
+    /// The app image digest to pin this release to, or `None` when the channel
+    /// does not publish one (the mutable tag is used as a fallback). An invalid
+    /// digest is an error, not a silent fallback — refusing to update beats
+    /// trusting a re-pointable tag whose integrity field is unreadable.
+    pub fn app_digest(&self) -> Result<Option<String>, ManifestError> {
+        match &self.digest {
+            None => Ok(None),
+            Some(digest) if is_valid_digest(digest) => Ok(Some(digest.clone())),
+            Some(digest) => Err(ManifestError::InvalidDigest {
+                kind: "app image".into(),
+                digest: digest.clone(),
+            }),
+        }
     }
 }
 
@@ -345,5 +379,46 @@ mod tests {
         assert!(!is_valid_core_tag("latest"));
         assert!(!is_valid_core_tag("bad/tag"));
         assert!(is_valid_core_tag("2.11.4-alpine"));
+    }
+
+    #[test]
+    fn digest_pinning_resolves_and_rejects_bad_digests() {
+        let manifest: Manifest = serde_json::from_str(
+            r#"{"channels":{"stable":{"version":"v0.1.22","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}"#,
+        )
+        .unwrap();
+        let entry = manifest.channel(UpdateChannel::Stable).unwrap();
+        assert!(entry.app_digest().unwrap().is_some());
+
+        let manifest: Manifest = serde_json::from_str(
+            r#"{"channels":{"stable":{"version":"v0.1.22","digest":"not-a-digest"}}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            manifest.channel(UpdateChannel::Stable).unwrap().app_digest(),
+            Err(ManifestError::InvalidDigest { .. })
+        ));
+
+        let manifest: Manifest =
+            serde_json::from_str(r#"{"channels":{"stable":{"version":"v0.1.22"}}}"#).unwrap();
+        assert!(
+            manifest
+                .channel(UpdateChannel::Stable)
+                .unwrap()
+                .app_digest()
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn digest_format_accepts_only_sha256_hex() {
+        assert!(is_valid_digest(
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ));
+        assert!(!is_valid_digest("sha256:short"));
+        assert!(!is_valid_digest("sha512:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        assert!(!is_valid_digest("sha256:not-hex-not-hex-not-hex-not-hex-not-hex-not-hex-not-hex-not-hex"));
+        assert!(!is_valid_digest("v0.1.22"));
     }
 }

@@ -11,13 +11,15 @@ from pathlib import Path
 SCRIPT = Path(__file__).with_name("merge-version-manifest.py")
 
 
-def run_merge(current: dict, *, version: str, channel: str, caddy: str, dragonfly: str = "v1.39.0") -> dict:
+def run_merge(current: dict, *, version: str, channel: str, caddy: str, dragonfly: str = "v1.39.0", digest: str | None = None) -> dict:
     env = os.environ | {
         "VERSION": version,
         "CHANNEL": channel,
         "CADDY_TAG": caddy,
         "DRAGONFLY_TAG": dragonfly,
     }
+    if digest is not None:
+        env["DIGEST"] = digest
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
         input=json.dumps(current),
@@ -111,6 +113,26 @@ def test_rejects_missing_or_latest_core_tags() -> None:
         assert result.returncode == 1
 
 
+def test_publishes_a_valid_digest_and_rejects_a_bad_one() -> None:
+    digest = "sha256:" + "a" * 64
+    doc = run_merge({}, version="v0.1.22", channel="stable", caddy="2.11.4", digest=digest)
+    assert doc["channels"]["stable"]["digest"] == digest
+
+    # No digest env -> no digest key (falls back to the mutable tag).
+    doc = run_merge({}, version="v0.1.22", channel="stable", caddy="2.11.4")
+    assert "digest" not in doc["channels"]["stable"]
+
+    for bad in ("not-a-digest", "sha256:short", "sha256:" + "g" * 64, "v0.1.22"):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT)],
+            input="{}",
+            text=True,
+            capture_output=True,
+            env=os.environ | {"VERSION": "v0.1.22", "CHANNEL": "stable", "CADDY_TAG": "2.11.4", "DRAGONFLY_TAG": "v1.39.0", "DIGEST": bad},
+        )
+        assert result.returncode == 1, bad
+
+
 def main() -> int:
     tests = [
         test_stable_updates_root_mirror_without_touching_alpha,
@@ -119,6 +141,7 @@ def main() -> int:
         test_rejects_missing_or_invalid_channel,
         test_rejects_corrupt_or_non_object_current_manifest,
         test_rejects_missing_or_latest_core_tags,
+        test_publishes_a_valid_digest_and_rejects_a_bad_one,
     ]
     for test in tests:
         test()

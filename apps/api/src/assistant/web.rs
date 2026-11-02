@@ -58,15 +58,24 @@ fn is_text(content_type: &str) -> bool {
 
 pub async fn fetch(raw: &str) -> Result<Value, String> {
     let mut url = rewrite(crate::security::ssrf::parse_https_url(raw)?);
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(TIMEOUT)
-        .user_agent("litepod-assistant")
-        .build()
-        .map_err(|error| error.to_string())?;
 
     for _ in 0..=MAX_REDIRECTS {
-        let checked = crate::security::ssrf::validate_public_url(url.as_str()).await?;
+        // Shape-check this hop (https, no credentials, no literal IP), resolve
+        // its host once, and pin the client to exactly those addresses so a
+        // rebinding resolver cannot swap in an internal one for the request.
+        let checked = crate::security::ssrf::parse_https_url(url.as_str())?;
+        let host = checked
+            .host_str()
+            .ok_or("That address has no host")?
+            .to_string();
+        let addresses = crate::security::ssrf::resolve_validated(&checked, false).await?;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(TIMEOUT)
+            .user_agent("litepod-assistant")
+            .resolve_to_addrs(&host, &addresses)
+            .build()
+            .map_err(|error| error.to_string())?;
         let response = client
             .get(checked.as_str())
             .header(

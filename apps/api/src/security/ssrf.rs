@@ -9,7 +9,7 @@
 //! Host reachability is re-checked immediately before each request, because
 //! DNS answers can change after configuration is saved.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use url::{Host, Url};
 
@@ -125,17 +125,31 @@ pub async fn assert_public_host(url: &Url) -> Result<(), String> {
 /// Resolve URL host immediately before I/O. Private addresses are allowed only
 /// for explicitly configured self-hosted providers.
 pub async fn assert_host(url: &Url, allow_private: bool) -> Result<(), String> {
+    resolve_validated(url, allow_private).await.map(|_| ())
+}
+
+/// Resolve `url`'s host once, validate every address, and return them so the
+/// caller can **pin** the connection to exactly what was checked.
+///
+/// Validating and then letting the HTTP client re-resolve is a DNS-rebinding
+/// hole: an attacker's resolver can answer with a public address for this check
+/// and a private one microseconds later for the real request. Pinning the
+/// returned `SocketAddr`s on the client (reqwest's `resolve_to_addrs`) closes
+/// that window — the request can only reach an address this function approved.
+pub async fn resolve_validated(url: &Url, allow_private: bool) -> Result<Vec<SocketAddr>, String> {
     let host = url
         .host_str()
         .ok_or_else(|| "URL has no hostname".to_string())?;
     let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = tokio::net::lookup_host((host, port))
+    let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
         .await
-        .map_err(|error| format!("Could not resolve {host}: {error}"))?;
+        .map_err(|error| format!("Could not resolve {host}: {error}"))?
+        .collect();
 
-    let mut any = false;
-    for address in addresses {
-        any = true;
+    if addresses.is_empty() {
+        return Err(format!("{host} did not resolve to any address"));
+    }
+    for address in &addresses {
         if !allow_private && !is_public(address.ip()) {
             return Err(format!(
                 "{host} resolves to a non-public address ({}) and will not be contacted",
@@ -143,21 +157,44 @@ pub async fn assert_host(url: &Url, allow_private: bool) -> Result<(), String> {
             ));
         }
     }
-    if !any {
-        return Err(format!("{host} did not resolve to any address"));
-    }
-    Ok(())
+    Ok(addresses)
 }
 
 /// `IpAddr::is_global` is still unstable, so the ranges are spelled out.
 pub fn is_public(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => is_public_v4(v4),
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+        // A v6 address that carries a v4 inside it (mapped, NAT64, 6to4) is
+        // judged by that v4, so `169.254.169.254` can't slip through written as
+        // `64:ff9b::a9fe:a9fe` or `2002:a9fe:a9fe::`.
+        IpAddr::V6(v6) => match embedded_ipv4(v6) {
             Some(v4) => is_public_v4(v4),
             None => is_public_v6(v6),
         },
     }
+}
+
+/// The IPv4 address a transition mechanism carries inside an IPv6 one:
+/// IPv4-mapped (`::ffff:0:0/96`), the NAT64 well-known prefix (`64:ff9b::/96`)
+/// and 6to4 (`2002::/16`). `None` for a native IPv6 address.
+fn embedded_ipv4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+    if let Some(v4) = ip.to_ipv4_mapped() {
+        return Some(v4);
+    }
+    let segments = ip.segments();
+    let octets = ip.octets();
+    // NAT64 well-known prefix 64:ff9b::/96 — low 32 bits are the v4.
+    if segments[0] == 0x0064
+        && segments[1] == 0xff9b
+        && segments[2..6] == [0, 0, 0, 0]
+    {
+        return Some(Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]));
+    }
+    // 6to4 2002::/16 — the v4 sits in bits 16..48.
+    if segments[0] == 0x2002 {
+        return Some(Ipv4Addr::new(octets[2], octets[3], octets[4], octets[5]));
+    }
+    None
 }
 
 fn is_public_v4(ip: Ipv4Addr) -> bool {
@@ -240,8 +277,30 @@ mod tests {
             "169.254.169.254",
             "::1",
             "::ffff:127.0.0.1",
+            // NAT64 and 6to4 wrapping a private/link-local v4 must not pass.
+            "64:ff9b::a9fe:a9fe",   // 169.254.169.254 (cloud metadata)
+            "64:ff9b::7f00:1",      // 127.0.0.1
+            "2002:c0a8:1::1",       // 192.168.0.1
+            "2002:a9fe:a9fe::",     // 169.254.169.254
         ] {
-            assert!(!is_public(IpAddr::from_str(candidate).unwrap()));
+            assert!(
+                !is_public(IpAddr::from_str(candidate).unwrap()),
+                "treated {candidate} as public"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_transition_addresses_wrapping_a_public_v4() {
+        // A genuinely public v4 carried over NAT64/6to4 is still reachable.
+        for candidate in [
+            "64:ff9b::808:808", // 8.8.8.8
+            "2002:808:808::",   // 8.8.8.8
+        ] {
+            assert!(
+                is_public(IpAddr::from_str(candidate).unwrap()),
+                "treated {candidate} as private"
+            );
         }
     }
 

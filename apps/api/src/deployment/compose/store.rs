@@ -105,13 +105,20 @@ impl ComposeFileStore {
     }
 
     /// Refuses content whose service names would shadow a control-plane container
-    /// on the shared network. This is the single chokepoint every writer goes
-    /// through - the Compose editor and all internal templates - so a reserved
-    /// name can never be persisted, let alone deployed.
+    /// on the shared network, and content whose mounts are host paths, binds or
+    /// anonymous volumes (which rootless Podman cannot write and which would let a
+    /// tenant reach the host's files or the Podman socket). This is the single
+    /// chokepoint every writer goes through - the Compose editor, the assistant
+    /// and all internal templates - so an unsafe file can never be persisted, let
+    /// alone deployed.
     pub async fn write_content(&self, content: &str) -> Result<(), String> {
         let reserved = super::reserved_services_in_compose(content);
         if !reserved.is_empty() {
             return Err(super::reserved_service_message(&reserved));
+        }
+        let mounts = super::unnamed_mounts_in_compose(content);
+        if !mounts.is_empty() {
+            return Err(super::unnamed_mounts_message(&mounts));
         }
         let dir = self.base_dir();
         tokio::fs::create_dir_all(&dir)

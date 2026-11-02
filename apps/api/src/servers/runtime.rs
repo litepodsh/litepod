@@ -782,6 +782,11 @@ impl ServerRuntime {
                 AppError::InternalError(format!("Could not create deployment archive: {error}"))
             })?;
             let mut builder = tar::Builder::new(file);
+            // Never resolve symlinks: tar's default would read the *target* file
+            // and copy its bytes into the archive, so a repo symlink to a control
+            // plane path (the DB, /etc/litepod-stack/.env) would leak that file to
+            // the deployment server. Archive the link itself instead.
+            builder.follow_symlinks(false);
             builder
                 .append_dir_all(&archive_directory, &source)
                 .map_err(|error| {

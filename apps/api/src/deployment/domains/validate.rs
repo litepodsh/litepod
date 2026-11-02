@@ -136,6 +136,33 @@ pub fn validate_domain_for_ingress(ingress_mode: IngressMode, host: &str) -> Res
 /// of one service can legitimately hold two rows with the same host and
 /// different ports. Reject that before the row is written.
 ///
+/// Refuses a host that routes to Litepod's own control plane (the panel/API).
+///
+/// An application's maintenance site is served from whatever `Host` the visitor
+/// sends (`handler::maintenance_site`), so if a tenant could register the panel
+/// host as their domain, their uploaded HTML+JS would be served from the panel's
+/// own origin and could act on a signed-in admin's session. The panel host is
+/// the active server domain, or `PUBLIC_URL` when none is set; both are checked
+/// so a tenant cannot claim whichever one is not currently active.
+pub(super) async fn reject_reserved_host(state: &SharedState, host: &str) -> Result<(), AppError> {
+    let host = host.trim().to_ascii_lowercase();
+    let bases = [
+        crate::handler::settings::public_base_url(state).await,
+        state.public_url.clone(),
+    ];
+    let reserved = bases
+        .iter()
+        .filter_map(|base| url::Url::parse(base).ok())
+        .filter_map(|url| url.host_str().map(str::to_ascii_lowercase))
+        .any(|reserved_host| reserved_host == host);
+    if reserved {
+        return Err(AppError::ValidationError(
+            "This hostname is reserved by Litepod's control plane and cannot be used for an application".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// An exact `(host, port)` duplicate is left to the unique index, which reports
 /// it as a 409 conflict; this guard only fires for a *different* port.
 pub(super) async fn reject_conflicting_public_host(

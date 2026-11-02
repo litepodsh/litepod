@@ -88,6 +88,9 @@
 				<p class="text-balance text-center text-sm font-medium">
 					{t('organizations.oauth.wants_access', { client: clientName, organization: organizationName })}
 				</p>
+				<p class="text-muted-foreground border-border text-balance rounded-md border border-dashed px-3 py-2 text-center text-xs" role="note">
+					{t('organizations.oauth.unverified')}
+				</p>
 				<p class="text-muted-foreground text-center text-sm">{t('organizations.oauth.can_do')}</p>
 				<p class="text-muted-foreground text-center text-xs">
 					{t('organizations.oauth.redirect_note', { host: redirectHost })}

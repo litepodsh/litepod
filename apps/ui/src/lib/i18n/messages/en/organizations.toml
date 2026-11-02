@@ -1122,6 +1122,7 @@ update_failed = "Failed to update the two-factor setting"
 [oauth]
 title = "Connect to MCP"
 wants_access = "{client} wants to use {organization} through MCP"
+unverified = "This app chose its own name; litepod has not verified it. Approve only if you recognize it and started this yourself."
 can_do = "It can read this organization and start or stop its applications. Every other change is proposed for someone to confirm."
 redirect_note = "You will be sent back to {host}"
 remote_warning = "The connection will be saved in the {host} account that started this request. Approve only if you just started it yourself. If someone sent you this link, deny it."

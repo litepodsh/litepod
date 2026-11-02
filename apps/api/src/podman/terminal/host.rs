@@ -140,8 +140,16 @@ pub async fn handler(
     RequireOrg(org, _): RequireOrg<perm::ServerTerminal>,
     Path((_organization_id, server_id)): Path<(String, String)>,
     Query(query): Query<HostTerminalQuery>,
+    headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<axum::response::Response, AppError> {
+    // A cross-site page can open this WebSocket and ride the admin's session
+    // cookie (WebSockets are not CORS-gated), so the Origin must be one of the
+    // allowed UI origins before any shell is prepared.
+    if !crate::security::middleware::csrf::websocket_origin_allowed(&state, &headers).await {
+        tracing::warn!(server = %server_id, "terminal: rejected cross-origin WebSocket upgrade");
+        return Err(AppError::InsufficientPermissions);
+    }
     let server = repository::get_for_server_route(&state, &server_id, &org.organization_id)
         .await?
         .ok_or(AppError::ResourceNotFound)?;

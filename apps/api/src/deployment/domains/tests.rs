@@ -245,6 +245,54 @@ async fn first_domain_becomes_primary_and_later_ones_do_not() {
 }
 
 #[tokio::test]
+async fn the_control_plane_host_cannot_be_claimed_as_an_application_domain() {
+    let (state, path) = test_state(false).await;
+    // Make the panel reachable at a known host, the way an operator's configured
+    // server domain would. `public_base_url` reads this row.
+    sqlx::query(
+        "INSERT INTO server_domain_settings (id, domain, email, https, updated_at) VALUES (1, 'panel.example.com', 'a@b.test', 1, 1)",
+    )
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let refused = create(
+        &state,
+        "application-1",
+        CreateDomainRequest {
+            server_id: None,
+            certificate: Default::default(),
+            host: "PANEL.example.com".into(), // case must not matter
+            port: 80,
+            https: None,
+            is_primary: None,
+        },
+    )
+    .await;
+    assert!(
+        matches!(refused, Err(AppError::ValidationError(ref message)) if message.contains("reserved")),
+        "claiming the panel host must be refused, got {refused:?}",
+    );
+
+    // A different host on the same install is still fine.
+    create(
+        &state,
+        "application-1",
+        CreateDomainRequest {
+            server_id: None,
+            certificate: Default::default(),
+            host: "app.example.com".into(),
+            port: 80,
+            https: None,
+            is_primary: None,
+        },
+    )
+    .await
+    .unwrap();
+    cleanup(path);
+}
+
+#[tokio::test]
 async fn group_targeted_application_requires_a_domain_pin() {
     let (state, path) = test_state(false).await;
     let conn = &state.db;

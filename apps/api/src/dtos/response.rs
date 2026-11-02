@@ -55,6 +55,9 @@ pub enum AppError {
     /// The organization requires two-factor authentication and this account has
     /// none. Account routes stay open so it can be set up.
     TwoFactorRequired,
+    /// Initial setup carries the wrong (or no) install token, so the first
+    /// administrator cannot be claimed by just anyone who reaches the endpoint.
+    SetupTokenInvalid,
 }
 
 /// Machine-readable marker the UI keys on to send the user to 2FA setup.
@@ -106,6 +109,7 @@ impl std::fmt::Display for AppError {
             AppError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
             AppError::InternalError(msg) => write!(f, "Internal error: {}", msg),
             AppError::TurnstileFailed => write!(f, "Captcha verification failed"),
+            AppError::SetupTokenInvalid => write!(f, "Invalid setup token"),
         }
     }
 }
@@ -146,6 +150,7 @@ impl IntoResponse for AppError {
             AppError::TurnstileFailed => StatusCode::FORBIDDEN,
             AppError::SsoRequired => StatusCode::FORBIDDEN,
             AppError::TwoFactorRequired => StatusCode::FORBIDDEN,
+            AppError::SetupTokenInvalid => StatusCode::FORBIDDEN,
         };
 
         if status == StatusCode::INTERNAL_SERVER_ERROR {

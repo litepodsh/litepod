@@ -149,6 +149,49 @@ pub fn unnamed_mounts_message(mounts: &[String]) -> String {
     )
 }
 
+/// Every service name that sets `privileged: true`. A privileged container on
+/// the shared `local` server gains every capability and device inside the
+/// runtime, so only the instance SysAdmin may deploy one; an Editor in any
+/// organization must be refused before the file is persisted.
+pub fn privileged_services_in_compose(content: &str) -> Vec<String> {
+    let Ok(document) = serde_yaml::from_str::<serde_yaml::Value>(content) else {
+        return Vec::new();
+    };
+    let Some(services) = document
+        .get("services")
+        .and_then(serde_yaml::Value::as_mapping)
+    else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for (name, service) in services {
+        let Some(name) = name.as_str() else {
+            continue;
+        };
+        let privileged = service
+            .get("privileged")
+            .and_then(serde_yaml::Value::as_bool)
+            .unwrap_or(false);
+        if privileged {
+            found.push(name.to_owned());
+        }
+    }
+    found
+}
+
+/// User-facing explanation for `services`, which must not be empty.
+pub fn privileged_services_message(services: &[String]) -> String {
+    let names = services
+        .iter()
+        .map(|name| format!("'{name}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "Privileged containers are refused on the shared server: {names}. \
+         Remove `privileged: true` from the service."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +245,22 @@ mod tests {
     #[test]
     fn ignores_an_unparseable_file() {
         assert!(reserved_services_in_compose(": : :").is_empty());
+    }
+
+    #[test]
+    fn flags_privileged_services() {
+        let content = "services:\n  web:\n    image: x\n    privileged: true\n  db:\n    image: y\n";
+        assert_eq!(privileged_services_in_compose(content), vec!["web"]);
+        assert_eq!(privileged_services_in_compose("services:\n  web:\n    image: x\n"), Vec::<String>::new());
+        // A `privileged: false` and a string `"true"` (not a YAML bool) are ignored.
+        let content = "services:\n  web:\n    image: x\n    privileged: false\n  db:\n    image: y\n    privileged: \"true\"\n";
+        assert_eq!(privileged_services_in_compose(content), Vec::<String>::new());
+    }
+
+    #[test]
+    fn privileged_message_names_every_service() {
+        let message = privileged_services_message(&["web".into(), "db".into()]);
+        assert!(message.contains("'web'"), "{message}");
+        assert!(message.contains("'db'"), "{message}");
     }
 }

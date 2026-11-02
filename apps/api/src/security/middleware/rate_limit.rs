@@ -37,13 +37,15 @@ fn client_ip(request: &Request<Body>) -> IpAddr {
 /// address — unlimited brute force from one machine.
 ///
 /// The deployed topology is a reverse proxy on the same host or the same podman
-/// network (`podman-compose.yml` puts Caddy in front), so the peer address for a
-/// legitimately proxied request is always loopback or a private range. A request
-/// arriving straight from a public address is not coming through the proxy, and
-/// its header is not evidence of anything.
+/// network (`podman-compose.yml` puts Caddy in front). An application container
+/// also sits on a private address on that network, so "any private peer" would
+/// let a tenant forge the header — the proxy is therefore recognized by its
+/// resolved address (`proxy_peer`), not by the address range it happens to be
+/// in.
 ///
 /// `TRUSTED_PROXY_IPS` overrides this with a comma-separated list of exact peer
-/// addresses, for deployments whose proxy sits on a public address (a managed
+/// addresses, for deployments whose proxy sits on an address that is not the
+/// loopback, a link-local address, or the resolved Caddy address (a managed
 /// load balancer, say).
 fn peer_may_set_forwarded_for(peer: IpAddr) -> bool {
     if let Ok(list) = std::env::var("TRUSTED_PROXY_IPS") {
@@ -55,19 +57,53 @@ fn peer_may_set_forwarded_for(peer: IpAddr) -> bool {
                 .any(|allowed| allowed == peer);
         }
     }
-    match peer {
-        IpAddr::V4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
-        IpAddr::V6(ip) => {
-            ip.is_loopback()
-                // Unique local (fc00::/7) and link-local (fe80::/10).
-                || (ip.segments()[0] & 0xfe00) == 0xfc00
-                || (ip.segments()[0] & 0xffc0) == 0xfe80
-                // IPv4-mapped: judge by the address actually carried.
-                || ip
-                    .to_ipv4_mapped()
-                    .is_some_and(|v4| v4.is_loopback() || v4.is_private() || v4.is_link_local())
-        }
+    trusted_proxy_peer(peer, proxy_peer())
+}
+
+/// The control-plane reverse proxy's address on the shared network, resolved on
+/// demand and cached briefly. Caddy is the only host that may legitimately set
+/// `X-Forwarded-For`; an application container shares the private range, so the
+/// range itself is not trusted. The hostname is stable within a network
+/// lifetime, and a short TTL re-resolves it after Caddy is recreated (a core
+/// service update), when its address may change.
+fn proxy_peer() -> Option<IpAddr> {
+    use std::net::ToSocketAddrs;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static CADDY: Mutex<Option<(Instant, Option<IpAddr>)>> = Mutex::new(None);
+    const TTL: Duration = Duration::from_secs(60);
+
+    let mut cache = CADDY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((at, ip)) = *cache
+        && at.elapsed() < TTL
+    {
+        return ip;
     }
+    let ip = ("litepod-caddy", 80u16)
+        .to_socket_addrs()
+        .ok()
+        .and_then(|addrs| {
+            addrs
+                .map(|addr| addr.ip())
+                .find(|ip| matches!(ip, IpAddr::V4(v4) if !v4.is_loopback()))
+        });
+    *cache = Some((Instant::now(), ip));
+    ip
+}
+
+/// Pure trust decision for a peer, given the resolved proxy address. Loopback
+/// (a same-host proxy dialing a published port) and link-local (host-gateway)
+/// peers are always the proxy, never a tenant.
+fn trusted_proxy_peer(peer: IpAddr, proxy: Option<IpAddr>) -> bool {
+    match peer {
+        IpAddr::V4(ip) if ip.is_loopback() || ip.is_link_local() => return true,
+        // IPv6 loopback (`::1`) and link-local (`fe80::/10`).
+        IpAddr::V6(ip) if ip.is_loopback() || (ip.segments()[0] & 0xffc0) == 0xfe80 => {
+            return true;
+        }
+        _ => {}
+    }
+    proxy == Some(peer)
 }
 
 /// The address to attribute this request to, for rate limiting and login bans.
@@ -311,7 +347,9 @@ pub async fn login_ban_middleware(
                 .ephemeral
                 .record_login_failure(
                     &remote_key,
-                    config.auth_max_attempts,
+                    config
+                        .auth_max_attempts
+                        .saturating_mul(IP_BAN_ATTEMPT_MULTIPLIER),
                     (config.auth_ban_minutes.max(1) as u64) * 60,
                 )
                 .await
@@ -329,7 +367,10 @@ pub async fn login_ban_middleware(
     if !guard.config.enabled {
         return response;
     }
-    let max_attempts = guard.config.auth_max_attempts;
+    let max_attempts = guard
+        .config
+        .auth_max_attempts
+        .saturating_mul(IP_BAN_ATTEMPT_MULTIPLIER);
     let ban_minutes = guard.config.auth_ban_minutes;
     let entry = guard.login_attempts.entry(ip).or_default();
     if response.status() == StatusCode::OK {
@@ -342,6 +383,59 @@ pub async fn login_ban_middleware(
         }
     }
     response
+}
+
+/// The per-IP ban is a backstop, not the primary control: the per-account ban
+/// (`account_login_*`) locks a brute-forced account across every IP. So the IP
+/// ban only trips on mass flooding — this many times the per-account threshold
+/// of total failures from one address — which keeps a shared office/NAT IP from
+/// being blocked by normal, scattered mistyped passwords.
+const IP_BAN_ATTEMPT_MULTIPLIER: u32 = 10;
+
+/// Per-account login key, digested so a raw email never becomes a store key.
+/// Normalized (trim + lowercase) so the counter follows the account, not the
+/// exact casing typed.
+pub(crate) fn account_login_key(email: &str) -> String {
+    let digest = crate::utils::security::digest_token(&email.trim().to_ascii_lowercase());
+    format!("litepod:login-account:{digest}")
+}
+
+/// Seconds left on an account's login ban, or `None` when it is not banned — or
+/// the store is unreachable, in which case this **fails open**: the per-IP
+/// layers still apply, and refusing every login during a Dragonfly blip would be
+/// worse than briefly losing the per-account lock.
+pub(crate) async fn account_login_ban_remaining(state: &SharedState, email: &str) -> Option<u64> {
+    state
+        .ephemeral
+        .remaining_ttl(&format!("{}:ban", account_login_key(email)))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Records one failed attempt against the account and bans it past the
+/// configured threshold. Best-effort; honours the global rate-limit toggle.
+pub(crate) async fn record_account_login_failure(state: &SharedState, email: &str) {
+    let config = state.rate_limiter.read().await.config;
+    if !config.enabled {
+        return;
+    }
+    let _ = state
+        .ephemeral
+        .record_login_failure(
+            &account_login_key(email),
+            config.auth_max_attempts,
+            (config.auth_ban_minutes.max(1) as u64) * 60,
+        )
+        .await;
+}
+
+/// Clears an account's failure counter and ban. Called on a correct password so
+/// the next person to use a shared machine starts clean.
+pub(crate) async fn clear_account_login(state: &SharedState, email: &str) {
+    let key = account_login_key(email);
+    let _ = state.ephemeral.delete(&format!("{key}:failures")).await;
+    let _ = state.ephemeral.delete(&format!("{key}:ban")).await;
 }
 
 /// Failed logins at or above this count (same IP, tracked by `login_ban_middleware`) require
@@ -373,6 +467,29 @@ pub(crate) async fn login_failed_attempts(state: &SharedState, ip: IpAddr) -> u3
 }
 
 #[cfg(test)]
+mod account_key_tests {
+    use super::account_login_key;
+
+    #[test]
+    fn account_key_is_normalized_and_does_not_leak_the_email() {
+        // Same account regardless of casing or surrounding whitespace.
+        assert_eq!(
+            account_login_key("  User@Example.com "),
+            account_login_key("user@example.com")
+        );
+        // Different accounts get different keys.
+        assert_ne!(
+            account_login_key("a@example.com"),
+            account_login_key("b@example.com")
+        );
+        // The raw address never appears in the store key (it is digested).
+        let key = account_login_key("victim@example.com");
+        assert!(key.starts_with("litepod:login-account:"));
+        assert!(!key.contains("victim@example.com"), "email leaked into key: {key}");
+    }
+}
+
+#[cfg(test)]
 mod forwarded_for_tests {
     use super::*;
     use axum::http::HeaderMap;
@@ -396,9 +513,12 @@ mod forwarded_for_tests {
     }
 
     #[test]
-    fn a_proxy_on_the_podman_network_is_believed() {
+    fn a_private_peer_is_not_believed_without_the_proxy() {
+        // An application container sits on the same private range as Caddy, so a
+        // private peer is no longer trusted unless it matches the resolved proxy
+        // address (unresolvable here, so the spoofed header is ignored).
         let ip = client_ip_from_parts(&headers_with("1.2.3.4"), peer("10.89.0.2"));
-        assert_eq!(ip.to_string(), "1.2.3.4");
+        assert_eq!(ip.to_string(), "10.89.0.2");
     }
 
     #[test]
@@ -417,5 +537,21 @@ mod forwarded_for_tests {
     fn no_header_means_the_peer() {
         let ip = client_ip_from_parts(&HeaderMap::new(), peer("198.51.100.7"));
         assert_eq!(ip.to_string(), "198.51.100.7");
+    }
+
+    #[test]
+    fn trusted_peer_is_loopback_link_local_or_the_resolved_proxy() {
+        // Loopback and link-local peers are always the proxy.
+        assert!(trusted_proxy_peer("127.0.0.1".parse().unwrap(), None));
+        assert!(trusted_proxy_peer("169.254.0.1".parse().unwrap(), None));
+        assert!(trusted_proxy_peer("::1".parse().unwrap(), None));
+        // A private or public peer is only trusted when it is the proxy itself.
+        assert!(!trusted_proxy_peer("10.89.0.2".parse().unwrap(), None));
+        assert!(!trusted_proxy_peer("203.0.113.9".parse().unwrap(), None));
+        assert!(
+            trusted_proxy_peer("10.89.0.2".parse().unwrap(), Some("10.89.0.2".parse().unwrap()))
+        );
+        // IPv6 unique-local (fc00::/7) is a tenant range, not the proxy.
+        assert!(!trusted_proxy_peer("fc00::1".parse().unwrap(), None));
     }
 }
