@@ -128,7 +128,16 @@ pub async fn registration_status_handler(
         public_registration_open: state.is_cloud || setup_required,
         is_cloud: state.is_cloud,
         captcha_required: crate::security::turnstile::required(state.is_cloud),
+        // Cloud sign-ups go through /register, which never asks for it.
+        setup_token_required: !state.is_cloud && configured_setup_token().is_some(),
     }))
+}
+
+/// The install's one-time token. Dev and legacy installs have none.
+fn configured_setup_token() -> Option<String> {
+    std::env::var("SETUP_TOKEN")
+        .ok()
+        .filter(|token| !token.is_empty())
 }
 
 /// Constant-time comparison for the one-time setup token. Length mismatch and
@@ -168,10 +177,8 @@ pub async fn setup_handler(
         ));
     }
     // A configured one-time token stops anyone on the network from claiming the
-    // first administrator before the operator does. Dev and legacy installs
-    // leave `SETUP_TOKEN` unset and keep the open flow.
-    let expected_token = std::env::var("SETUP_TOKEN").unwrap_or_default();
-    if !expected_token.is_empty() {
+    // first administrator before the operator does.
+    if let Some(expected_token) = configured_setup_token() {
         let supplied = req.setup_token.as_deref().unwrap_or_default();
         if !setup_token_matches(&expected_token, supplied) {
             return Err(AppError::SetupTokenInvalid);

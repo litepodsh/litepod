@@ -12,6 +12,8 @@ export type RegistrationStatusResponse = {
 	is_cloud: boolean;
 	/** Registration shows the Turnstile widget (cloud, release builds). */
 	captcha_required: boolean;
+	/** The first administrator needs the token the installer printed. */
+	setup_token_required: boolean;
 };
 
 export type AuthResponse = {

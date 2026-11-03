@@ -127,7 +127,7 @@
 					goto('/home');
 				}
 			} else {
-				await setup(name, email, password, confirmPassword, setupToken || undefined);
+				await setup(name, email, password, confirmPassword, setupToken.trim() || undefined);
 				toast.success(t('auth.register.administrator_created'));
 				goto('/home');
 			}
@@ -229,17 +229,18 @@
 									autocomplete="new-password"
 									disabled={loading}
 									bind:value={confirmPassword} /></Field>
-							{#if !inviteToken && !registrationStatus?.is_cloud}
+							{#if !inviteToken && registrationStatus?.setup_token_required}
 								<Field
-									><FieldLabel for="setup-token-{id}"
-										>{t('auth.register.setup_token')}</FieldLabel
+									><FieldLabel for="setup-token-{id}">{t('auth.register.setup_token')}</FieldLabel
 									><Input
 										id="setup-token-{id}"
 										type="password"
 										autocomplete="off"
-										placeholder={t('auth.register.setup_token_hint')}
+										required
 										disabled={loading}
-										bind:value={setupToken} /></Field>
+										bind:value={setupToken} /><FieldDescription
+										>{t('auth.register.setup_token_hint')}</FieldDescription
+									></Field>
 							{/if}
 							{#if termsRequired}
 								<Field orientation="horizontal">

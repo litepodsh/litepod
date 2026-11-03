@@ -8,6 +8,7 @@ describe('cloud registration helpers', () => {
 		public_registration_open: true,
 		is_cloud: true,
 		captcha_required: true,
+		setup_token_required: false,
 	};
 
 	it('keeps cloud public registration open after first setup', () => {
