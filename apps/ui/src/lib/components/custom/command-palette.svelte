@@ -199,12 +199,12 @@
 			},
 			{
 				title: t('menu.navigation.git_providers'),
-				url: `${base}?tab=git-providers`,
+				url: `${base}/integrations?tab=git-providers`,
 				icon: GitBranchIcon,
 			},
 			{
 				title: t('menu.navigation.notifications'),
-				url: `${base}?tab=notifications`,
+				url: `${base}/integrations?tab=notifications`,
 				icon: BellIcon,
 			},
 		];

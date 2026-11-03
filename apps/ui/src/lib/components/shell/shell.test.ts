@@ -73,7 +73,7 @@ it('org tabs are links and the current section is selected', () => {
 	url.current = new URL('http://x/organizations/o1/servers');
 	const { getAllByRole } = render(ScopeTabs, { organizationId: 'o1' });
 	const tabs = getAllByRole('tab');
-	expect(tabs).toHaveLength(9);
+	expect(tabs).toHaveLength(10);
 	const selected = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true')!;
 	expect(selected.getAttribute('href')).toBe('/organizations/o1/servers');
 });

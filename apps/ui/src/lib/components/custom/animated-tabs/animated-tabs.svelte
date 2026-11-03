@@ -13,12 +13,15 @@
 		value = $bindable(),
 		onValueChange,
 		class: className,
+		shortcuts = true,
 		...restProps
 	}: {
 		items: Item[];
 		value: string;
 		onValueChange?: (value: string) => void;
 		class?: string;
+		/** Show the Ctrl/Cmd+digit hint; off when the page gives those keys to another row. */
+		shortcuts?: boolean;
 	} & Omit<TabsPrimitive.RootProps, 'value' | 'onValueChange' | 'children'> = $props();
 
 	let listEl = $state<HTMLElement | null>(null);
@@ -120,7 +123,7 @@
 			class="bg-background dark:bg-input/30 absolute inset-y-1 rounded-full shadow-sm transition-[left,width] duration-300 ease-[var(--lp-ease)]"
 			style={indicatorStyle}></span>
 		{#each items as item, index (item.value)}
-			{@const shortcutHint = item.disabled ? undefined : tabShortcutDigit(index)}
+			{@const shortcutHint = item.disabled || !shortcuts ? undefined : tabShortcutDigit(index)}
 			{@const tooltipText = item.disabled
 				? (item.disabledTooltip ?? 'This tab is currently unavailable.')
 				: undefined}
