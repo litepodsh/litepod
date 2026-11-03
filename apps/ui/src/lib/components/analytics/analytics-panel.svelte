@@ -7,18 +7,24 @@
 	import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import AnalyticsDashboard from './analytics-dashboard.svelte';
+	import EndpointSheet from './endpoint-sheet.svelte';
+	import { clientLabel } from './client-label';
 	import RecentVisitors from './recent-visitors.svelte';
 	import VisitorMap from './visitor-map.svelte';
 	import CellChart from '#lib/components/custom/cell-chart.svelte';
 	import SegmentedSwitch from '#lib/components/custom/segmented-switch.svelte';
 	import KpiCard from '#lib/components/home/kpi-card.svelte';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import {
 		ANALYTICS_RANGES,
 		compactNumber,
+		endpointPath,
 		formatLatency,
 		type Analytics,
 		type AnalyticsRange,
+		type PathAnalytics,
 	} from '#lib/clients/analytics-client.js';
 	import { formatBytes } from '#lib/clients/container-metrics-client.js';
 	import type { OrganizationApp } from '#lib/utils/organization-apps.js';
@@ -28,11 +34,13 @@
 	/** The whole Analytics view: range, four headline numbers, one chart, short ranked lists. */
 	let {
 		load,
+		loadPath,
 		apps,
 		title,
 		description,
 	}: {
 		load: (range: AnalyticsRange) => Promise<Analytics>;
+		loadPath: (path: string, range: AnalyticsRange) => Promise<PathAnalytics>;
 		/** Organization view: names and links for the "Busiest apps" list. Omit for one app. */
 		apps?: OrganizationApp[];
 		/** Page heading; omit inside an app tab. */
@@ -63,6 +71,9 @@
 	let error = $state('');
 	/** Alpha-2 picked on the map; narrows the visitors list. */
 	let country = $state<string | null>(null);
+	/** Endpoint open in the detail sheet. */
+	let endpoint = $state<string | null>(null);
+	let endpointQuery = $state('');
 
 	$effect(() => {
 		const selected = range;
@@ -81,7 +92,14 @@
 		return () => (cancelled = true);
 	});
 
-	type Row = { key: string; label: string; href?: string; value: number; tone?: StatusTone };
+	type Row = {
+		key: string;
+		label: string;
+		href?: string;
+		onselect?: () => void;
+		value: number;
+		tone?: StatusTone;
+	};
 
 	let totals = $derived(data?.totals);
 	let empty = $derived(!!data && data.totals.requests === 0);
@@ -119,9 +137,12 @@
 		out.push({
 			title: t('analytics.panel.top_pages'),
 			mono: true,
-			rows: data.paths
-				.slice(0, 6)
-				.map((entry) => ({ key: entry.key, label: entry.key, value: entry.requests })),
+			rows: data.paths.slice(0, 6).map((entry) => ({
+				key: entry.key,
+				label: entry.key,
+				value: entry.requests,
+				onselect: () => (endpoint = entry.key),
+			})),
 		});
 		out.push({
 			title: t('analytics.panel.top_referrers'),
@@ -175,19 +196,6 @@
 		});
 		return out;
 	});
-
-	const BROWSERS: Record<string, string> = {
-		chrome: 'Chrome',
-		safari: 'Safari',
-		firefox: 'Firefox',
-		edge: 'Edge',
-		opera: 'Opera',
-	};
-	function clientLabel(key: string): string {
-		if (BROWSERS[key]) return BROWSERS[key];
-		if (key === 'bot' || key === 'tool' || key === 'unknown') return t(`analytics.client.${key}`);
-		return t('analytics.client.other');
-	}
 
 	function statusTone(status: number): StatusTone {
 		if (status >= 500) return 'danger';
@@ -266,6 +274,24 @@
 		</div>
 	</div>
 
+	{#if data && !empty}
+		<form
+			class="flex max-w-md items-center gap-2"
+			onsubmit={(event) => {
+				event.preventDefault();
+				endpoint = endpointPath(endpointQuery);
+			}}>
+			<label class="min-w-0 flex-1">
+				<span class="sr-only">{t('analytics.endpoint.search')}</span>
+				<Input
+					bind:value={endpointQuery}
+					placeholder={t('analytics.endpoint.search')}
+					class="h-8 font-mono text-[13px]" />
+			</label>
+			<Button type="submit" variant="outline" size="sm">{t('analytics.endpoint.inspect')}</Button>
+		</form>
+	{/if}
+
 	{#if error}
 		<div class="rounded-2xl border border-destructive/30 bg-card p-6 text-sm text-destructive">
 			{error}
@@ -294,7 +320,7 @@
 			<p class="max-w-md text-sm text-muted-foreground">{t('analytics.panel.empty_body')}</p>
 		</div>
 	{:else if view === 'dashboard'}
-		<AnalyticsDashboard {data} {apps} />
+		<AnalyticsDashboard {data} {apps} onpath={(path) => (endpoint = path)} />
 	{:else if totals}
 		<div class="kpis">
 			<KpiCard
@@ -398,7 +424,14 @@
 											{#if row.tone}
 												<i class="size-2 shrink-0 rounded-full {toneDot(row.tone)}"></i>
 											{/if}
-											{#if row.href}
+											{#if row.onselect}
+												<button
+													type="button"
+													onclick={row.onselect}
+													class="truncate text-left underline-offset-4 hover:underline {list.mono
+														? 'font-mono text-[13px]'
+														: ''}">{row.label}</button>
+											{:else if row.href}
 												<a
 													href={row.href}
 													class="truncate underline-offset-4 hover:underline {list.mono
@@ -428,6 +461,8 @@
 		</div>
 	{/if}
 </section>
+
+<EndpointSheet bind:path={endpoint} {range} load={loadPath} />
 
 <style>
 	.kpis {

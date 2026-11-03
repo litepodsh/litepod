@@ -4,7 +4,8 @@
 //! Caddy writes its access log as JSON lines to a `net` writer pointed at a small TCP
 //! listener here. Lines are mapped to an application by host (`application_domains`),
 //! summed in memory per minute and flushed to DuckDB once a minute: one row per
-//! (minute, application, host, status) plus a bounded per-minute top-paths table.
+//! (minute, application, host, status) plus a bounded per-minute top-paths table and,
+//! for those paths, a bounded per-minute table of the client IPs that called them.
 //! Retention rides along with `container_samples` (see `apply_retention`).
 //!
 //! Env: `LITEPOD_ACCESS_LOG_LISTEN` (default `[::]:6514`, `off` disables),
@@ -122,15 +123,34 @@ CREATE TABLE IF NOT EXISTS request_clients (
     agent VARCHAR DEFAULT ''
 );
 ALTER TABLE request_clients ADD COLUMN IF NOT EXISTS agent VARCHAR DEFAULT '';
+-- One row per (minute, application, path, client IP, browser, OS, agent), bounded per
+-- path and minute: who called which endpoint, which the two tables above keep apart.
+CREATE TABLE IF NOT EXISTS request_path_clients (
+    ts TIMESTAMP NOT NULL,
+    organization_id VARCHAR NOT NULL,
+    application_id VARCHAR NOT NULL,
+    path VARCHAR NOT NULL,
+    ip VARCHAR NOT NULL,
+    client VARCHAR NOT NULL,
+    os VARCHAR NOT NULL,
+    agent VARCHAR NOT NULL,
+    country VARCHAR,
+    region VARCHAR,
+    city VARCHAR,
+    requests BIGINT NOT NULL,
+    errors BIGINT NOT NULL,
+    bytes_out BIGINT NOT NULL
+);
 ";
 
 /// Tables `apply_retention` prunes alongside `container_samples`.
-pub const TABLES: [&str; 5] = [
+pub const TABLES: [&str; 6] = [
     "request_rollups",
     "request_paths",
     "request_dimensions",
     "request_visitors",
     "request_clients",
+    "request_path_clients",
 ];
 
 /// Upper bounds (ms) of the latency histogram columns `lat_0..lat_8`; the last is open.
@@ -159,6 +179,11 @@ const SLOW_PATHS_PER_APP_MINUTE: usize = 10;
 const MAX_VISITOR_KEYS: usize = 100_000;
 /// Client IPs kept per application and minute, busiest first.
 const CLIENTS_PER_APP_MINUTE: usize = 200;
+/// shortcut: client IPs kept per path and minute, busiest first; past it an endpoint's
+/// unique IPs undercount. Raise it or use a sketch if one path sees more IPs per minute.
+const CLIENTS_PER_PATH_MINUTE: usize = 50;
+/// Rows in each grouping of the endpoint detail, except countries (all of them).
+const PATH_GROUP_LIMIT: usize = 20;
 /// Rows in the "recent visitors" list.
 const RECENT_VISITORS: usize = 100;
 const DIMENSIONS: [&str; 4] = ["method", "protocol", "client", "referrer"];
@@ -550,6 +575,15 @@ type PathKey = (i64, Owner, String);
 type DimensionKey = (i64, Owner, &'static str, String);
 type VisitorKey = (i64, Owner, i64);
 type ClientKey = (i64, Owner, String, &'static str, &'static str, String);
+type PathClientKey = (
+    i64,
+    Owner,
+    String,
+    String,
+    &'static str,
+    &'static str,
+    String,
+);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 struct ClientRollup {
@@ -567,6 +601,7 @@ struct Drained {
     dimensions: Vec<(DimensionKey, Counts)>,
     visitors: Vec<VisitorKey>,
     clients: Vec<(ClientKey, ClientRollup)>,
+    path_clients: Vec<(PathClientKey, ClientRollup)>,
 }
 
 impl Drained {
@@ -576,6 +611,7 @@ impl Drained {
             && self.dimensions.is_empty()
             && self.visitors.is_empty()
             && self.clients.is_empty()
+            && self.path_clients.is_empty()
     }
 }
 
@@ -586,6 +622,7 @@ struct Aggregator {
     dimensions: HashMap<DimensionKey, Counts>,
     visitors: HashSet<VisitorKey>,
     clients: HashMap<ClientKey, ClientRollup>,
+    path_clients: HashMap<PathClientKey, ClientRollup>,
 }
 
 /// The `limit` busiest rows of each group, ties broken by key.
@@ -690,6 +727,27 @@ impl Aggregator {
             self.visitors.insert((minute, owner.clone(), visitor));
         }
         if let Some(ip) = line.ip {
+            let key = (
+                minute,
+                owner.clone(),
+                line.path.clone(),
+                ip.clone(),
+                line.client,
+                line.os,
+                line.agent.clone(),
+            );
+            if self.path_clients.len() < MAX_VISITOR_KEYS || self.path_clients.contains_key(&key) {
+                let client = self
+                    .path_clients
+                    .entry(key)
+                    .or_insert_with(|| ClientRollup {
+                        geo: line.geo.clone(),
+                        ..Default::default()
+                    });
+                client.requests += 1;
+                client.errors += error;
+                client.bytes_out += line.bytes_out;
+            }
             let key = (minute, owner.clone(), ip, line.client, line.os, line.agent);
             if self.clients.len() < MAX_VISITOR_KEYS || self.clients.contains_key(&key) {
                 let client = self.clients.entry(key).or_insert_with(|| ClientRollup {
@@ -718,6 +776,20 @@ impl Aggregator {
     /// Everything so far; partial minutes are fine because every query sums.
     fn drain(&mut self) -> Drained {
         let paths = keep_paths(self.paths.drain());
+        // Only endpoints that made `request_paths`, so both tables agree on which exist.
+        let kept: HashSet<&PathKey> = paths.iter().map(|(key, _)| key).collect();
+        let path_clients = top_per_group(
+            self.path_clients
+                .drain()
+                .filter(|((minute, owner, path, ..), _)| {
+                    kept.contains(&(*minute, owner.clone(), path.clone()))
+                })
+                .map(|((minute, owner, path, ip, client, os, agent), rollup)| {
+                    ((minute, owner, path), (ip, client, os, agent), rollup)
+                }),
+            CLIENTS_PER_PATH_MINUTE,
+            |rollup| rollup.requests,
+        );
         let dimensions = top_per_group(
             self.dimensions
                 .drain()
@@ -737,6 +809,12 @@ impl Aggregator {
             |rollup| rollup.requests,
         );
         Drained {
+            path_clients: path_clients
+                .into_iter()
+                .map(|((minute, owner, path), (ip, client, os, agent), rollup)| {
+                    ((minute, owner, path, ip, client, os, agent), rollup)
+                })
+                .collect(),
             clients: clients
                 .into_iter()
                 .map(|((minute, owner), (ip, client, os, agent), rollup)| {
@@ -882,6 +960,26 @@ fn insert(conn: &Connection, batch: &Drained) -> duckdb::Result<()> {
             r.errors,
             r.bytes_out,
             agent
+        ])?;
+    }
+    appender.flush()?;
+    let mut appender = conn.appender("request_path_clients")?;
+    for ((minute, owner, path, ip, client, os, agent), r) in &batch.path_clients {
+        appender.append_row(params![
+            ts(*minute),
+            owner.organization_id,
+            owner.application_id,
+            path,
+            ip,
+            client,
+            os,
+            agent,
+            r.geo.country,
+            r.geo.region,
+            r.geo.city,
+            r.requests,
+            r.errors,
+            r.bytes_out,
         ])?;
     }
     appender.flush()
@@ -1040,6 +1138,47 @@ pub struct VisitorEntry {
     /// Epoch milliseconds (minute precision).
     pub first_seen: i64,
     pub last_seen: i64,
+}
+
+#[derive(Debug, Default, Serialize, PartialEq)]
+pub struct PathPoint {
+    /// Bucket start, epoch milliseconds.
+    pub ts: i64,
+    pub requests: i64,
+    /// Distinct client IPs in this bucket.
+    pub ips: i64,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct PathGroupEntry {
+    pub key: String,
+    pub requests: i64,
+    /// Distinct client IPs in this group.
+    pub ips: i64,
+}
+
+/// One endpoint: how often it is called, by how many IPs, and from where.
+#[derive(Debug, Default, Serialize, PartialEq)]
+pub struct PathAnalyticsDto {
+    pub path: String,
+    pub bucket_seconds: i64,
+    pub series: Vec<PathPoint>,
+    pub requests: i64,
+    /// Server errors (5xx).
+    pub errors: i64,
+    pub avg_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+    /// Distinct client IPs over the range.
+    pub ips: i64,
+    pub countries: Vec<PathGroupEntry>,
+    pub regions: Vec<PathGroupEntry>,
+    pub cities: Vec<PathGroupEntry>,
+    /// Browser family, `bot`, `tool`, `other` or `unknown`.
+    pub clients: Vec<PathGroupEntry>,
+    /// Named agents behind bots and scripts.
+    pub agents: Vec<PathGroupEntry>,
+    /// The busiest client IPs.
+    pub visitors: Vec<VisitorEntry>,
 }
 
 /// ponytail: p95 from a fixed 9-bucket histogram, reported as the bucket's upper bound
@@ -1401,6 +1540,152 @@ fn analytics(
     Ok(dto)
 }
 
+fn path_analytics(
+    conn: &Connection,
+    organization_id: &str,
+    applications: &[String],
+    path: &str,
+    range: AnalyticsRange,
+    now_ms: i64,
+) -> duckdb::Result<PathAnalyticsDto> {
+    let (window, bucket_seconds) = range.spans();
+    let bucket_ms = bucket_seconds * 1_000;
+    let since_ms = ((now_ms - window * 1_000) / bucket_ms + 1) * bucket_ms;
+    let mut dto = PathAnalyticsDto {
+        path: path.to_string(),
+        bucket_seconds,
+        series: (0..)
+            .map(|step| since_ms + step * bucket_ms)
+            .take_while(|ts| *ts <= now_ms)
+            .map(|ts| PathPoint {
+                ts,
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+    if applications.is_empty() {
+        return Ok(dto);
+    }
+    let (scope, mut values) = scope_filter(organization_id, applications, since_ms);
+    let filter = format!("{scope} AND path = ?");
+    values.push(duckdb::types::Value::Text(path.to_string()));
+
+    let (requests, errors, duration, max_ms, latency) = conn.query_row(
+        &format!(
+            "SELECT sum(requests), sum(errors), sum(duration_sum_ms), max(duration_max_ms),
+                    sum(lat_0), sum(lat_1), sum(lat_2), sum(lat_3), sum(lat_4),
+                    sum(lat_5), sum(lat_6), sum(lat_7), sum(lat_8)
+             FROM request_paths WHERE {filter}"
+        ),
+        params_from_iter(values.iter()),
+        |row| {
+            let mut latency = [0i64; 9];
+            for (index, slot) in latency.iter_mut().enumerate() {
+                *slot = row.get::<_, Option<i64>>(4 + index)?.unwrap_or(0);
+            }
+            Ok((
+                row.get::<_, Option<i64>>(0)?.unwrap_or(0),
+                row.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                row.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
+                row.get::<_, Option<f64>>(3)?.unwrap_or(0.0),
+                latency,
+            ))
+        },
+    )?;
+    dto.requests = requests;
+    dto.errors = errors;
+    dto.avg_ms = (requests > 0).then(|| duration / requests as f64);
+    dto.p95_ms = p95(&latency, max_ms);
+    dto.ips = conn.query_row(
+        &format!("SELECT count(DISTINCT ip) FROM request_path_clients WHERE {filter}"),
+        params_from_iter(values.iter()),
+        |row| row.get(0),
+    )?;
+
+    let mut bucket_values = vec![duckdb::types::Value::BigInt(bucket_seconds)];
+    bucket_values.extend(values.iter().cloned());
+    let bucket = "epoch_ms(time_bucket(to_seconds(?::BIGINT), ts, TIMESTAMP '1970-01-01'))";
+    let mut statement = conn.prepare(&format!(
+        "SELECT {bucket} AS bucket, sum(requests) FROM request_paths
+         WHERE {filter} GROUP BY bucket"
+    ))?;
+    let rows = statement.query_map(params_from_iter(bucket_values.iter()), |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    for row in rows {
+        let (bucket, requests) = row?;
+        if let Some(point) = dto.series.iter_mut().find(|point| point.ts == bucket) {
+            point.requests = requests;
+        }
+    }
+    let mut statement = conn.prepare(&format!(
+        "SELECT {bucket} AS bucket, count(DISTINCT ip) FROM request_path_clients
+         WHERE {filter} GROUP BY bucket"
+    ))?;
+    let rows = statement.query_map(params_from_iter(bucket_values.iter()), |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    for row in rows {
+        let (bucket, ips) = row?;
+        if let Some(point) = dto.series.iter_mut().find(|point| point.ts == bucket) {
+            point.ips = ips;
+        }
+    }
+
+    let group = |label: &str, limit: usize| -> duckdb::Result<Vec<PathGroupEntry>> {
+        let mut statement = conn.prepare(&format!(
+            "SELECT {label} AS label, sum(requests) AS n, count(DISTINCT ip)
+             FROM request_path_clients WHERE {filter} AND {label} IS NOT NULL
+             GROUP BY label ORDER BY n DESC, label LIMIT {limit}"
+        ))?;
+        statement
+            .query_map(params_from_iter(values.iter()), |row| {
+                Ok(PathGroupEntry {
+                    key: row.get(0)?,
+                    requests: row.get(1)?,
+                    ips: row.get(2)?,
+                })
+            })?
+            .collect()
+    };
+    // 250 is more than there are countries: unlike the other groupings, never cut.
+    dto.countries = group("country", 250)?;
+    dto.regions = group("region || ', ' || country", PATH_GROUP_LIMIT)?;
+    dto.cities = group("city || ', ' || country", PATH_GROUP_LIMIT)?;
+    dto.clients = group("client", PATH_GROUP_LIMIT)?;
+    dto.agents = group("nullif(agent, '')", PATH_GROUP_LIMIT)?;
+
+    let mut statement = conn.prepare(&format!(
+        "SELECT ip, arg_max(country, ts), arg_max(region, ts), arg_max(city, ts),
+                arg_max(client, ts), arg_max(os, ts), arg_max(agent, ts),
+                sum(requests) AS n, sum(errors), sum(bytes_out),
+                epoch_ms(min(ts)), epoch_ms(max(ts))
+         FROM request_path_clients WHERE {filter}
+         GROUP BY ip ORDER BY n DESC, ip LIMIT {RECENT_VISITORS}"
+    ))?;
+    dto.visitors = statement
+        .query_map(params_from_iter(values.iter()), |row| {
+            Ok(VisitorEntry {
+                ip: row.get(0)?,
+                application_id: None,
+                country: row.get(1)?,
+                region: row.get(2)?,
+                city: row.get(3)?,
+                client: row.get(4)?,
+                os: row.get(5)?,
+                agent: row.get(6)?,
+                requests: row.get(7)?,
+                errors: row.get(8)?,
+                bytes_out: row.get(9)?,
+                first_seen: row.get(10)?,
+                last_seen: row.get(11)?,
+            })
+        })?
+        .collect::<duckdb::Result<_>>()?;
+    Ok(dto)
+}
+
 #[derive(Debug, Serialize)]
 pub struct SparklinesDto {
     pub bucket_seconds: i64,
@@ -1750,6 +2035,54 @@ pub async fn organization_analytics_handler(
     .await?))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PathAnalyticsQuery {
+    pub path: String,
+    #[serde(default)]
+    pub range: AnalyticsRange,
+}
+
+pub async fn application_path_analytics_handler(
+    RequireApp(app, _): RequireApp<perm::AppRead>,
+    Query(query): Query<PathAnalyticsQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let organization_id = app.organization_id;
+    let applications = vec![app.application_id];
+    Ok(ok(with_db(move |conn| {
+        path_analytics(
+            conn,
+            &organization_id,
+            &applications,
+            &query.path,
+            query.range,
+            now_ms,
+        )
+    })
+    .await?))
+}
+
+pub async fn organization_path_analytics_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::OrgRead>,
+    Query(query): Query<PathAnalyticsQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let applications = readable_applications(&state, &org).await?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let organization_id = org.organization_id;
+    Ok(ok(with_db(move |conn| {
+        path_analytics(
+            conn,
+            &organization_id,
+            &applications,
+            &query.path,
+            query.range,
+            now_ms,
+        )
+    })
+    .await?))
+}
+
 /// One call per page for every card's 24h requests sparkline.
 pub async fn organization_sparklines_handler(
     State(state): State<SharedState>,
@@ -1933,6 +2266,121 @@ mod tests {
 
     fn db() -> Connection {
         super::super::open(None).unwrap()
+    }
+
+    #[test]
+    fn breaks_an_endpoint_down_by_ip_and_place() {
+        let conn = db();
+        let mut aggregator = Aggregator::default();
+        let base = NOW - 5 * MINUTE_MS;
+        let instance = |ts_ms, ip: &str, country: &str, city: &str| {
+            let mut call = line(ts_ms, "a.test", "/version.json", 200, 5.0);
+            call.ip = Some(ip.into());
+            call.client = "unknown";
+            call.geo = Geo {
+                country: Some(country.into()),
+                region: None,
+                city: Some(city.into()),
+            };
+            call
+        };
+        aggregator.record(
+            instance(base, "1.1.1.1", "MX", "Monterrey"),
+            owner("app"),
+            None,
+        );
+        aggregator.record(
+            instance(base + MINUTE_MS, "1.1.1.1", "MX", "Monterrey"),
+            owner("app"),
+            None,
+        );
+        aggregator.record(
+            instance(base, "2.2.2.2", "MX", "Puebla"),
+            owner("app"),
+            None,
+        );
+        aggregator.record(
+            instance(base, "3.3.3.3", "DE", "Berlin"),
+            owner("app"),
+            None,
+        );
+        // Another path and another application never count towards this endpoint.
+        aggregator.record(line(base, "a.test", "/", 200, 5.0), owner("app"), None);
+        aggregator.record(
+            instance(base, "4.4.4.4", "FR", "Paris"),
+            owner("other"),
+            None,
+        );
+        insert(&conn, &aggregator.drain()).unwrap();
+
+        let dto = path_analytics(
+            &conn,
+            "org",
+            &["app".into()],
+            "/version.json",
+            AnalyticsRange::Hour,
+            NOW,
+        )
+        .unwrap();
+        assert_eq!((dto.requests, dto.ips), (4, 3));
+        assert_eq!(
+            dto.countries,
+            vec![
+                PathGroupEntry {
+                    key: "MX".into(),
+                    requests: 3,
+                    ips: 2
+                },
+                PathGroupEntry {
+                    key: "DE".into(),
+                    requests: 1,
+                    ips: 1
+                },
+            ]
+        );
+        assert_eq!(dto.cities[0].key, "Monterrey, MX");
+        assert_eq!(
+            dto.clients[0],
+            PathGroupEntry {
+                key: "unknown".into(),
+                requests: 4,
+                ips: 3
+            }
+        );
+        assert_eq!(dto.visitors[0].ip, "1.1.1.1");
+        assert_eq!(dto.visitors[0].requests, 2);
+        assert_eq!(
+            dto.series.iter().map(|point| point.requests).sum::<i64>(),
+            4
+        );
+        assert_eq!(dto.series.iter().map(|point| point.ips).max(), Some(3));
+    }
+
+    #[test]
+    fn keeps_the_busiest_ips_of_each_endpoint() {
+        let conn = db();
+        let mut aggregator = Aggregator::default();
+        let base = NOW - 5 * MINUTE_MS;
+        for host in 0..CLIENTS_PER_PATH_MINUTE + 5 {
+            let mut call = line(base, "a.test", "/version.json", 200, 5.0);
+            call.ip = Some(format!("10.0.0.{host}"));
+            aggregator.record(call, owner("app"), None);
+        }
+        let batch = aggregator.drain();
+        assert_eq!(batch.path_clients.len(), CLIENTS_PER_PATH_MINUTE);
+        insert(&conn, &batch).unwrap();
+        let dto = path_analytics(
+            &conn,
+            "org",
+            &["app".into()],
+            "/version.json",
+            AnalyticsRange::Hour,
+            NOW,
+        )
+        .unwrap();
+        // Requests stay exact; only the IP count is a lower bound past the cap.
+        assert_eq!(dto.requests, CLIENTS_PER_PATH_MINUTE as i64 + 5);
+        assert_eq!(dto.ips, CLIENTS_PER_PATH_MINUTE as i64);
     }
 
     #[test]
@@ -2432,8 +2880,9 @@ mod tests {
         let batch = aggregator.drain();
         insert(&conn, &batch).unwrap();
         let deleted = super::super::apply_retention(&conn, &[], 7, NOW).unwrap();
-        // One rollup, path, visitor and client plus three dimensions (no referrer) for the old minute.
-        assert_eq!(deleted, 7);
+        // One rollup, path, visitor, client and path client plus three dimensions (no referrer)
+        // for the old minute.
+        assert_eq!(deleted, 8);
         assert_eq!(request_row_count(&conn).unwrap(), 1);
     }
 }

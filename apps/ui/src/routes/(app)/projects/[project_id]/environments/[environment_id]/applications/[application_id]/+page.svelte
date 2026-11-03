@@ -30,7 +30,10 @@
 	import ApplicationTerminalTab from '#lib/components/projects/application-terminal-tab.svelte';
 	import ApplicationMetricsTab from '#lib/components/projects/application-metrics-tab.svelte';
 	import AnalyticsPanel from '#lib/components/analytics/analytics-panel.svelte';
-	import { getApplicationAnalytics } from '#lib/clients/analytics-client.js';
+	import {
+		getApplicationAnalytics,
+		getApplicationPathAnalytics,
+	} from '#lib/clients/analytics-client.js';
 	import ApplicationTasksTab from '#lib/components/projects/application-tasks-tab.svelte';
 	import ApplicationAdvancedTab from '#lib/components/projects/application-advanced-tab.svelte';
 	import ApplicationBootPolicyCard from '#lib/components/projects/application-boot-policy-card.svelte';
@@ -2791,6 +2794,15 @@
 								projectId,
 								environment!.id,
 								applicationId,
+								range,
+							)}
+						loadPath={(path, range) =>
+							getApplicationPathAnalytics(
+								organizationId ?? '',
+								projectId,
+								environment!.id,
+								applicationId,
+								path,
 								range,
 							)} />
 				{:else if activeTab === 'tasks'}

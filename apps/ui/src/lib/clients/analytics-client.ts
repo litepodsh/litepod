@@ -111,6 +111,35 @@ export type VisitorEntry = {
 	last_seen: number;
 };
 
+export type PathGroupEntry = {
+	/** Country code, `Region, CC`, `City, CC`, client family or agent name. */
+	key: string;
+	requests: number;
+	/** Distinct client IPs in this group. */
+	ips: number;
+};
+
+/** One endpoint: how often it is called, by how many IPs, and from where. */
+export type PathAnalytics = {
+	path: string;
+	bucket_seconds: number;
+	series: { ts: number; requests: number; ips: number }[];
+	requests: number;
+	/** Server errors (5xx). */
+	errors: number;
+	avg_ms: number | null;
+	p95_ms: number | null;
+	/** Distinct client IPs over the range; a lower bound on very busy endpoints. */
+	ips: number;
+	countries: PathGroupEntry[];
+	regions: PathGroupEntry[];
+	cities: PathGroupEntry[];
+	clients: PathGroupEntry[];
+	agents: PathGroupEntry[];
+	/** The busiest client IPs. */
+	visitors: VisitorEntry[];
+};
+
 export type Sparklines = {
 	bucket_seconds: number;
 	since: number;
@@ -139,6 +168,42 @@ export async function getApplicationAnalytics(
 		environmentId,
 	)}/applications/${encodeURIComponent(applicationId)}/analytics?range=${range}`;
 	return (await api<Analytics>(path)).data!;
+}
+
+const pathQuery = (path: string, range: AnalyticsRange) =>
+	`analytics/path?path=${encodeURIComponent(path)}&range=${range}`;
+
+export async function getOrganizationPathAnalytics(
+	organizationId: string,
+	path: string,
+	range: AnalyticsRange,
+): Promise<PathAnalytics> {
+	return (await api<PathAnalytics>(`${org(organizationId)}/${pathQuery(path, range)}`)).data!;
+}
+
+export async function getApplicationPathAnalytics(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	path: string,
+	range: AnalyticsRange,
+): Promise<PathAnalytics> {
+	const application = `${org(organizationId)}/projects/${encodeURIComponent(projectId)}/environments/${encodeURIComponent(
+		environmentId,
+	)}/applications/${encodeURIComponent(applicationId)}`;
+	return (await api<PathAnalytics>(`${application}/${pathQuery(path, range)}`)).data!;
+}
+
+/** What someone typed or pasted (`version.json`, a full URL) as a stored path; null if none. */
+export function endpointPath(input: string): string | null {
+	const text = input.trim();
+	if (!text) return null;
+	try {
+		return new URL(text, 'http://path.invalid/').pathname;
+	} catch {
+		return null;
+	}
 }
 
 /** One request per page for every card's 24h requests chart. */

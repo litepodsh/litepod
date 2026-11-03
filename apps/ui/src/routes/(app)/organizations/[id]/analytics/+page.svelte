@@ -2,7 +2,10 @@
 	import { brandedTitle } from '#lib/ee/branding/branding.svelte.js';
 	import { page } from '$app/state';
 	import AnalyticsPanel from '#lib/components/analytics/analytics-panel.svelte';
-	import { getOrganizationAnalytics } from '#lib/clients/analytics-client.js';
+	import {
+		getOrganizationAnalytics,
+		getOrganizationPathAnalytics,
+	} from '#lib/clients/analytics-client.js';
 	import { loadOrganizationApps, type OrganizationApp } from '#lib/utils/organization-apps.js';
 	import { allowed } from '#lib/state/permissions.svelte.js';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -30,7 +33,8 @@
 				title={t('analytics.panel.title')}
 				description={t('analytics.panel.description')}
 				{apps}
-				load={(range) => getOrganizationAnalytics(organizationId, range)} />
+				load={(range) => getOrganizationAnalytics(organizationId, range)}
+				loadPath={(path, range) => getOrganizationPathAnalytics(organizationId, path, range)} />
 		{/key}
 	{:else}
 		<p class="text-sm text-muted-foreground">{t('analytics.panel.no_access')}</p>

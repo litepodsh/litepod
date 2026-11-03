@@ -12,6 +12,7 @@
 	import { Switch } from '#lib/components/ui/switch/index.js';
 	import { compactNumber, type VisitorEntry } from '#lib/clients/analytics-client.js';
 	import { formatBytes } from '#lib/clients/container-metrics-client.js';
+	import { clientLabel } from './client-label';
 	import type { OrganizationApp } from '#lib/utils/organization-apps.js';
 	import { countryName, flag } from '#lib/utils/countries.js';
 	import { relativeTime } from '#lib/utils/relative-time.js';
@@ -23,24 +24,22 @@
 		visitors,
 		apps,
 		country = $bindable(null),
+		title,
+		subtitle,
 	}: {
 		visitors: VisitorEntry[];
 		/** Organization view: adds an App column. */
 		apps?: OrganizationApp[];
 		/** Alpha-2 picked on the map. */
 		country?: string | null;
+		/** Defaults to the "recent visitors" wording. */
+		title?: string;
+		subtitle?: string;
 	} = $props();
 
 	let query = $state('');
 	let peopleOnly = $state(false);
 
-	const BROWSERS: Record<string, string> = {
-		chrome: 'Chrome',
-		safari: 'Safari',
-		firefox: 'Firefox',
-		edge: 'Edge',
-		opera: 'Opera',
-	};
 	const SYSTEMS: Record<string, string> = {
 		ios: 'iOS',
 		android: 'Android',
@@ -50,11 +49,6 @@
 		chromeos: 'ChromeOS',
 	};
 	const automated = (visitor: VisitorEntry) => visitor.client === 'bot' || visitor.client === 'tool';
-	function clientLabel(key: string): string {
-		if (BROWSERS[key]) return BROWSERS[key];
-		if (key === 'bot' || key === 'tool' || key === 'unknown') return t(`analytics.client.${key}`);
-		return t('analytics.client.other');
-	}
 	const systemLabel = (key: string) => SYSTEMS[key] ?? '';
 
 	let appById = $derived(new Map((apps ?? []).map((app) => [app.application.id, app])));
@@ -106,9 +100,9 @@
 <section class="lp-raised flex min-w-0 flex-col rounded-2xl border bg-card">
 	<header class="lp-groove-b flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
 		<div class="min-w-0">
-			<h2 class="text-[15px] font-semibold tracking-tight">{t('analytics.visitors.title')}</h2>
+			<h2 class="text-[15px] font-semibold tracking-tight">{title ?? t('analytics.visitors.title')}</h2>
 			<p class="mt-0.5 text-xs text-muted-foreground">
-				{t('analytics.visitors.subtitle', { count: visitors.length })}
+				{subtitle ?? t('analytics.visitors.subtitle', { count: visitors.length })}
 			</p>
 		</div>
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">

@@ -412,6 +412,7 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/metrics/retention", get(crate::metrics_history::get_retention_handler).put(crate::metrics_history::update_retention_handler))
         .route("/api/v1/organizations/{organization_id}/analytics", get(crate::metrics_history::requests::organization_analytics_handler))
         .route("/api/v1/organizations/{organization_id}/analytics/sparklines", get(crate::metrics_history::requests::organization_sparklines_handler))
+        .route("/api/v1/organizations/{organization_id}/analytics/path", get(crate::metrics_history::requests::organization_path_analytics_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/podman/logs/{id}", get(podman_console::container_logs_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/podman/logs/{id}/stream", get(podman_console::container_logs_stream_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/podman/top/{id}", get(podman_console::container_top_handler))
@@ -1075,6 +1076,10 @@ pub fn create_router(state: SharedState) -> Router {
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/analytics",
             get(crate::metrics_history::requests::application_analytics_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/analytics/path",
+            get(crate::metrics_history::requests::application_path_analytics_handler),
         )
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/container-status",
