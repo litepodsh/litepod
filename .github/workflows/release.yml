@@ -238,6 +238,9 @@ jobs:
       REPOSITORY: litepod/litepod
     steps:
       - uses: actions/checkout@v4
+        with:
+          # git-cliff needs the previous tags to compute the release range.
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v4
         with:
@@ -288,6 +291,10 @@ jobs:
 
       # The in-app "Release notes" link points at the GitHub releases page, so
       # every tag gets a release with notes generated from its commits.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
       - name: GitHub release
         if: env.DRY_RUN != 'true' && github.ref_type == 'tag'
         env:
@@ -297,9 +304,10 @@ jobs:
             echo "release ${VERSION} already exists"
             exit 0
           fi
+          git cliff --latest -o "${RUNNER_TEMP}/notes.md"
           flags=()
           [[ "${CHANNEL}" == alpha ]] && flags+=(--prerelease)
-          gh release create "${VERSION}" --verify-tag --generate-notes --title "${VERSION}" "${flags[@]}"
+          gh release create "${VERSION}" --verify-tag --notes-file "${RUNNER_TEMP}/notes.md" --title "${VERSION}" "${flags[@]}"
 
       - name: Summary
         run: |

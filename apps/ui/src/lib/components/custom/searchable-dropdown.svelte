@@ -32,6 +32,7 @@
 		disabled = false,
 		onSelect,
 		icon,
+		leading,
 		variant = 'outline',
 		size = 'default',
 		triggerClass = '',
@@ -44,6 +45,8 @@
 		disabled?: boolean;
 		onSelect?: (value: string) => void;
 		icon?: Snippet<[string]>;
+		/** Drawn inside the trigger, before the selected item. */
+		leading?: Snippet;
 		variant?: ButtonVariant;
 		size?: ButtonSize;
 		triggerClass?: string;
@@ -84,6 +87,7 @@
 				aria-expanded={open}
 				aria-label={label}
 				{disabled}>
+				{@render leading?.()}
 				{#if icon && selectedItem?.icon}{@render icon(selectedItem.icon)}{/if}
 				<span class="truncate">{selectedItem?.label ?? label}</span>
 				<ChevronDownIcon class="size-4 shrink-0 opacity-60" />

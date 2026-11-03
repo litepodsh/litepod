@@ -30,7 +30,10 @@
 	import ApplicationTerminalTab from '#lib/components/projects/application-terminal-tab.svelte';
 	import ApplicationMetricsTab from '#lib/components/projects/application-metrics-tab.svelte';
 	import AnalyticsPanel from '#lib/components/analytics/analytics-panel.svelte';
-	import { getApplicationAnalytics } from '#lib/clients/analytics-client.js';
+	import {
+		getApplicationAnalytics,
+		getApplicationPathAnalytics,
+	} from '#lib/clients/analytics-client.js';
 	import ApplicationTasksTab from '#lib/components/projects/application-tasks-tab.svelte';
 	import ApplicationAdvancedTab from '#lib/components/projects/application-advanced-tab.svelte';
 	import ApplicationBootPolicyCard from '#lib/components/projects/application-boot-policy-card.svelte';
@@ -173,7 +176,7 @@
 		resolveSelectedOrganization,
 		setSelectedOrganizationId,
 	} from '#lib/utils/selected-organization.js';
-	import { setPageBreadcrumbs } from '#lib/state/page-header.svelte.js';
+	import { setPageBreadcrumbs, setProjectsOnlyCrumb } from '#lib/state/page-header.svelte.js';
 	import {
 		clearScopeHero,
 		clearShellTabs,
@@ -536,14 +539,9 @@
 	});
 
 	function isDeferredTab(value: string): value is ApplicationDeferredTab {
-		return [
-			'containers',
-			'deployment',
-			'domains',
-			'environment',
-			'networks',
-			'volumes',
-		].includes(value);
+		return ['containers', 'deployment', 'domains', 'environment', 'networks', 'volumes'].includes(
+			value,
+		);
 	}
 
 	async function refreshNetworks() {
@@ -891,6 +889,7 @@
 				{ label: t('projects.common.projects'), href: '/projects', icon: FolderKanbanIcon },
 				{
 					label: detail.project.name,
+					href: `/projects/${encodeURIComponent(pId)}`,
 					iconSnippet: projectCrumbIcon,
 					switcher: {
 						items: projectList.map((item) => ({
@@ -909,6 +908,7 @@
 				},
 				{
 					label: resolvedEnvironment.name,
+					href: `/projects/${encodeURIComponent(pId)}/environments/${encodeURIComponent(resolvedEnvironment.name)}`,
 					icon: LayersIcon,
 					switcher: {
 						items: detail.environments.map((item) => ({
@@ -951,6 +951,7 @@
 		} finally {
 			if (gen === generation) {
 				loading = false;
+				if (error) setProjectsOnlyCrumb();
 				if (activeTab === 'domains') void enterDomainsTab();
 				else void loadDeferredTab(activeTab);
 				if (activeTab === 'advanced') void refreshTab(activeTab);
@@ -2791,6 +2792,15 @@
 								projectId,
 								environment!.id,
 								applicationId,
+								range,
+							)}
+						loadPath={(path, range) =>
+							getApplicationPathAnalytics(
+								organizationId ?? '',
+								projectId,
+								environment!.id,
+								applicationId,
+								path,
 								range,
 							)} />
 				{:else if activeTab === 'tasks'}

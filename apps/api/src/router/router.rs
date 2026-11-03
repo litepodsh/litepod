@@ -412,6 +412,7 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/metrics/retention", get(crate::metrics_history::get_retention_handler).put(crate::metrics_history::update_retention_handler))
         .route("/api/v1/organizations/{organization_id}/analytics", get(crate::metrics_history::requests::organization_analytics_handler))
         .route("/api/v1/organizations/{organization_id}/analytics/sparklines", get(crate::metrics_history::requests::organization_sparklines_handler))
+        .route("/api/v1/organizations/{organization_id}/analytics/path", get(crate::metrics_history::requests::organization_path_analytics_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/podman/logs/{id}", get(podman_console::container_logs_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/podman/logs/{id}/stream", get(podman_console::container_logs_stream_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/podman/top/{id}", get(podman_console::container_top_handler))
@@ -451,7 +452,6 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/settings/scheduled-task-history", get(settings::get_scheduled_task_history_handler).patch(settings::update_scheduled_task_history_handler))
         .route("/api/v1/settings/rate-limit", get(settings::get_rate_limit_handler).patch(settings::update_rate_limit_handler))
         .route("/api/v1/settings/telemetry", get(crate::telemetry::get_handler).patch(crate::telemetry::update_handler))
-        .route("/api/v1/settings/telemetry/acknowledge", post(crate::telemetry::acknowledge_handler))
         .route("/api/v1/settings/infrastructure/{target}/restart", post(settings::restart_infrastructure_handler))
         .route("/api/v1/settings/backup/s3-config", get(backup::get_s3_config_handler).put(backup::update_s3_config_handler))
         .route("/api/v1/organizations/{organization_id}/backup-targets", get(backup::list_s3_targets_handler).post(backup::create_s3_target_handler))
@@ -1075,6 +1075,10 @@ pub fn create_router(state: SharedState) -> Router {
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/analytics",
             get(crate::metrics_history::requests::application_analytics_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/analytics/path",
+            get(crate::metrics_history::requests::application_path_analytics_handler),
         )
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/container-status",

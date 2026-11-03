@@ -8,7 +8,7 @@
 		variants: {
 			variant: {
 				default:
-					'bg-primary bg-[linear-gradient(180deg,color-mix(in_oklch,var(--primary)_88%,white),var(--primary))] text-primary-foreground shadow-[inset_1px_1px_0_rgb(255_255_255_/_0.22),inset_-1px_-1px_0_rgb(0_0_0_/_0.14),0_1px_2px_color-mix(in_oklch,var(--lp-shadow)_calc(14%*var(--lp-shadow-strength)),transparent)] active:shadow-[inset_0_1px_2px_rgb(0_0_0_/_0.18)] hover:bg-primary/90',
+					'bg-primary bg-[linear-gradient(180deg,color-mix(in_oklch,var(--primary)_96%,white),var(--primary))] text-primary-foreground shadow-[inset_1px_1px_0_rgb(255_255_255_/_0.22),inset_-1px_-1px_0_rgb(0_0_0_/_0.14),0_1px_2px_color-mix(in_oklch,var(--lp-shadow)_calc(14%*var(--lp-shadow-strength)),transparent)] active:shadow-[inset_0_1px_2px_rgb(0_0_0_/_0.18)] hover:bg-primary/90',
 				outline:
 					'lp-raised border-foreground/12 bg-card hover:bg-secondary hover:text-foreground aria-expanded:bg-secondary aria-expanded:text-foreground',
 				secondary:

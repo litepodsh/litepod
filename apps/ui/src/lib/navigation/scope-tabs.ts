@@ -7,6 +7,7 @@ import GlobeIcon from '@lucide/svelte/icons/globe';
 import ChartColumnIcon from '@lucide/svelte/icons/chart-column';
 import ServerIcon from '@lucide/svelte/icons/server';
 import CalendarClockIcon from '@lucide/svelte/icons/calendar-clock';
+import PlugIcon from '@lucide/svelte/icons/plug';
 import SettingsIcon from '@lucide/svelte/icons/settings';
 import ServerCogIcon from '@lucide/svelte/icons/server-cog';
 import CreditCardIcon from '@lucide/svelte/icons/credit-card';
@@ -88,12 +89,18 @@ export function orgTabs(organizationId: string, isSysadmin = false, isCloud = fa
 			? [{ id: 'billing', labelKey: 'menu.tabs.billing', icon: CreditCardIcon, href: '/billing' }]
 			: []),
 		{
+			id: 'integrations',
+			labelKey: 'menu.tabs.integrations',
+			icon: PlugIcon,
+			href: `${base}/integrations`,
+			owns: ['/git-providers', '/notifications'],
+		},
+		{
 			id: 'settings',
 			labelKey: 'menu.tabs.settings',
 			icon: SettingsIcon,
 			href: base,
 			exact: true,
-			owns: ['/git-providers', '/notifications'],
 		},
 		...(isSysadmin
 			? [

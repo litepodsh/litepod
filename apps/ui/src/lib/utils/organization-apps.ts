@@ -79,3 +79,29 @@ export function filterApps(
 		)
 		.toSorted((a, b) => b.application.updated_at - a.application.updated_at);
 }
+
+export type AppBoardGroupKey = 'attention' | 'progress' | 'running' | 'other';
+export type AppBoardGroup = { key: AppBoardGroupKey; apps: OrganizationApp[] };
+
+/**
+ * The home board, most urgent first. Failed and deploying apps are never cut:
+ * `limit` only trims what is left after them. Empty groups are dropped.
+ */
+export function appBoardGroups(apps: OrganizationApp[], limit: number): AppBoardGroup[] {
+	const sorted = filterApps(apps, '');
+	const attention = sorted.filter((app) => app.status === 'failed');
+	const progress = sorted.filter((app) => app.status === 'deploying');
+	const running = sorted.filter((app) => app.status === 'running');
+	const other = sorted.filter(
+		(app) => !['failed', 'deploying', 'running'].includes(app.status ?? ''),
+	);
+	const room = Math.max(limit - attention.length - progress.length, 0);
+	const shownRunning = running.slice(0, room);
+	const groups: AppBoardGroup[] = [
+		{ key: 'attention', apps: attention },
+		{ key: 'progress', apps: progress },
+		{ key: 'running', apps: shownRunning },
+		{ key: 'other', apps: other.slice(0, room - shownRunning.length) },
+	];
+	return groups.filter((group) => group.apps.length > 0);
+}

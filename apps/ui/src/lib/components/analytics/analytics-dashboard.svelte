@@ -13,7 +13,16 @@
 	import { i18n, t } from '#lib/i18n/index.svelte.js';
 
 	/** The dense, Grafana-style view of the same data as the overview. */
-	let { data, apps }: { data: Analytics; apps?: OrganizationApp[] } = $props();
+	let {
+		data,
+		apps,
+		onpath,
+	}: {
+		data: Analytics;
+		apps?: OrganizationApp[];
+		/** Opens the detail of one endpoint. */
+		onpath: (path: string) => void;
+	} = $props();
 
 	const count = (value: number) => compactNumber(value, i18n.locale);
 	const percent = (value: number) => `${value < 10 ? value.toFixed(1) : Math.round(value)}%`;
@@ -33,14 +42,14 @@
 	type Gauge = {
 		title: string;
 		head: string;
-		rows: (TopEntry & { label: string; href?: string })[];
+		rows: (TopEntry & { label: string; href?: string; path?: string })[];
 	};
 	let gauges = $derived.by(() => {
 		const out: Gauge[] = [
 			{
 				title: t('analytics.dashboard.top_pages'),
 				head: t('analytics.dashboard.page'),
-				rows: data.paths.map((row) => ({ ...row, label: row.key })),
+				rows: data.paths.map((row) => ({ ...row, label: row.key, path: row.key })),
 			},
 			{
 				title: t('analytics.dashboard.top_domains'),
@@ -80,7 +89,13 @@
 		title: string;
 		head: string;
 		full?: boolean;
-		rows: (SlowEntry & { id: string; label: string; app?: OrganizationApp; href?: string })[];
+		rows: (SlowEntry & {
+			id: string;
+			label: string;
+			app?: OrganizationApp;
+			href?: string;
+			path?: string;
+		})[];
 	};
 	const appName = (id: string) => appById.get(id)?.application.name ?? t('analytics.panel.other_app');
 	let slowTables = $derived.by(() => {
@@ -93,6 +108,7 @@
 					...row,
 					id: `${row.application_id ?? ''} ${row.key}`,
 					label: row.key,
+					path: row.key,
 					app: row.application_id ? appById.get(row.application_id) : undefined,
 				})),
 			},
@@ -223,7 +239,11 @@
 						{#each table.rows as row (row.id)}
 							<tr class="border-t">
 								<td class="truncate py-2 pr-3 font-mono text-[12.5px] text-primary" title={row.label}>
-									{#if row.href}<a href={row.href} class="hover:underline">{row.label}</a
+									{#if row.path}<button
+											type="button"
+											class="hover:underline"
+											onclick={() => onpath(row.path ?? '')}>{row.label}</button
+										>{:else if row.href}<a href={row.href} class="hover:underline">{row.label}</a
 										>{:else}{row.label}{/if}
 									{#if row.application_id}
 										<a
@@ -271,7 +291,11 @@
 					{#each gauge.rows as row (row.key)}
 						<tr class="border-t">
 							<td class="truncate py-2 pr-3 font-mono text-[12.5px] text-primary">
-								{#if row.href}<a href={row.href} class="hover:underline">{row.label}</a
+								{#if row.path}<button
+										type="button"
+										class="hover:underline"
+										onclick={() => onpath(row.path ?? '')}>{row.label}</button
+									>{:else if row.href}<a href={row.href} class="hover:underline">{row.label}</a
 									>{:else}{row.label}{/if}
 							</td>
 							<td class="py-2">

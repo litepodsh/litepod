@@ -14,8 +14,8 @@ spanish = "Español"
 system = "Sistema"
 theme = "Tema"
 title = "Apariencia"
-warm_dark = "Cálido oscuro"
-warm_light = "Cálido claro"
+warm_dark = "Carbón oscuro"
+warm_light = "Carbón claro"
 
 [command_palette]
 actions = "Acciones"
@@ -35,8 +35,6 @@ title = "Paleta de comandos"
 
 [header]
 assistant = "Asistente"
-contained_width = "Ancho contenido"
-full_width = "Ancho completo"
 scope = "Ámbito actual"
 search = "Buscar"
 
@@ -63,6 +61,9 @@ system = "Sistema"
 workspace = "Espacio de trabajo"
 
 [sidebar]
+collapse = "Contraer"
+expand = "Expandir"
+all_projects = "Todos los proyectos"
 appearance_options = "Opciones de apariencia de la barra lateral"
 contents = "Contenido de la barra lateral"
 fix = "Fijar barra lateral"
@@ -80,6 +81,7 @@ billing = "Facturación"
 deployments = "Despliegues"
 domains = "Dominios"
 home = "Inicio"
+integrations = "Integraciones"
 label = "Secciones"
 projects = "Proyectos"
 scheduled_tasks = "Tareas programadas"

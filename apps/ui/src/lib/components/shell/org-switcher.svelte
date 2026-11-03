@@ -3,6 +3,9 @@
 	import * as ContextMenu from '#lib/components/ui/context-menu/index.js';
 	import * as Command from '#lib/components/ui/command/index.js';
 	import * as Popover from '#lib/components/ui/popover/index.js';
+	import * as Sidebar from '#lib/components/ui/sidebar/index.js';
+	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
+	import { useSidebar } from '#lib/components/ui/sidebar/index.js';
 	import ChevronsUpDownIcon from '@lucide/svelte/icons/chevrons-up-down';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -16,7 +19,14 @@
 	let {
 		organizations = $bindable<OrganizationDto[]>([]),
 		active,
-	}: { organizations?: OrganizationDto[]; active: OrganizationDto | null } = $props();
+		loading = false,
+	}: {
+		organizations?: OrganizationDto[];
+		active: OrganizationDto | null;
+		loading?: boolean;
+	} = $props();
+
+	const sidebar = useSidebar();
 
 	let open = $state(false);
 	let query = $state('');
@@ -56,12 +66,15 @@
 	}
 </script>
 
-{#snippet tile(organization: OrganizationDto)}
+{#snippet tile(organization: OrganizationDto, large = false)}
 	<span
-		class="{organization.icon_bg
-			? ''
-			: 'bg-primary text-primary-foreground'} lp-raised flex size-5.5 shrink-0 items-center justify-center overflow-hidden rounded-md">
-		<OrganizationIcon icon={organization.icon} bg={organization.icon_bg} class="size-3.5" />
+		class="{organization.icon_bg ? '' : 'bg-primary text-primary-foreground'} {large
+			? 'size-8'
+			: 'size-5.5'} lp-raised flex shrink-0 items-center justify-center overflow-hidden rounded-md">
+		<OrganizationIcon
+			icon={organization.icon}
+			bg={organization.icon_bg}
+			class={large ? 'size-4' : 'size-3.5'} />
 	</span>
 {/snippet}
 
@@ -70,17 +83,35 @@
 	onOpenChange={(value) => {
 		if (value) query = '';
 	}}>
-	<Popover.Trigger
-		class="flex h-8 min-w-0 items-center gap-2 rounded-lg px-2 text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 data-[state=open]:bg-muted">
-		{#if active}
-			{@render tile(active)}
-			<span class="truncate max-sm:hidden">{active.name}</span>
-		{:else}
-			<span class="truncate text-muted-foreground">{t('organizations.switcher.none')}</span>
-		{/if}
-		<ChevronsUpDownIcon class="size-3.5 shrink-0 text-muted-foreground" />
+	<Popover.Trigger>
+		{#snippet child({ props })}
+			<Sidebar.MenuButton
+				size="lg"
+				class="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+				{...props}>
+				{#if active}
+					{@render tile(active, true)}
+					<span class="grid flex-1 text-start text-sm leading-tight">
+						<span class="truncate font-medium">{active.name}</span>
+						<span class="truncate text-xs text-muted-foreground">{active.plan}</span>
+					</span>
+				{:else if loading}
+					<Skeleton class="size-8 shrink-0 rounded-md" />
+					<Skeleton class="h-4 flex-1" />
+					<span class="sr-only">{t('common.common.loading')}</span>
+				{:else}
+					<span class="flex-1 truncate text-muted-foreground"
+						>{t('organizations.switcher.none')}</span>
+				{/if}
+				<ChevronsUpDownIcon class="ms-auto size-4 text-muted-foreground" />
+			</Sidebar.MenuButton>
+		{/snippet}
 	</Popover.Trigger>
-	<Popover.Content class="w-64 rounded-xl p-0" align="start" sideOffset={6}>
+	<Popover.Content
+		class="w-64 rounded-xl p-0"
+		side={sidebar.isMobile ? 'bottom' : 'right'}
+		align="start"
+		sideOffset={6}>
 		<Command.Root shouldFilter={false}>
 			<Command.Input bind:value={query} placeholder={t('organizations.switcher.search')} />
 			<Command.List class="max-h-80">

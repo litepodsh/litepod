@@ -4,11 +4,11 @@
 	import { listOrganizations } from '#lib/clients/organization-client.js';
 	import { resolveSelectedOrganization } from '#lib/utils/selected-organization.js';
 
-	// Notifications live under organization settings now; old links land here.
+	// Notifications live under the organization's integrations now; old links land here.
 	onMount(async () => {
 		const organization = resolveSelectedOrganization(await listOrganizations().catch(() => []));
 		if (!organization) return void goto('/organizations', { replace: true });
-		void goto(`/organizations/${encodeURIComponent(organization.id)}?tab=notifications`, {
+		void goto(`/organizations/${encodeURIComponent(organization.id)}/integrations?tab=notifications`, {
 			replace: true,
 		});
 	});

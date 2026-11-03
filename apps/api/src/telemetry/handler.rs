@@ -16,7 +16,6 @@ pub struct TelemetryDto {
     pub enabled: bool,
     /// `LITEPOD_TELEMETRY=off` is set: the stored toggle has no effect.
     pub env_locked: bool,
-    pub notice_acknowledged: bool,
     pub instance_id: String,
 }
 
@@ -27,16 +26,13 @@ pub struct UpdateTelemetryRequest {
 
 async fn load(state: &SharedState) -> Result<TelemetryDto, AppError> {
     let id = instance_id(&state.db).await.map_err(db_err)?;
-    let row =
-        sqlx::query("SELECT enabled, notice_acknowledged FROM instance_telemetry WHERE id = 1")
-            .fetch_one(&state.db)
-            .await
-            .map_err(db_err)?;
+    let row = sqlx::query("SELECT enabled FROM instance_telemetry WHERE id = 1")
+        .fetch_one(&state.db)
+        .await
+        .map_err(db_err)?;
     Ok(TelemetryDto {
         enabled: row.get::<i64, _>(0) != 0,
         env_locked: env_disabled(),
-        // Cloud is the operator's own instance, so there is nothing to announce.
-        notice_acknowledged: state.is_cloud || row.get::<i64, _>(1) != 0,
         instance_id: id,
     })
 }
@@ -51,7 +47,6 @@ pub async fn get_handler(
     Ok(ok(load(&state).await?))
 }
 
-/// Choosing a value also counts as having seen the first-login notice.
 pub async fn update_handler(
     State(state): State<SharedState>,
     Extension(user): Extension<AuthUser>,
@@ -62,7 +57,7 @@ pub async fn update_handler(
     }
     let was_enabled = load(&state).await?.enabled;
     sqlx::query(
-        "UPDATE instance_telemetry SET enabled = ?1, notice_acknowledged = 1, updated_at = datetime('now') WHERE id = 1",
+        "UPDATE instance_telemetry SET enabled = ?1, updated_at = datetime('now') WHERE id = 1",
     )
     .bind(request.enabled as i64)
     .execute(&state.db)
@@ -83,21 +78,5 @@ pub async fn update_handler(
     if was_enabled != request.enabled {
         notify_toggle(&state, request.enabled);
     }
-    Ok(ok(load(&state).await?))
-}
-
-pub async fn acknowledge_handler(
-    State(state): State<SharedState>,
-    Extension(user): Extension<AuthUser>,
-) -> Result<impl IntoResponse, AppError> {
-    if !user.is_sysadmin {
-        return Err(AppError::InsufficientPermissions);
-    }
-    sqlx::query(
-        "UPDATE instance_telemetry SET notice_acknowledged = 1, updated_at = datetime('now') WHERE id = 1",
-    )
-    .execute(&state.db)
-    .await
-    .map_err(db_err)?;
     Ok(ok(load(&state).await?))
 }

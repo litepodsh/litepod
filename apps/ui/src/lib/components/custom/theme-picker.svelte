@@ -118,16 +118,16 @@
 		}
 	}
 	.theme-preview[data-theme='warm-light'] {
-		--pv-bg: #f4f0e9;
-		--pv-surface: #fffdf8;
-		--pv-line: rgb(26 37 32 / 0.12);
-		--pv-accent: #d84b2a;
+		--pv-bg: #fafafa;
+		--pv-surface: #ffffff;
+		--pv-line: rgb(15 15 15 / 0.12);
+		--pv-accent: #d4410b;
 	}
 	.theme-preview[data-theme='warm-dark'] {
-		--pv-bg: #101512;
-		--pv-surface: #17201a;
-		--pv-line: rgb(255 255 255 / 0.08);
-		--pv-accent: #f06a48;
+		--pv-bg: #000000;
+		--pv-surface: #111111;
+		--pv-line: rgb(255 255 255 / 0.1);
+		--pv-accent: #ff6a1f;
 	}
 	.theme-preview[data-theme='cool-light'] {
 		--pv-bg: #f5f6f8;

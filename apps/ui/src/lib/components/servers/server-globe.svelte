@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '#lib/components/ui/button/index.js';
 	import GlobeView, { SKY, PRELOAD } from './server-globe/globe-gl-view.svelte';
+	import FlatGlobe from './server-globe/flat-globe.svelte';
 	import SkeletonRows from '#lib/components/custom/skeleton-rows.svelte';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import type { ServerGeo } from '#lib/clients/server-client.js';
@@ -14,6 +15,7 @@
 		error = null,
 		onRefresh,
 		isCloud = false,
+		mode = 'webgl',
 	}: {
 		servers: ServerGeo[];
 		loading?: boolean;
@@ -21,6 +23,8 @@
 		onRefresh: () => Promise<void>;
 		/** Cloud mode: the anchor pin is the "Litepod Cloud" hub, not a main server. */
 		isCloud?: boolean;
+		/** `flat` draws the same fleet as one SVG, with no three.js and no textures. */
+		mode?: 'webgl' | 'flat';
 	} = $props();
 
 	/** Palette key paired with the legend message it explains. */
@@ -141,9 +145,11 @@
 
 <!-- Start the texture downloads now, in parallel with the three.js chunk, instead of after it. -->
 <svelte:head>
-	{#each PRELOAD as href (href)}
-		<link rel="preload" as="image" {href} crossorigin="anonymous" />
-	{/each}
+	{#if mode === 'webgl'}
+		{#each PRELOAD as href (href)}
+			<link rel="preload" as="image" {href} crossorigin="anonymous" />
+		{/each}
+	{/if}
 </svelte:head>
 
 {#if error}
@@ -159,72 +165,42 @@
 	</p>
 {:else}
 	<div class="grid gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_300px]">
-		<!-- The sky is plain CSS so it paints before three.js or any texture arrives. -->
-		<div
-			class="relative h-[56vh] min-h-[340px] overflow-hidden rounded-xl border border-foreground/10 bg-[#05060a] bg-cover bg-center sm:h-[min(62vh,560px)] sm:min-h-[380px]"
-			style="background-image: url({SKY})">
-			{#if palette}
-				<GlobeView
-					servers={located}
-					{main}
-					{palette}
-					{clock}
-					{focus}
-					{view}
-					{ufo}
-					{isCloud}
-					timeOf={localTime}
-					onSelect={(server: ServerGeo) => (focus = server)} />
-			{/if}
-
-			<ul
-				class="pointer-events-none absolute top-3 left-3 flex flex-col gap-1.5 text-[11px] text-[#c9ced8] sm:text-xs">
-				{#each LEGEND as [tone, key] (key)}
-					{@const labelKey = key === 'main' && isCloud ? 'cloud' : key}
-					<li class="flex items-center gap-2">
-						<span
-							class="size-2 rounded-full"
-							style="background: {palette ? palette[tone] : 'transparent'}"></span>
-						{t(`organizations.topology.globe_legend_${labelKey}`)}
-					</li>
-				{/each}
-			</ul>
-
-			<div class="absolute top-3 right-3 flex items-center gap-2">
-				<!-- Dev-only tooling, so not translated. -->
-				{#if import.meta.env.DEV}
-					{#each ['lunar', 'solar'] as const as kind (kind)}
-						<Button
-							variant="outline"
-							size="sm"
-							class={glass}
-							disabled={replaying !== null}
-							onclick={() => void replayEclipse(kind)}>
-							{kind === 'lunar' ? 'Lunar eclipse' : 'Solar eclipse'}
-						</Button>
-					{/each}
-					<Button variant="outline" size="sm" class={glass} onclick={() => ufo++}>UFO</Button>
+		{#if mode === 'flat'}
+			<div
+				class="relative h-[56vh] min-h-[340px] overflow-hidden rounded-xl border border-foreground/9 bg-card">
+				{#if palette}
+					<FlatGlobe
+						servers={located}
+						{main}
+						{palette}
+						{focus}
+						onSelect={(server: ServerGeo) => (focus = server)} />
 				{/if}
-				<span class="rounded-full px-2.5 py-1 font-mono text-xs {glass}">
-					{#if replaying}{new Date(clock).toISOString().slice(0, 10)}{/if}
-					{utcTime(clock)} UTC
-				</span>
+				<ul
+					class="pointer-events-none absolute top-3 left-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
+					{#each LEGEND as [tone, key] (key)}
+						{@const labelKey = key === 'main' && isCloud ? 'cloud' : key}
+						<li class="flex items-center gap-2">
+							<span
+								class="size-2 rounded-full"
+								style="background: {palette ? palette[tone] : 'transparent'}"></span>
+							{t(`organizations.topology.globe_legend_${labelKey}`)}
+						</li>
+					{/each}
+				</ul>
 				<Button
 					variant="outline"
 					size="sm"
-					class={glass}
+					class="absolute top-3 right-3"
 					disabled={loading}
 					onclick={() => void onRefresh()}>
 					<RefreshCwIcon class={loading ? 'motion-safe:animate-spin' : ''} />
 					{t('organizations.common.refresh')}
 				</Button>
-			</div>
-
-			<div
-				class="absolute inset-x-3 bottom-3 flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-[rgba(10,12,16,.55)] py-2 pr-2.5 pl-3.5 text-[11.5px] text-[#d5dae3] shadow-[inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-lg sm:text-[12.5px]">
-				<div class="flex flex-wrap gap-x-3.5 gap-y-1">
+				<div
+					class="absolute inset-x-3 bottom-3 flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-muted-foreground">
 					<span>
-						<b class="font-mono font-semibold text-white">{fleet.length}</b>
+						<b class="font-medium text-foreground tabular-nums">{fleet.length}</b>
 						{t('organizations.topology.globe_summary_servers')}
 					</span>
 					{#each summary as item (item.key)}
@@ -234,16 +210,94 @@
 						</span>
 					{/each}
 				</div>
-				{#if main}
-					<span class="hidden sm:inline">
-						{t('organizations.topology.globe_hub')}:
-						<b class="font-semibold text-white">{main.name}</b>{main.city
-							? `, ${main.city.split(',')[0]}`
-							: ''}
-					</span>
-				{/if}
 			</div>
-		</div>
+		{:else}
+			<!-- The sky is plain CSS so it paints before three.js or any texture arrives. -->
+			<div
+				class="relative h-[56vh] min-h-[340px] overflow-hidden rounded-xl border border-foreground/10 bg-[#05060a] bg-cover bg-center sm:h-[min(62vh,560px)] sm:min-h-[380px]"
+				style="background-image: url({SKY})">
+				{#if palette}
+					<GlobeView
+						servers={located}
+						{main}
+						{palette}
+						{clock}
+						{focus}
+						{view}
+						{ufo}
+						{isCloud}
+						timeOf={localTime}
+						onSelect={(server: ServerGeo) => (focus = server)} />
+				{/if}
+
+				<ul
+					class="pointer-events-none absolute top-3 left-3 flex flex-col gap-1.5 text-[11px] text-[#c9ced8] sm:text-xs">
+					{#each LEGEND as [tone, key] (key)}
+						{@const labelKey = key === 'main' && isCloud ? 'cloud' : key}
+						<li class="flex items-center gap-2">
+							<span
+								class="size-2 rounded-full"
+								style="background: {palette ? palette[tone] : 'transparent'}"></span>
+							{t(`organizations.topology.globe_legend_${labelKey}`)}
+						</li>
+					{/each}
+				</ul>
+
+				<div class="absolute top-3 right-3 flex items-center gap-2">
+					<!-- Dev-only tooling, so not translated. -->
+					{#if import.meta.env.DEV}
+						{#each ['lunar', 'solar'] as const as kind (kind)}
+							<Button
+								variant="outline"
+								size="sm"
+								class={glass}
+								disabled={replaying !== null}
+								onclick={() => void replayEclipse(kind)}>
+								{kind === 'lunar' ? 'Lunar eclipse' : 'Solar eclipse'}
+							</Button>
+						{/each}
+						<Button variant="outline" size="sm" class={glass} onclick={() => ufo++}>UFO</Button>
+					{/if}
+					<span class="rounded-full px-2.5 py-1 font-mono text-xs {glass}">
+						{#if replaying}{new Date(clock).toISOString().slice(0, 10)}{/if}
+						{utcTime(clock)} UTC
+					</span>
+					<Button
+						variant="outline"
+						size="sm"
+						class={glass}
+						disabled={loading}
+						onclick={() => void onRefresh()}>
+						<RefreshCwIcon class={loading ? 'motion-safe:animate-spin' : ''} />
+						{t('organizations.common.refresh')}
+					</Button>
+				</div>
+
+				<div
+					class="absolute inset-x-3 bottom-3 flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-[rgba(10,12,16,.55)] py-2 pr-2.5 pl-3.5 text-[11.5px] text-[#d5dae3] shadow-[inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-lg sm:text-[12.5px]">
+					<div class="flex flex-wrap gap-x-3.5 gap-y-1">
+						<span>
+							<b class="font-mono font-semibold text-white">{fleet.length}</b>
+							{t('organizations.topology.globe_summary_servers')}
+						</span>
+						{#each summary as item (item.key)}
+							<span class="inline-flex items-center gap-1.5">
+								<i class="size-[7px] rounded-full" style="background: {item.color}"></i>
+								{t(`organizations.topology.globe_summary_${item.key}`, { count: item.count })}
+							</span>
+						{/each}
+					</div>
+					{#if main}
+						<span class="hidden sm:inline">
+							{t('organizations.topology.globe_hub')}:
+							<b class="font-semibold text-white">{main.name}</b>{main.city
+								? `, ${main.city.split(',')[0]}`
+								: ''}
+						</span>
+					{/if}
+				</div>
+			</div>
+		{/if}
 
 		<aside
 			class="flex flex-col gap-1.5 rounded-xl border border-foreground/9 bg-card p-2 lp-panel sm:p-3">

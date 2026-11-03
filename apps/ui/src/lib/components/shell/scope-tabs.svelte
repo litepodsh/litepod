@@ -11,9 +11,10 @@
 	import { cn } from '#lib/utils.js';
 
 	/**
-	 * The glass capsule under the header: organization sections as links, or the
-	 * tabs a project or application page pushed. Sticks under the header; on
-	 * phones it becomes a bottom bar in the thumb zone.
+	 * The glass capsule under the header: the tabs a project or application page
+	 * pushed. Sticks under the header; on phones it becomes a bottom bar in the
+	 * thumb zone, where it also carries the organization sections the sidebar
+	 * holds on larger screens.
 	 */
 	let {
 		organizationId,
@@ -261,7 +262,7 @@
 
 {#if tabs.length}
 	<div bind:this={sentinel} aria-hidden="true" class="h-px"></div>
-	<div class="scope-tabs" data-stuck={stuck}>
+	<div class="scope-tabs" data-stuck={stuck} data-org={!pushed}>
 		<div class="shell-col flex items-center px-3 sm:px-6">
 			{#if stuck && scopeHero.current?.path === path}
 				<span
@@ -400,6 +401,11 @@
 		background: color-mix(in srgb, var(--background) 78%, transparent);
 		box-shadow: 0 1px 0 var(--lp-bevel);
 		backdrop-filter: blur(14px);
+	}
+	@media (min-width: 641px) {
+		.scope-tabs[data-org='true'] {
+			display: none;
+		}
 	}
 	.capsule {
 		position: relative;
