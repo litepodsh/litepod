@@ -26,6 +26,7 @@ split_commits = false
 # are dropped, everything else falls into type buckets.
 commit_parsers = [
   { message = "^chore\\(release\\)", skip = true },
+  { message = "^(ci|build)", skip = true },
   { message = "^fix\\(security\\)", group = "Security" },
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },
