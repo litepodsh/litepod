@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import * as Card from '#lib/components/ui/card/index.js';
-	import logo from '#lib/assets/favicon.svg';
+	import LitepodMark from '#lib/components/custom/litepod-mark.svelte';
 	import { branding, brandName } from '#lib/ee/branding/branding.svelte.js';
 	import {
 		FieldGroup,
@@ -208,176 +207,189 @@
 	}
 </script>
 
-<div class="bg-muted flex min-h-svh flex-col items-center justify-center p-6 md:p-10">
-	<div class={cn('flex w-full max-w-sm flex-col gap-6 md:max-w-3xl', className)} {...restProps}>
-		<Card.Root class="overflow-hidden p-0">
-			<Card.Content class="grid p-0 md:grid-cols-2">
-				{#if totpChallenge}
-					<form onsubmit={handleTotpSubmit} class="p-6 md:p-8">
-						<FieldGroup>
-							<div class="flex flex-col items-center gap-2 text-center">
-								<h1 class="text-2xl font-bold">{t('auth.login.two_factor_authentication')}</h1>
-								<p class="text-muted-foreground text-balance">
-									{t('auth.login.two_factor_description')}
-								</p>
-							</div>
+<div class={cn('bg-background grid min-h-svh lg:grid-cols-2', className)} {...restProps}>
+	<div class="flex items-center justify-center p-6 md:p-10">
+		<div class="flex w-full max-w-sm flex-col gap-6">
+			{#if branding.logo_url}
+				<img src={branding.logo_url} alt={brandName()} class="size-8 object-contain" />
+			{:else}
+				<LitepodMark class="size-8" />
+			{/if}
+			{#if totpChallenge}
+				<form onsubmit={handleTotpSubmit}>
+					<FieldGroup>
+						<div class="flex flex-col gap-1">
+							<h1 class="text-2xl font-semibold tracking-tight">
+								{t('auth.login.two_factor_authentication')}
+							</h1>
+							<p class="text-muted-foreground text-sm">
+								{t('auth.login.two_factor_description')}
+							</p>
+						</div>
 
-							{#if error}
-								<p class="text-destructive text-sm text-center font-medium">{error}</p>
-							{/if}
+						{#if error}
+							<p class="text-destructive text-sm font-medium" role="alert">{error}</p>
+						{/if}
 
-							<Field>
-								<FieldLabel for="totp-{id}">{t('auth.login.code')}</FieldLabel>
-								<!-- svelte-ignore a11y_autofocus -->
-								<Input
-									bind:ref={totpInput}
-									id="totp-{id}"
-									name="totp"
-									inputmode="text"
-									autocomplete="one-time-code"
-									maxlength={8}
-									autocapitalize="characters"
-									spellcheck={false}
-									placeholder="123456"
-									disabled={loading}
-									autofocus
-									bind:value={totpCode} />
-							</Field>
+						<Field>
+							<FieldLabel for="totp-{id}">{t('auth.login.code')}</FieldLabel>
+							<!-- svelte-ignore a11y_autofocus -->
+							<Input
+								bind:ref={totpInput}
+								id="totp-{id}"
+								class="rounded-sm"
+								name="totp"
+								inputmode="text"
+								autocomplete="one-time-code"
+								maxlength={8}
+								autocapitalize="characters"
+								spellcheck={false}
+								placeholder="123456"
+								disabled={loading}
+								autofocus
+								bind:value={totpCode} />
+						</Field>
 
-							<Field>
-								<Button type="submit" class="w-full" disabled={loading || !totpCode.trim()}>
-									{loading ? t('auth.login.verifying') : t('auth.login.verify')}
-								</Button>
-							</Field>
+						<Field>
+							<Button
+								type="submit"
+								class="w-full rounded-sm"
+								disabled={loading || !totpCode.trim()}>
+								{loading ? t('auth.login.verifying') : t('auth.login.verify')}
+							</Button>
+						</Field>
 
-							<FieldDescription class="text-center">
-								<button
-									type="button"
-									class="underline underline-offset-2"
-									onclick={() => {
-										totpChallenge = null;
-										totpCode = '';
-										error = '';
-									}}>
-									{t('auth.login.back_to_sign_in')}
-								</button>
+						<FieldDescription>
+							<button
+								type="button"
+								class="underline underline-offset-2"
+								onclick={() => {
+									totpChallenge = null;
+									totpCode = '';
+									error = '';
+								}}>
+								{t('auth.login.back_to_sign_in')}
+							</button>
+						</FieldDescription>
+
+						{#if isCloud}
+							<FieldDescription>
+								{t('auth.login.support_contact')}
+								<a href="mailto:info@litepod.sh">info@litepod.sh</a>
 							</FieldDescription>
+						{/if}
+					</FieldGroup>
+				</form>
+			{:else}
+				<form onsubmit={handleSubmit}>
+					<FieldGroup>
+						<div class="flex flex-col gap-1">
+							<h1 class="text-2xl font-semibold tracking-tight">
+								{t('auth.login.log_in_to', { name: branding.name ?? 'Litepod' })}
+							</h1>
+							<FieldDescription>
+								{t('auth.login.no_account')} <a href="/register">{t('auth.login.sign_up')}</a>
+							</FieldDescription>
+						</div>
 
-							{#if isCloud}
-								<FieldDescription class="text-center">
-									{t('auth.login.support_contact')}
-									<a href="mailto:info@litepod.sh">info@litepod.sh</a>
+						{#if error}
+							<p class="text-destructive text-sm font-medium" role="alert">{error}</p>
+						{/if}
+
+						<Field>
+							<FieldLabel for="email-{id}">{t('auth.login.email')}</FieldLabel>
+							<Input
+								id="email-{id}"
+								class="rounded-sm"
+								type="email"
+								autocomplete="username"
+								placeholder={t('auth.login.email_placeholder')}
+								disabled={loading}
+								aria-invalid={fieldErrors.email ? 'true' : undefined}
+								bind:value={email}
+								onkeydown={handleEmailKeydown}
+								oninput={() => revalidateField('email')} />
+							{#if fieldErrors.email}
+								<FieldDescription class="text-destructive">
+									{fieldErrors.email}
 								</FieldDescription>
 							{/if}
-						</FieldGroup>
-					</form>
-				{:else}
-					<form onsubmit={handleSubmit} class="p-6 md:p-8">
-						<FieldGroup>
-							<div class="flex flex-col items-center gap-2 text-center">
-								<h1 class="text-2xl font-bold">{t('auth.login.welcome_back')}</h1>
-								<p class="text-muted-foreground text-balance">{t('auth.login.login_account')}</p>
+						</Field>
+
+						<Field>
+							<div class="flex items-center">
+								<FieldLabel for="password-{id}">{t('auth.login.password')}</FieldLabel>
+								<a
+									href="/forgot-password"
+									class="ms-auto text-sm underline-offset-2 hover:underline">
+									{t('auth.login.forgot_password')}
+								</a>
 							</div>
-
-							{#if error}
-								<p class="text-destructive text-sm text-center font-medium">{error}</p>
-							{/if}
-
-							<Field>
-								<FieldLabel for="email-{id}">{t('auth.login.email')}</FieldLabel>
+							<div class="relative">
 								<Input
-									id="email-{id}"
-									type="email"
-									autocomplete="username"
-									placeholder="m@example.com"
+									bind:ref={passwordInput}
+									id="password-{id}"
+									type={showPassword ? 'text' : 'password'}
+									autocomplete="current-password"
 									disabled={loading}
-									aria-invalid={fieldErrors.email ? 'true' : undefined}
-									bind:value={email}
-									onkeydown={handleEmailKeydown}
-									oninput={() => revalidateField('email')} />
-								{#if fieldErrors.email}
-									<FieldDescription class="text-destructive">
-										{fieldErrors.email}
-									</FieldDescription>
-								{/if}
-							</Field>
-
-							<Field>
-								<div class="flex items-center">
-									<FieldLabel for="password-{id}">{t('auth.login.password')}</FieldLabel>
-									<a
-										href="/forgot-password"
-										class="ms-auto text-sm underline-offset-2 hover:underline">
-										{t('auth.login.forgot_password')}
-									</a>
-								</div>
-								<div class="relative">
-									<Input
-										bind:ref={passwordInput}
-										id="password-{id}"
-										type={showPassword ? 'text' : 'password'}
-										autocomplete="current-password"
-										disabled={loading}
-										aria-invalid={fieldErrors.password ? 'true' : undefined}
-										class="pr-10"
-										bind:value={password}
-										oninput={() => revalidateField('password')} />
-									<Button
-										type="button"
-										variant="ghost"
-										size="icon"
-										class="absolute right-1 top-1/2 size-7 -translate-y-1/2"
-										disabled={loading}
-										onclick={() => (showPassword = !showPassword)}
-										aria-label={showPassword
-											? t('auth.login.hide_password')
-											: t('auth.login.show_password')}>
-										{#if showPassword}
-											<EyeOffIcon class="size-4" />
-										{:else}
-											<EyeIcon class="size-4" />
-										{/if}
-									</Button>
-								</div>
-								{#if fieldErrors.password}
-									<FieldDescription class="text-destructive">
-										{fieldErrors.password}
-									</FieldDescription>
-								{/if}
-							</Field>
-
-							{#if isCloud && captchaRequired}
-								<div
-									class="cf-turnstile"
-									data-sitekey={TURNSTILE_SITE_KEY}
-									data-action="turnstile-spin-v2"
-									bind:this={turnstileEl}>
-								</div>
+									aria-invalid={fieldErrors.password ? 'true' : undefined}
+									class="rounded-sm pr-10"
+									bind:value={password}
+									oninput={() => revalidateField('password')} />
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									class="absolute right-1 top-1/2 size-7 -translate-y-1/2 rounded-sm"
+									disabled={loading}
+									onclick={() => (showPassword = !showPassword)}
+									aria-label={showPassword
+										? t('auth.login.hide_password')
+										: t('auth.login.show_password')}>
+									{#if showPassword}
+										<EyeOffIcon class="size-4" />
+									{:else}
+										<EyeIcon class="size-4" />
+									{/if}
+								</Button>
+							</div>
+							{#if fieldErrors.password}
+								<FieldDescription class="text-destructive">
+									{fieldErrors.password}
+								</FieldDescription>
 							{/if}
+						</Field>
 
+						{#if isCloud && captchaRequired}
+							<div
+								class="cf-turnstile"
+								data-sitekey={TURNSTILE_SITE_KEY}
+								data-action="turnstile-spin-v2"
+								bind:this={turnstileEl}>
+							</div>
+						{/if}
+
+						<Field>
+							<Button type="submit" class="w-full rounded-sm" disabled={loading}>
+								{loading ? t('auth.login.logging_in') : t('auth.login.login')}
+							</Button>
+						</Field>
+						{#if ssoAvailable}
+							<FieldSeparator class="*:data-[slot=field-separator-content]:bg-background">
+								{t('auth.login.or')}
+							</FieldSeparator>
 							<Field>
-								<Button type="submit" class="w-full" disabled={loading}>
-									{loading ? t('auth.login.logging_in') : t('auth.login.login')}
+								<Button
+									type="button"
+									variant="outline"
+									class="w-full rounded-sm"
+									disabled={loading || ssoLoading}
+									onclick={handleSso}>
+									{ssoLoading ? t('auth.login.sso_redirecting') : t('auth.login.continue_with_sso')}
 								</Button>
 							</Field>
-							{#if ssoAvailable}
-								<FieldSeparator class="*:data-[slot=field-separator-content]:bg-card">
-									{t('auth.login.or')}
-								</FieldSeparator>
-								<Field>
-									<Button
-										type="button"
-										variant="outline"
-										class="w-full"
-										disabled={loading || ssoLoading}
-										onclick={handleSso}>
-										{ssoLoading
-											? t('auth.login.sso_redirecting')
-											: t('auth.login.continue_with_sso')}
-									</Button>
-								</Field>
-							{/if}
-							<!--
+						{/if}
+						<!--
 							<FieldSeparator class="*:data-[slot=field-separator-content]:bg-card">
 								Or continue with
 							</FieldSeparator>
@@ -411,37 +423,46 @@
 									<span class="sr-only">Login with Meta</span>
 								</Button>
 							</Field> -->
-
-							<!-- {#if setupRequired} -->
-							<FieldDescription class="text-center">
-								{t('auth.login.no_account')} <a href="/register">{t('auth.login.sign_up')}</a>
-							</FieldDescription>
-							<!-- {/if} -->
-						</FieldGroup>
-					</form>
-				{/if}
-				<div class="relative hidden overflow-hidden md:block">
-					<div class="absolute inset-0 bg-gradient-to-br from-[#EEF0FF] via-[#E6E7FC] to-[#F1E9FF]">
-					</div>
-					<div class="absolute inset-0 flex items-center justify-center">
-						<img
-							src={branding.logo_url ?? logo}
-							alt={brandName()}
-							class="h-48 w-48 drop-shadow-[0_8px_24px_rgba(91,95,239,0.25)]" />
-					</div>
-				</div>
-			</Card.Content>
-		</Card.Root>
-		<FieldDescription class="px-6 text-center">
-			{#if isCloud}
-				{t('auth.login.continue_terms')} <a href="/terms">{t('auth.login.terms_of_service')}</a>,
-				<a href="/acceptable-use">{t('legal.common.acceptable_use_policy')}</a>,
-				<a href="/refund">{t('auth.login.refund_policy')}</a>
-				{t('auth.login.terms_connector')}
-				<a href="/privacy">{t('auth.login.privacy_policy')}</a>.
-			{:else}
-				{t('legal.common.self_hosted_notice')}
+					</FieldGroup>
+				</form>
 			{/if}
-		</FieldDescription>
+			<FieldDescription>
+				{#if isCloud}
+					{t('auth.login.continue_terms')} <a href="/terms">{t('auth.login.terms_of_service')}</a>,
+					<a href="/acceptable-use">{t('legal.common.acceptable_use_policy')}</a>,
+					<a href="/refund">{t('auth.login.refund_policy')}</a>
+					{t('auth.login.terms_connector')}
+					<a href="/privacy">{t('auth.login.privacy_policy')}</a>.
+				{:else}
+					{t('legal.common.self_hosted_notice')}
+				{/if}
+			</FieldDescription>
+		</div>
+	</div>
+	<div
+		class={cn(
+			'relative hidden flex-col justify-end overflow-hidden p-10 lg:flex',
+			// A custom logo gets a neutral field: it may not be legible on the brand color.
+			branding.logo_url
+				? 'bg-muted'
+				: 'bg-primary text-primary-foreground bg-[linear-gradient(160deg,color-mix(in_oklch,var(--primary)_94%,white),var(--primary))]',
+		)}>
+		{#if branding.logo_url}
+			<img
+				src={branding.logo_url}
+				alt=""
+				class="absolute top-1/2 left-1/2 size-48 -translate-x-1/2 -translate-y-1/2 object-contain" />
+		{:else}
+			<!-- The logo's own pill at -24deg, cropped by the panel. -->
+			<span
+				aria-hidden="true"
+				class="absolute top-1/2 -right-24 h-75 w-110 -translate-y-[58%] -rotate-24 rounded-full bg-current">
+			</span>
+		{/if}
+		{#if !branding.name}
+			<p class="relative max-w-[12ch] text-4xl leading-tight font-semibold tracking-tight">
+				{t('auth.login.tagline')}
+			</p>
+		{/if}
 	</div>
 </div>
