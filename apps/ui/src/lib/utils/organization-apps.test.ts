@@ -1,5 +1,11 @@
-import { expect, it } from 'vitest';
-import { filterApps, primaryDomain, statusTone, type OrganizationApp } from './organization-apps';
+import { describe, expect, it } from 'vitest';
+import {
+	filterApps,
+	primaryDomain,
+	statusTone,
+	type OrganizationApp,
+	appBoardGroups,
+} from './organization-apps';
 import type { AppSummaryDomainDto } from '#lib/clients/organization-client.js';
 
 const domain = (host: string, is_primary = false) => ({ host, is_primary }) as AppSummaryDomainDto;
@@ -38,4 +44,40 @@ it('maps deployment status onto the shared tones', () => {
 	expect(statusTone('running')).toBe('ok');
 	expect(statusTone('failed')).toBe('danger');
 	expect(statusTone(null)).toBe('neutral');
+});
+
+describe('appBoardGroups', () => {
+	const board = (name: string, status: string | null, updated_at = 1) =>
+		({ application: { name, updated_at }, project: { name: 'p' }, status, domains: [] }) as never;
+	const shape = (groups: ReturnType<typeof appBoardGroups>) =>
+		groups.map((group) => [group.key, group.apps.map((app) => app.application.name)]);
+
+	it('orders groups by urgency and drops empty ones', () => {
+		const groups = appBoardGroups(
+			[board('a', 'running'), board('b', 'failed'), board('c', 'stopped'), board('d', null)],
+			10,
+		);
+		expect(shape(groups)).toEqual([
+			['attention', ['b']],
+			['running', ['a']],
+			['other', ['c', 'd']],
+		]);
+	});
+
+	it('never cuts failed or deploying apps, and trims running before the rest', () => {
+		const groups = appBoardGroups(
+			[
+				board('f1', 'failed'),
+				board('f2', 'failed'),
+				board('d1', 'deploying'),
+				board('r1', 'running'),
+				board('s1', 'stopped'),
+			],
+			2,
+		);
+		expect(shape(groups)).toEqual([
+			['attention', ['f1', 'f2']],
+			['progress', ['d1']],
+		]);
+	});
 });

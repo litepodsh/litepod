@@ -15,7 +15,7 @@
 	import { listScheduledTasks, type ScheduledTask } from '#lib/clients/scheduled-tasks-client.js';
 	import { resolveSelectedOrganization } from '#lib/utils/selected-organization.js';
 	import {
-		filterApps,
+		appBoardGroups,
 		loadOrganizationApps,
 		statusTone,
 		type OrganizationApp,
@@ -35,7 +35,7 @@
 	import { onboardingState } from '#lib/state/onboarding.svelte.js';
 	import { i18n, t } from '#lib/i18n/index.svelte.js';
 
-	const LATEST_LIMIT = 7;
+	const BOARD_LIMIT = 12;
 	const UP_NEXT_LIMIT = 4;
 
 	let organization = $state<OrganizationDto | null>(null);
@@ -55,8 +55,9 @@
 	let orgBase = $derived(
 		organization ? `/organizations/${encodeURIComponent(organization.id)}` : '',
 	);
-	let latest = $derived(filterApps(apps, '').slice(0, LATEST_LIMIT));
+	let board = $derived(appBoardGroups(apps, BOARD_LIMIT));
 	let projectCount = $derived(new Set(apps.map((app) => app.project.id)).size);
+	let deployingCount = $derived(apps.filter((app) => app.status === 'deploying').length);
 	let toneCounts = $derived(
 		apps.reduce(
 			(counts, app) => {
@@ -65,6 +66,18 @@
 			},
 			{ ok: 0, warn: 0, danger: 0, info: 0, neutral: 0 } as Record<StatusTone, number>,
 		),
+	);
+	// What is happening right now, most urgent first; the page's first read.
+	let failedHeadline = $derived(
+		toneCounts.danger ? t('common.home.failed_count', { count: toneCounts.danger }) : '',
+	);
+	let restHeadline = $derived(
+		[
+			deployingCount ? t('common.home.deploying_count', { count: deployingCount }) : '',
+			toneCounts.ok ? t('common.org_apps.running_count', { count: toneCounts.ok }) : '',
+		]
+			.filter(Boolean)
+			.join(', '),
 	);
 	let domainCount = $derived(apps.reduce((sum, app) => sum + app.domains.length, 0));
 	let httpsCount = $derived(
@@ -129,10 +142,22 @@
 		<div class="min-w-0">
 			<h1
 				class="text-2xl leading-tight font-semibold tracking-[-.035em] break-words sm:text-[30px]">
-				{userName ? t('common.home.welcome_back', { name: userName }) : t('common.home.home')}
+				{#if failedHeadline || restHeadline}
+					{#if failedHeadline}<span class="text-destructive">{failedHeadline}</span>{restHeadline
+							? ', '
+							: ''}{/if}{restHeadline}
+				{:else if userName}
+					{t('common.home.welcome_back', { name: userName })}
+				{:else}
+					{t('common.home.home')}
+				{/if}
 			</h1>
 			<p class="mt-1.5 text-sm text-muted-foreground">
-				{organization ? t('common.home.overview') : t('common.home.select_organization')}
+				{#if apps.length}
+					{t('common.home.board_summary', { count: apps.length, projects: projectCount })}
+				{:else}
+					{organization ? t('common.home.overview') : t('common.home.select_organization')}
+				{/if}
 			</p>
 		</div>
 		{#if organization}
@@ -185,113 +210,115 @@
 			<FullOnboardingChecklist summary={onboardingState.summary} />
 		{/if}
 
-		<div class="kpis">
-			{#if appsLoading}
-				<Skeleton class="min-h-36 rounded-2xl" />
-			{:else}
-				<KpiCard
-					title={t('common.org_apps.kpi_apps')}
-					sub={t('common.home.apps_across', { count: apps.length, projects: projectCount })}
-					value={String(toneCounts.ok)}
-					hint={t('common.home.running')}
-					href="{orgBase}/apps"
-					icon={BoxIcon}
-					ticks={apps.map((app) => statusTone(app.status))}>
-					<p class="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-muted-foreground">
-						{@render legend('ok', t('common.org_apps.running_count', { count: toneCounts.ok }))}
-						{#if toneCounts.danger}
+		{#if appsLoading || apps.length}
+			<div class="kpis">
+				{#if appsLoading}
+					<Skeleton class="min-h-36 rounded-2xl" />
+				{:else}
+					<KpiCard
+						title={t('common.org_apps.kpi_apps')}
+						sub={t('common.home.apps_across', { count: apps.length, projects: projectCount })}
+						value={String(toneCounts.ok)}
+						hint={t('common.home.running')}
+						href="{orgBase}/apps"
+						icon={BoxIcon}
+						ticks={apps.map((app) => statusTone(app.status))}>
+						<p class="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-muted-foreground">
+							{@render legend('ok', t('common.org_apps.running_count', { count: toneCounts.ok }))}
+							{#if toneCounts.danger}
+								{@render legend(
+									'danger',
+									t('common.home.failed_count', { count: toneCounts.danger }),
+								)}
+							{/if}
 							{@render legend(
-								'danger',
-								t('common.home.failed_count', { count: toneCounts.danger }),
+								'neutral',
+								t('common.home.other_count', {
+									count: toneCounts.warn + toneCounts.info + toneCounts.neutral,
+								}),
 							)}
-						{/if}
-						{@render legend(
-							'neutral',
-							t('common.home.other_count', {
-								count: toneCounts.warn + toneCounts.info + toneCounts.neutral,
-							}),
-						)}
-					</p>
-				</KpiCard>
-			{/if}
-			{#if allowed('server.read')}
-				<ContainersKpi
-					organizationId={organization.id}
-					href={isSysadmin
-						? '/system?tab=containers'
-						: `/organizations/${organization.id}/servers`} />
-			{/if}
-			{#if appsLoading}
-				<Skeleton class="min-h-36 rounded-2xl" />
-			{:else}
-				<KpiCard
-					title={t('common.org_apps.kpi_domains')}
-					value={String(domainCount)}
-					href="{orgBase}/domains"
-					icon={GlobeIcon}
-					tickShape="square"
-					ticks={[
-						...Array<StatusTone>(httpsCount).fill('ok'),
-						...Array<StatusTone>(domainCount - httpsCount).fill('neutral'),
-					]}>
-					<p class="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-muted-foreground">
-						{@render legend('ok', t('common.home.domains_https', { count: httpsCount }), true)}
-						{@render legend(
-							'neutral',
-							t('common.home.domains_http', { count: domainCount - httpsCount }),
-							true,
-						)}
-					</p>
-				</KpiCard>
-			{/if}
-			{#if tasksLoading}
-				<Skeleton class="min-h-36 rounded-2xl" />
-			{:else}
-				<KpiCard
-					title={t('common.org_apps.kpi_tasks')}
-					sub={tasksError
-						? ''
-						: t('common.home.tasks_sub', {
-								active: enabledTasks.length,
-								paused: tasks.length - enabledTasks.length,
-							})}
-					value={tasksError ? '-' : String(tasks.length)}
-					href="{orgBase}/scheduled-tasks"
-					icon={CalendarClockIcon}
-					ticks={tasks.map((task) => (task.enabled ? 'ok' : 'neutral'))} />
-			{/if}
-		</div>
+						</p>
+					</KpiCard>
+				{/if}
+				{#if allowed('server.read')}
+					<ContainersKpi
+						organizationId={organization.id}
+						href={isSysadmin
+							? '/system?tab=containers'
+							: `/organizations/${organization.id}/servers`} />
+				{/if}
+				{#if appsLoading}
+					<Skeleton class="min-h-36 rounded-2xl" />
+				{:else}
+					<KpiCard
+						title={t('common.org_apps.kpi_domains')}
+						value={String(domainCount)}
+						href="{orgBase}/domains"
+						icon={GlobeIcon}
+						tickShape="square"
+						ticks={[
+							...Array<StatusTone>(httpsCount).fill('ok'),
+							...Array<StatusTone>(domainCount - httpsCount).fill('neutral'),
+						]}>
+						<p class="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-muted-foreground">
+							{@render legend('ok', t('common.home.domains_https', { count: httpsCount }), true)}
+							{@render legend(
+								'neutral',
+								t('common.home.domains_http', { count: domainCount - httpsCount }),
+								true,
+							)}
+						</p>
+					</KpiCard>
+				{/if}
+				{#if tasksLoading}
+					<Skeleton class="min-h-36 rounded-2xl" />
+				{:else}
+					<KpiCard
+						title={t('common.org_apps.kpi_tasks')}
+						sub={tasksError
+							? ''
+							: t('common.home.tasks_sub', {
+									active: enabledTasks.length,
+									paused: tasks.length - enabledTasks.length,
+								})}
+						value={tasksError ? '-' : String(tasks.length)}
+						href="{orgBase}/scheduled-tasks"
+						icon={CalendarClockIcon}
+						ticks={tasks.map((task) => (task.enabled ? 'ok' : 'neutral'))} />
+				{/if}
+			</div>
+		{/if}
+
+		{#if appsLoading || appsError || apps.length}
+			<section class="lp-raised min-w-0 rounded-2xl border bg-card">
+				<header class="lp-groove-b flex items-center justify-between gap-3 px-4 py-3">
+					<h2 class="text-[15px] font-semibold tracking-tight">
+						{t('common.org_apps.apps_title')}
+					</h2>
+					{#if !appsLoading && apps.length}
+						<a
+							href="{orgBase}/apps"
+							class="inline-flex items-center gap-1 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground">
+							{t('common.org_apps.view_all', { count: apps.length })}
+							<ArrowRightIcon class="size-3.5" />
+						</a>
+					{/if}
+				</header>
+				{#if appsLoading}
+					<div class="p-4">
+						<SkeletonRows rows={7} height="h-9" label={t('common.org_apps.loading')} />
+					</div>
+				{:else if appsError}
+					<p class="p-6 text-sm text-destructive">{appsError}</p>
+				{:else}
+					<AppsTable groups={board} bind:failedApplicationIds />
+				{/if}
+			</section>
+		{/if}
 
 		<div class="columns">
 			<div class="flex min-w-0 flex-col gap-6">
 				<OverviewSection organizationId={organization.id} />
-
-				<section class="lp-raised min-w-0 rounded-2xl border bg-card">
-					<header class="lp-groove-b flex items-center justify-between gap-3 px-4 py-3">
-						<h2 class="text-[15px] font-semibold tracking-tight">
-							{t('common.org_apps.apps_title')}
-						</h2>
-						{#if !appsLoading && apps.length}
-							<a
-								href="{orgBase}/apps"
-								class="inline-flex items-center gap-1 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground">
-								{t('common.org_apps.view_all', { count: apps.length })}
-								<ArrowRightIcon class="size-3.5" />
-							</a>
-						{/if}
-					</header>
-					{#if appsLoading}
-						<div class="p-4">
-							<SkeletonRows rows={LATEST_LIMIT} height="h-9" label={t('common.org_apps.loading')} />
-						</div>
-					{:else if appsError}
-						<p class="p-6 text-sm text-destructive">{appsError}</p>
-					{:else if latest.length === 0}
-						<p class="p-6 text-sm text-muted-foreground">{t('common.home.no_applications')}</p>
-					{:else}
-						<AppsTable apps={latest} bind:failedApplicationIds />
-					{/if}
-				</section>
 			</div>
 
 			<aside class="flex min-w-0 flex-col gap-4">
