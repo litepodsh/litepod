@@ -474,9 +474,17 @@ fn parse_line(line: &str, now_ms: i64) -> Option<AccessLine> {
         .ok()
         .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
         .filter(|referrer| *referrer != host);
-    // `client_ip` honors trusted proxies (a CDN in front); older Caddy only has `remote_ip`.
-    let ip = request["client_ip"]
+    // Behind Cloudflare the TCP peer is its edge. The header is only believed from a real
+    // edge, which overwrites it; from anyone else it is caller-supplied text.
+    let cloudflare_client = request["remote_ip"]
         .as_str()
+        .and_then(|peer| peer.parse::<IpAddr>().ok())
+        .filter(crate::deployment::dns_validation::is_cloudflare)
+        .map(|_| header("Cf-Connecting-Ip"))
+        .filter(|client| client.parse::<IpAddr>().is_ok());
+    // `client_ip` honors trusted proxies (a CDN in front); older Caddy only has `remote_ip`.
+    let ip = cloudflare_client
+        .or_else(|| request["client_ip"].as_str())
         .or_else(|| request["remote_ip"].as_str())
         .filter(|ip| !ip.is_empty());
     let visitor = ip
@@ -1905,6 +1913,22 @@ mod tests {
                 .iter()
                 .any(|v| v.application_id.as_deref() == Some("other"))
         );
+    }
+
+    #[test]
+    fn believes_the_cloudflare_header_only_from_a_cloudflare_edge() {
+        let ip_of = |remote: &str, connecting: &str| {
+            let raw = format!(
+                r#"{{"logger":"http.log.access","ts":1790000000,"status":200,"request":{{"client_ip":"{remote}","remote_ip":"{remote}","host":"a.test","uri":"/","headers":{{"Cf-Connecting-Ip":["{connecting}"]}}}}}}"#
+            );
+            parse_line(&raw, 0).unwrap().ip.unwrap()
+        };
+        assert_eq!(ip_of("104.16.0.1", "8.8.8.8"), "8.8.8.8");
+        assert_eq!(ip_of("2606:4700::1", "2001:db8::1"), "2001:db8::1");
+        // Forged by a direct caller, or junk from an edge: the TCP peer stands.
+        assert_eq!(ip_of("203.0.113.9", "8.8.8.8"), "203.0.113.9");
+        assert_eq!(ip_of("104.16.0.1", "not-an-ip"), "104.16.0.1");
+        assert_eq!(ip_of("104.16.0.1", ""), "104.16.0.1");
     }
 
     fn db() -> Connection {

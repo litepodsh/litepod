@@ -130,6 +130,11 @@ fn detect_cdn(address: &IpAddr) -> Option<&'static str> {
         .map(|provider| provider.name)
 }
 
+/// Whether `address` is a Cloudflare edge, from the same refreshed ranges as DNS validation.
+pub fn is_cloudflare(address: &IpAddr) -> bool {
+    cdn_ranges().cloudflare.contains(address)
+}
+
 fn parse_cidrs<'a>(values: impl IntoIterator<Item = &'a str>) -> Result<Vec<IpNet>, String> {
     let ranges = values
         .into_iter()

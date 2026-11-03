@@ -122,10 +122,26 @@ pub(crate) fn client_ip_from_parts(
         return peer;
     }
 
-    // Left-most entry is the original client as recorded by the first proxy.
-    headers
+    let forwarded = headers
         .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.to_str().ok());
+
+    // Caddy overwrites `X-Forwarded-For` with its TCP peer, so a lone Cloudflare address means
+    // a real edge sent this, and an edge overwrites `CF-Connecting-IP`. From anyone else that
+    // header is caller-supplied text, and a list means some other proxy kept what the caller sent.
+    if forwarded
+        .and_then(|value| value.trim().parse::<IpAddr>().ok())
+        .is_some_and(|edge| crate::deployment::dns_validation::is_cloudflare(&edge))
+        && let Some(client) = headers
+            .get("cf-connecting-ip")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse::<IpAddr>().ok())
+    {
+        return client;
+    }
+
+    // Left-most entry is the original client as recorded by the first proxy.
+    forwarded
         .and_then(|value| value.split(',').next())
         .and_then(|first| first.trim().parse::<IpAddr>().ok())
         .unwrap_or(peer)
@@ -525,6 +541,41 @@ mod forwarded_for_tests {
     fn loopback_is_believed_and_the_left_most_entry_wins() {
         let ip = client_ip_from_parts(&headers_with("1.2.3.4, 10.0.0.1"), peer("127.0.0.1"));
         assert_eq!(ip.to_string(), "1.2.3.4");
+    }
+
+    #[test]
+    fn cloudflare_header_is_believed_only_when_caddy_saw_a_cloudflare_edge() {
+        let ip_with = |forwarded: &str, connecting: &str, from: &str| {
+            let mut headers = headers_with(forwarded);
+            headers.insert("cf-connecting-ip", connecting.parse().unwrap());
+            client_ip_from_parts(&headers, peer(from)).to_string()
+        };
+        // The real path: edge -> Caddy -> API.
+        assert_eq!(ip_with("104.16.0.1", "8.8.8.8", "127.0.0.1"), "8.8.8.8");
+        assert_eq!(
+            ip_with("2606:4700::1", "2001:db8::1", "127.0.0.1"),
+            "2001:db8::1"
+        );
+        // Forged by someone who reached Caddy directly: Caddy recorded their real address.
+        assert_eq!(
+            ip_with("203.0.113.9", "8.8.8.8", "127.0.0.1"),
+            "203.0.113.9"
+        );
+        // A list means a proxy appended to what the caller sent, so the edge may be forged.
+        assert_eq!(
+            ip_with("104.16.0.1, 203.0.113.9", "8.8.8.8", "127.0.0.1"),
+            "104.16.0.1"
+        );
+        // Junk from an edge falls back to the edge.
+        assert_eq!(
+            ip_with("104.16.0.1", "not-an-ip", "127.0.0.1"),
+            "104.16.0.1"
+        );
+        // A peer that is not the proxy is never believed, whatever it sends.
+        assert_eq!(
+            ip_with("104.16.0.1", "8.8.8.8", "203.0.113.9"),
+            "203.0.113.9"
+        );
     }
 
     #[test]
