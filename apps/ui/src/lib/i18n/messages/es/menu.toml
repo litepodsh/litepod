@@ -14,8 +14,8 @@ spanish = "Español"
 system = "Sistema"
 theme = "Tema"
 title = "Apariencia"
-warm_dark = "Cálido oscuro"
-warm_light = "Cálido claro"
+warm_dark = "Carbón oscuro"
+warm_light = "Carbón claro"
 
 [command_palette]
 actions = "Acciones"

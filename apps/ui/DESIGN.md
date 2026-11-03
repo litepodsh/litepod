@@ -2,11 +2,12 @@
 
 ## 1. Visual Theme & Atmosphere
 
-Signal Oxide is a calm, technical interface for people who operate
-infrastructure. It has daily-app density, measured asymmetric emphasis, and
-restrained tactile motion. Product evidence and hierarchy do the visual work;
-there are no gradients, neon effects, decorative grids, or marketing-page
-treatments inside the application.
+Carbon is a calm, technical interface for people who operate infrastructure:
+true neutrals with one orange accent. It has daily-app density, measured
+asymmetric emphasis, and restrained tactile motion. Product evidence and
+hierarchy do the visual work; there are no neon effects, decorative grids, or
+marketing-page treatments inside the application. Gradients are allowed only
+when subtle, so they add a little depth without being noticed as an effect.
 
 - Variance: 5/10. The shell can be offset, while operational screens stay easy
   to scan.
@@ -17,13 +18,13 @@ treatments inside the application.
 
 | Name | Light | Dark | Role |
 | --- | --- | --- | --- |
-| Canvas | `#F4F0E9` | `#101512` | Application background |
-| Surface | `#FFFDF8` | `#17201A` | Inputs, menus, dialogs, raised content |
-| Recess | `#EBE7DF` | `#0C110E` | Important outer bezels and terminal wells |
-| Ink | `#1A2520` | `#F2F0E9` | Primary text and strong actions |
-| Muted | `#53635B` | `#B7C0B8` | Supporting text and quiet actions |
-| Signal Oxide | `#D84B2A` | `#F06A48` | One primary action, focus and meaningful state |
-| Accent Ink | `#FFFAF3` | `#20100B` | Text on Signal Oxide |
+| Canvas | `#FAFAFA` | `#000000` | Application background |
+| Surface | `#FFFFFF` | `#111111` | Cards, inputs, raised content |
+| Recess | `#F0F0F0` | `#0A0A0A` | Important outer bezels and terminal wells |
+| Ink | `#0F0F0F` | `#FFFFFF` | Primary text and strong actions |
+| Muted | `#5E5E5E` | `#B0B0B0` | Supporting text and quiet actions |
+| Signal Oxide | `#D4410B` | `#FF6A1F` | One primary action, focus and meaningful state |
+| Accent Ink | `#FFFFFF` | `#140700` | Text on Signal Oxide |
 
 Use Signal Oxide for one dominant action per view. Never use it for long body
 copy on a light surface. Do not add another bright accent.
@@ -36,7 +37,7 @@ Oxide, so a pending badge never reads as a primary action.
 
 | Name | Light | Dark | Role |
 | --- | --- | --- | --- |
-| OK | `#2F6B4F` | `#5FBF8F` | Running, delivered, healthy, succeeded |
+| OK | `#24704C` | `#5FBF8F` | Running, delivered, healthy, succeeded |
 | Warn | `#8A6410` | `#D9A441` | Pending, deploying, paused, degraded |
 | Info | `#2B5F6B` | `#6FB6C4` | Ready, informational, build stages |
 | Danger | `--destructive` | `--destructive` | Failed, dead, unknown container state |
@@ -91,7 +92,7 @@ with the shadows switched off.
 - Body: muted ink, relaxed line-height, maximum 65 characters for reading
   blocks.
 - Labels: compact mono uppercase with letter spacing. In light theme they use
-  accessible oxide ink `#A9381E`, not the brighter accent.
+  accessible oxide ink `#B83A00`, not the brighter accent.
 
 ## 4. Components
 
@@ -109,7 +110,7 @@ with the shadows switched off.
   a one-pixel transform; focus remains obvious.
 - **Inputs:** `0.875rem` radius, label above, helper or error below, oxide
   focus ring. Placeholders never replace labels.
-- **Dialogs and menus:** Surface fill, low-opacity ink hairline, soft
+- **Dialogs and menus:** Ground fill, low-opacity ink hairline, soft
   canvas-tinted shadow, no black drop shadow.
 - **Loading:** Skeletons match the eventual rows and panels. Never render a bare
   `Loading…` line where a panel will be: it collapses the layout and shoves
@@ -146,9 +147,9 @@ with the shadows switched off.
 
 ## 7. Banned Patterns
 
-- Inter, generic gray palettes, pure black, neon or outer glows.
-- Heavy black borders, dark drop shadows, gradients, and decorative bento
-  grids.
+- Inter, neon or outer glows.
+- Heavy black borders, dark drop shadows, strongly marked gradients, and
+  decorative bento grids.
 - Generic three-column card layouts, stacked cards inside cards, or card
   elevation without hierarchy.
 - Hand-drawn icons, emoji UI, custom cursors, artificial product screenshots,

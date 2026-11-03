@@ -492,19 +492,13 @@
 
 	:global(.command-palette [data-slot='command-item'][aria-selected='true']),
 	:global(.command-palette [data-slot='command-item'][data-selected='true']) {
-		background: var(--primary);
-		color: var(--primary-foreground);
+		background: var(--muted);
+		color: var(--foreground);
 	}
 
 	:global(.command-palette [data-slot='command-item'][aria-selected='true'] svg),
 	:global(.command-palette [data-slot='command-item'][data-selected='true'] svg) {
-		color: var(--primary-foreground);
-	}
-
-	:global(.command-palette [data-slot='command-item'][aria-selected='true'] mark),
-	:global(.command-palette [data-slot='command-item'][data-selected='true'] mark) {
-		background: oklch(1 0 0 / 25%);
-		color: inherit;
+		color: var(--foreground);
 	}
 
 	:global(.command-palette .command-palette-footer) {

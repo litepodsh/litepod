@@ -12,21 +12,21 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-	--lp-bg: #f4f0e9;
-	--lp-surface: #fffdf8;
-	--lp-raised: #fffdf8;
-	--lp-deep: #ebe7df;
-	--lp-ink: #1a2520;
-	--lp-muted: #53635b;
-	--lp-accent: #d84b2a;
-	--lp-accent-ink: #fffaf3;
+	--lp-bg: #fafafa;
+	--lp-surface: #ffffff;
+	--lp-raised: #ffffff;
+	--lp-deep: #f0f0f0;
+	--lp-ink: #0f0f0f;
+	--lp-muted: #5e5e5e;
+	--lp-accent: #d4410b;
+	--lp-accent-ink: #ffffff;
 	/* Status ramp. Warn is a cool brass, deliberately darker and less saturated
      than the oxide accent so a pending dot never reads as a primary action. */
-	--lp-ok: #2f6b4f;
+	--lp-ok: #24704c;
 	--lp-warn: #8a6410;
 	--lp-info: #2b5f6b;
 	/* Accessible oxide for small mono labels; the accent itself fails AA at 12px. */
-	--lp-label-ink: #a9381e;
+	--lp-label-ink: #b83a00;
 	/* Fleet globe. The map is painted from these rather than shipped as a photo,
      so the earth belongs to the same palette as the rest of the interface. */
 	--lp-earth-atmosphere: #a89f8c;
@@ -37,8 +37,8 @@
      background is what pushes neumorphism under AA, so surfaces keep their
      fill and contrast and only gain an edge. */
 	--lp-bevel: rgb(255 255 255 / 0.85);
-	--lp-emboss: rgb(26 37 32 / 0.07);
-	--lp-shadow: #1a2520;
+	--lp-emboss: rgb(15 15 15 / 0.07);
+	--lp-shadow: #0f0f0f;
 	--lp-shadow-strength: 1;
 	--lp-ease: cubic-bezier(0.32, 0.72, 0, 1);
 	/* Shared by the page header and a fixed sidebar's top band so their hairlines line up. */
@@ -47,7 +47,7 @@
 	--foreground: var(--lp-ink);
 	--card: var(--lp-surface);
 	--card-foreground: var(--lp-ink);
-	--popover: var(--lp-surface);
+	--popover: var(--lp-bg);
 	--popover-foreground: var(--lp-ink);
 	--primary: var(--lp-accent);
 	--primary-foreground: var(--lp-accent-ink);
@@ -71,7 +71,7 @@
 	--chart-4: var(--lp-warn);
 	--chart-5: var(--lp-muted);
 	--radius: 0.875rem;
-	--sidebar: var(--lp-surface);
+	--sidebar: var(--lp-bg);
 	--sidebar-foreground: var(--lp-ink);
 	--sidebar-primary: var(--lp-accent);
 	--sidebar-primary-foreground: var(--lp-accent-ink);
@@ -82,39 +82,40 @@
 }
 
 .dark {
-	--lp-bg: #101512;
-	--lp-surface: #17201a;
-	--lp-raised: #1c2620;
-	--lp-deep: #0c110e;
-	--lp-ink: #f2f0e9;
-	--lp-muted: #b7c0b8;
-	--lp-accent: #f06a48;
-	--lp-accent-ink: #20100b;
+	--lp-bg: #000000;
+	--lp-surface: #111111;
+	--lp-raised: #1a1a1a;
+	--lp-deep: #0a0a0a;
+	--lp-ink: #ffffff;
+	--lp-muted: #b0b0b0;
+	--lp-accent: #ff6a1f;
+	--lp-accent-ink: #140700;
 	--lp-ok: #5fbf8f;
 	--lp-warn: #d9a441;
 	--lp-info: #6fb6c4;
 	/* On the dark canvas the accent already clears AA at small sizes. */
-	--lp-label-ink: #f06a48;
+	--lp-label-ink: #ff6a1f;
 	--lp-earth-atmosphere: #4d7a72;
 	--lp-earth-terminator: 0.42;
 	/* Dark reverses the lamp: the highlight is a whisper, the shade does the work. */
 	--lp-bevel: rgb(255 255 255 / 0.07);
 	--lp-emboss: rgb(0 0 0 / 0.4);
-	--lp-shadow: #05070b;
+	--lp-shadow: #000000;
 	--lp-shadow-strength: 4;
 	--background: var(--lp-bg);
 	--foreground: var(--lp-ink);
 	--card: var(--lp-surface);
 	--card-foreground: var(--lp-ink);
-	--popover: var(--lp-surface);
+	--popover: var(--lp-bg);
 	--popover-foreground: var(--lp-ink);
 	--primary: var(--lp-accent);
 	--primary-foreground: var(--lp-accent-ink);
-	--secondary: var(--lp-deep);
+	/* Nothing can sit darker than a black page, so hovers and chips step up instead. */
+	--secondary: var(--lp-raised);
 	--secondary-foreground: var(--lp-ink);
-	--muted: var(--lp-deep);
+	--muted: var(--lp-raised);
 	--muted-foreground: var(--lp-muted);
-	--accent: var(--lp-deep);
+	--accent: var(--lp-raised);
 	--accent-foreground: var(--lp-ink);
 	--destructive: oklch(0.704 0.191 22.216);
 	--success: var(--lp-ok);
@@ -129,11 +130,11 @@
 	--chart-3: var(--lp-info);
 	--chart-4: var(--lp-warn);
 	--chart-5: var(--lp-muted);
-	--sidebar: var(--lp-surface);
+	--sidebar: var(--lp-bg);
 	--sidebar-foreground: var(--lp-ink);
 	--sidebar-primary: var(--lp-accent);
 	--sidebar-primary-foreground: var(--lp-accent-ink);
-	--sidebar-accent: var(--lp-deep);
+	--sidebar-accent: var(--lp-raised);
 	--sidebar-accent-foreground: var(--lp-ink);
 	--sidebar-border: color-mix(in oklch, var(--lp-ink) 12%, transparent);
 	--sidebar-ring: var(--lp-accent);
