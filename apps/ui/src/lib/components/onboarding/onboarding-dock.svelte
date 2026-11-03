@@ -30,7 +30,7 @@
 	</div>
 {:else if onboardingState.summary && !onboardingState.summary.dismissed}
 	{@const summary = onboardingState.summary}
-	<!-- There is no sidebar any more, so a checklist pinned there floats on the right. -->
+	<!-- The sidebar has no room for a checklist, so one pinned there floats on the right. -->
 	{#if summary.panel_position === 'right' || summary.panel_position === 'sidebar'}
 		<div
 			class="fixed bottom-5 z-30 hidden transition-[transform,opacity] duration-300 ease-[var(--lp-ease)] sm:block {onboardingState.expanded

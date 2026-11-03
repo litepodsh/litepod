@@ -24,6 +24,9 @@
 	import { getRuntimeStatus, type RuntimeStatus } from '#lib/clients/runtime-client.js';
 	import { getSystemVersion, type SystemVersion } from '#lib/clients/system-client.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import SegmentedSwitch from '#lib/components/custom/segmented-switch.svelte';
+	import BoxIcon from '@lucide/svelte/icons/box';
+	import GlobeIcon from '@lucide/svelte/icons/globe';
 	import {
 		deleteServer,
 		getRemoteServerCapacity,
@@ -113,6 +116,23 @@
 	let geo = $state<ServerGeo[]>([]);
 	let geoLoading = $state(true);
 	let geoError = $state<string | null>(null);
+
+	const GLOBE_MODE_KEY = 'lp-servers-globe';
+	function readGlobeMode(): 'webgl' | 'flat' {
+		try {
+			return localStorage.getItem(GLOBE_MODE_KEY) === 'flat' ? 'flat' : 'webgl';
+		} catch {
+			return 'webgl';
+		}
+	}
+	let globeMode = $state(readGlobeMode());
+	function rememberGlobeMode() {
+		try {
+			localStorage.setItem(GLOBE_MODE_KEY, globeMode);
+		} catch {
+			// Private mode: the choice lasts for this page only.
+		}
+	}
 
 	/** Geolocation calls out to ip.guide, so a failure only costs the globe, never the page. */
 	async function loadGeo() {
@@ -373,7 +393,23 @@
 		{/if}
 	</div>
 
-	<ServerGlobe servers={geo} loading={geoLoading} error={geoError} {isCloud} onRefresh={loadGeo} />
+	<div class="flex justify-end">
+		<SegmentedSwitch
+			items={[
+				{ value: 'webgl', label: t('organizations.topology.globe_view_webgl'), icon: BoxIcon },
+				{ value: 'flat', label: t('organizations.topology.globe_view_flat'), icon: GlobeIcon },
+			]}
+			bind:value={globeMode}
+			label={t('organizations.topology.globe_view_label')}
+			onchange={rememberGlobeMode} />
+	</div>
+	<ServerGlobe
+		servers={geo}
+		loading={geoLoading}
+		error={geoError}
+		{isCloud}
+		mode={globeMode}
+		onRefresh={loadGeo} />
 
 	{#if loading}
 		<div class="grid gap-4">

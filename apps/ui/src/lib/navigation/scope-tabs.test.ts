@@ -24,6 +24,7 @@ it('builds org tabs on the existing routes', () => {
 		'analytics',
 		'servers',
 		'tasks',
+		'integrations',
 		'settings',
 	]);
 	expect(tabs.find((tab) => tab.id === 'tasks')!.href).toBe('/organizations/org1/scheduled-tasks');
@@ -51,6 +52,8 @@ it('marks the tab that owns the current page', () => {
 	expect(activeTab('/home', tabs)).toBe('home');
 	expect(activeTab('/organizations/org1/topology', tabs)).toBe('servers');
 	expect(activeTab('/organizations/org1', tabs)).toBe('settings');
-	expect(activeTab('/git-providers', tabs)).toBe('settings');
+	expect(activeTab('/organizations/org1/integrations', tabs)).toBe('integrations');
+	expect(activeTab('/git-providers', tabs)).toBe('integrations');
+	expect(activeTab('/notifications', tabs)).toBe('integrations');
 	expect(activeTab('/account', tabs)).toBeUndefined();
 });

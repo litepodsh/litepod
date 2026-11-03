@@ -184,4 +184,7 @@ podman_user_run() {
 }
 assert_fails cleanup_deployed_workloads
 
+# The API only enforces the token if the generated compose hands it over.
+grep -q '^      SETUP_TOKEN: \\${SETUP_TOKEN:-}$' "${script_dir}/install.sh"
+
 printf '%s\n' 'install channel tests passed'

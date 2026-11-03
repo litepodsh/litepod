@@ -74,8 +74,10 @@ curl -i http://localhost/api/v1/auth/setup
 
 curl -i -c cookies.txt -X POST http://localhost/api/v1/auth/setup \
   -H "Content-Type: application/json" \
-  -d '{"name":"Admin","email":"admin@example.com","password":"admin1234"}'
+  -d '{"name":"Admin","email":"admin@example.com","password":"admin1234","confirm_password":"admin1234"}'
 ```
+An install made with `install.sh` also needs `"setup_token"`, the `SETUP_TOKEN` value from its `.env`.
+
 This creates user #1, makes it sysadmin, creates the root organization, and sets the `session_token` cookie (saved to `cookies.txt` for curl's `-b` flag on later requests).
 
 ### Login (subsequent users / sessions)

@@ -3,8 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$app/state', () => ({ page: { url: { pathname: '/' } } }));
 vi.mock('#lib/clients/organization-client.js', () => ({ getOrganization: vi.fn() }));
 
-const { pageHeaderState, resolveBreadcrumbs, routeBreadcrumbs, cacheOrganizationName } =
-	await import('./page-header.svelte');
+const {
+	cacheOrganizationName,
+	nameCurrentCrumb,
+	pageHeaderState,
+	resolveBreadcrumbs,
+	routeBreadcrumbs,
+} = await import('./page-header.svelte');
 
 beforeEach(() => {
 	pageHeaderState.breadcrumbs = null;
@@ -14,7 +19,7 @@ beforeEach(() => {
 describe('routeBreadcrumbs', () => {
 	it('labels a static route from the shared map', () => {
 		expect(routeBreadcrumbs('/git-providers')).toMatchObject([
-			{ label: 'Git providers', pending: false },
+			{ label: 'Git Providers', pending: false },
 		]);
 	});
 
@@ -30,6 +35,16 @@ describe('routeBreadcrumbs', () => {
 	it('marks the organization crumb pending until its name arrives', () => {
 		const [, organization] = routeBreadcrumbs('/organizations/unfetched/servers');
 		expect(organization).toMatchObject({ pending: true, href: '/organizations/unfetched' });
+	});
+
+	it('names a detail page without losing the trail above it', () => {
+		const path = '/admin/users/u1';
+		nameCurrentCrumb('Ada', path);
+		expect(resolveBreadcrumbs(path)).toMatchObject([
+			{ label: 'Admin', href: '/admin' },
+			{ label: 'Users', href: '/admin/users' },
+			{ label: 'Ada', pending: false },
+		]);
 	});
 
 	it('reads topology as Map', () => {

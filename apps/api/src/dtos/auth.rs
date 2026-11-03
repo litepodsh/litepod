@@ -43,6 +43,8 @@ pub struct RegistrationStatusResponse {
     pub is_cloud: bool,
     /// Registration needs a Turnstile token (cloud, release builds).
     pub captcha_required: bool,
+    /// Creating the first administrator needs the install's one-time token.
+    pub setup_token_required: bool,
 }
 
 #[derive(Deserialize, ToSchema)]

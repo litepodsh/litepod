@@ -22,7 +22,7 @@
 </script>
 
 {#if hero}
-	<section class="lp-groove-b bg-card/60">
+	<section class="lp-groove-b">
 		<div class="shell-col flex flex-col gap-4 px-4 pt-5 pb-4 sm:px-6 sm:pt-6">
 			<div class="flex flex-wrap items-start justify-between gap-3">
 				<div class="flex min-w-0 items-center gap-3.5">

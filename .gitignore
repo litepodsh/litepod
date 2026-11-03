@@ -34,3 +34,7 @@ apps/api/target/
 /.claude
 /.agents
 skills-lock.json
+/.codex
+/.github/agents
+/.github/skills
+/.taste-skill

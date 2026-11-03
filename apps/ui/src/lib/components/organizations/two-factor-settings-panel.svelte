@@ -59,34 +59,31 @@
 	}
 </script>
 
-<div class="mt-4 flex flex-col gap-4">
-	<div
-		class="lp-raised bg-card flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-		<div class="max-w-[70ch]">
-			<Label for="require-two-factor">{t('organizations.two_factor.title')}</Label>
-			<p class="text-muted-foreground mt-1 text-sm">{t('organizations.two_factor.description')}</p>
-			{#if ownMissing && !organization?.require_two_factor}
-				<p class="mt-2 text-sm text-amber-600 dark:text-amber-400">
-					{t('organizations.two_factor.own_first')}
-					<a class="underline" href={securityHref}>{t('organizations.two_factor.own_first_link')}</a>
-				</p>
+<div
+	class="lp-raised bg-card flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+	<div class="max-w-[70ch]">
+		<Label for="require-two-factor">{t('organizations.two_factor.title')}</Label>
+		<p class="text-muted-foreground mt-1 text-sm">
+			{t('organizations.two_factor.description')}
+			{#if withoutTwoFactor.length > 0}
+				{t('organizations.two_factor.missing', {
+					count: withoutTwoFactor.length,
+					total: members.length,
+				})}
+			{:else if members.length > 0}
+				{t('organizations.two_factor.all_set')}
 			{/if}
-		</div>
-		<SoftSwitch
-			id="require-two-factor"
-			checked={organization?.require_two_factor ?? false}
-			disabled={saving || !organization || (ownMissing && !organization?.require_two_factor)}
-			onCheckedChange={toggle} />
-	</div>
-
-	<p class="text-muted-foreground text-sm">
-		{#if withoutTwoFactor.length > 0}
-			{t('organizations.two_factor.missing', {
-				count: withoutTwoFactor.length,
-				total: members.length,
-			})}
-		{:else if members.length > 0}
-			{t('organizations.two_factor.all_set')}
+		</p>
+		{#if ownMissing && !organization?.require_two_factor}
+			<p class="mt-2 text-sm text-amber-600 dark:text-amber-400">
+				{t('organizations.two_factor.own_first')}
+				<a class="underline" href={securityHref}>{t('organizations.two_factor.own_first_link')}</a>
+			</p>
 		{/if}
-	</p>
+	</div>
+	<SoftSwitch
+		id="require-two-factor"
+		checked={organization?.require_two_factor ?? false}
+		disabled={saving || !organization || (ownMissing && !organization?.require_two_factor)}
+		onCheckedChange={toggle} />
 </div>

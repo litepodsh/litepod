@@ -10,6 +10,7 @@
 	} from '#lib/utils/selected-organization.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
+	import { setProjectsOnlyCrumb } from '#lib/state/page-header.svelte.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	const projectId = page.params.project_id ?? '';
@@ -37,6 +38,8 @@
 			);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : t('projects.projects.unable_to_load');
+		} finally {
+			if (error) setProjectsOnlyCrumb();
 		}
 	});
 </script>

@@ -1,30 +1,7 @@
 import type { Component, Snippet } from 'svelte';
 import { page } from '$app/state';
 
-/** What the console shell shows around a page: column width, the tab capsule, the info card. */
-
-export type LayoutWidth = 'contained' | 'full';
-export const LAYOUT_STORAGE_KEY = 'lp-layout';
-
-export const layoutWidth = $state<{ current: LayoutWidth }>({ current: 'contained' });
-
-export function readStoredLayoutWidth(): LayoutWidth {
-	try {
-		return localStorage.getItem(LAYOUT_STORAGE_KEY) === 'full' ? 'full' : 'contained';
-	} catch {
-		return 'contained';
-	}
-}
-
-export function setLayoutWidth(width: LayoutWidth) {
-	layoutWidth.current = width;
-	document.documentElement.dataset.layout = width;
-	try {
-		localStorage.setItem(LAYOUT_STORAGE_KEY, width);
-	} catch {
-		// Private mode: the choice lasts for this tab only.
-	}
-}
+/** What the console shell shows around a page: the tab capsule, the info card. */
 
 export type ShellTab = {
 	value: string;

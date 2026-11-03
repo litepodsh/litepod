@@ -1,0 +1,40 @@
+# git-cliff config for GitHub release notes.
+# Reads conventional commits (feat/fix/chore/...) and groups them into sections,
+# ignoring PR/merge titles. Consumed by `.github/workflows/release.yml`.
+#
+# The in-app "Release notes" link points at the GitHub releases page, so each
+# release gets its notes generated here from its commits.
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | upper_first | trim }}
+{%- endfor %}
+{%- endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+# First match wins: security fixes get their own section, release-prep commits
+# are dropped, everything else falls into type buckets.
+commit_parsers = [
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^(ci|build)", skip = true },
+  { message = "^fix\\(security\\)", group = "Security" },
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^chore", group = "Other" },
+  { message = "^refactor", group = "Other" },
+  { message = "^style", group = "Other" },
+  { message = "^test", group = "Other" },
+]
+tag_pattern = "v[0-9].*"
+sort_commits = "newest"
