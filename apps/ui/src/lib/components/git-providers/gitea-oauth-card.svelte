@@ -40,6 +40,12 @@
 	let clientId = $state('');
 	let clientSecret = $state('');
 
+	// Gitea/Forgejo register OAuth apps in the instance's user settings — there is no
+	// manifest flow, so the best shortcut is a deep link straight to that page.
+	let applicationsUrl = $derived(
+		`${(provider.host_url ?? '').replace(/\/+$/, '')}/user/settings/applications`,
+	);
+
 	async function refresh() {
 		loading = true;
 		try {
@@ -192,6 +198,14 @@
 					{/if}
 				</li>
 			</ol>
+			<a
+				href={applicationsUrl}
+				target="_blank"
+				rel="noopener noreferrer"
+				class="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary underline-offset-4 hover:underline">
+				<ExternalLinkIcon class="size-3" />
+				{t('git-providers.gitea-oauth.open_applications', { host: provider.host_url })}
+			</a>
 		</div>
 
 		<div class="grid gap-2">
