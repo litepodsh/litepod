@@ -53,7 +53,7 @@
 	} from '#lib/utils/selected-organization.js';
 	import { toast } from '#lib/utils/toast.js';
 	import { invalidateOnboarding } from '#lib/state/onboarding.svelte.js';
-	import { setPageBreadcrumbs } from '#lib/state/page-header.svelte.js';
+	import { setPageBreadcrumbs, setProjectsOnlyCrumb } from '#lib/state/page-header.svelte.js';
 	import { clearScopeHero, setScopeHero } from '#lib/state/shell.svelte.js';
 	import CellChart from '#lib/components/custom/cell-chart.svelte';
 	import {
@@ -432,6 +432,7 @@
 				{ label: t('projects.common.projects'), href: '/projects', icon: FolderKanbanIcon },
 				{
 					label: projectDetail.project.name,
+					href: `/projects/${encodeURIComponent(pId)}`,
 					iconSnippet: projectCrumbIcon,
 					switcher: {
 						items: projectItems,
@@ -462,7 +463,10 @@
 			environment = null;
 			error = caught instanceof Error ? caught.message : t('projects.projects.unable_to_load');
 		} finally {
-			if (!cancelled) loading = false;
+			if (!cancelled) {
+				loading = false;
+				if (error) setProjectsOnlyCrumb();
+			}
 		}
 	}
 
@@ -643,6 +647,13 @@
 		editingEnvironment = target;
 		environmentDialogOpen = true;
 	}
+
+	// The sidebar's "+" lands here with ?new=app; open the dialog once and drop the param.
+	$effect(() => {
+		if (page.url.searchParams.get('new') !== 'app') return;
+		void goto(page.url.pathname, { replaceState: true });
+		void openCreateApplication();
+	});
 
 	async function openCreateApplication() {
 		if (deploymentNotice) {

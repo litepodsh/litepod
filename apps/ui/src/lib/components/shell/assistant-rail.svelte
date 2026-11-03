@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * The assistant without a sidebar to live in: a floating rail on the right,
+	 * The assistant as a floating rail on the right,
 	 * under the header. Non-modal on purpose, so it stays usable next to the
 	 * logs or settings it is answering about. Any caller that asks for the
 	 * assistant (`setAssistantMode('chat' | 'detached')`) opens it.

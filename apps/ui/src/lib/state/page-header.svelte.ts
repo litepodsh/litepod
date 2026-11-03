@@ -1,6 +1,7 @@
 import type { Component, Snippet } from 'svelte';
 import { page } from '$app/state';
 import { getOrganization } from '#lib/clients/organization-client.js';
+import { t } from '#lib/i18n/index.svelte.js';
 import { ROUTE_ICONS, ROUTE_LABELS } from '#lib/utils/route-labels.js';
 
 export type CrumbSwitcherItem = {
@@ -48,7 +49,8 @@ export const pageHeaderState = $state<{
 
 /**
  * Only pages that need something the URL can't express (a switcher dropdown) call
- * this; everything else is derived from the path by `routeBreadcrumbs`.
+ * this; everything else is derived from the path by `routeBreadcrumbs`, or named
+ * with `nameCurrentCrumb`.
  */
 export function setPageBreadcrumbs(
 	breadcrumbs: HeaderBreadcrumb[],
@@ -56,6 +58,19 @@ export function setPageBreadcrumbs(
 ) {
 	pageHeaderState.breadcrumbs = breadcrumbs;
 	pageHeaderState.path = path;
+}
+
+/** A detail page: the URL gives the whole trail except the name of the last id. */
+export function nameCurrentCrumb(name: string, path: string = page.url.pathname) {
+	const trail = routeBreadcrumbs(path);
+	trail[trail.length - 1] = { ...trail[trail.length - 1], label: name, pending: false };
+	setPageBreadcrumbs(trail, path);
+}
+
+/** A project page that failed to load has no names to show: leave the way back, not a placeholder. */
+export function setProjectsOnlyCrumb() {
+	const [projects] = routeBreadcrumbs('/projects');
+	setPageBreadcrumbs([{ ...projects, href: '/projects' }]);
 }
 
 export function setMobileHeaderSlot(slot: Snippet) {
@@ -87,7 +102,7 @@ export function primeOrganizationName(pathname: string) {
 		.catch(() => (organizationNames[organizationId] = 'Organization'));
 }
 
-function organizationIdFromPath(pathname: string) {
+export function organizationIdFromPath(pathname: string) {
 	const segments = pathname.split('/').filter(Boolean);
 	if (segments[0] !== 'organizations' || !segments[1]) return null;
 	const id = decodeURIComponent(segments[1]);
@@ -96,18 +111,20 @@ function organizationIdFromPath(pathname: string) {
 
 export function routeBreadcrumbs(pathname: string): HeaderBreadcrumb[] {
 	const segments = pathname.split('/').filter(Boolean);
-	if (segments.length === 0) return [{ label: 'Home', icon: ROUTE_ICONS.home }];
+	if (segments.length === 0) return [{ label: t('menu.navigation.home'), icon: ROUTE_ICONS.home }];
 
 	let href = '';
 	return segments.map((segment, index) => {
 		href += `/${segment}`;
 		const known = ROUTE_LABELS[segment];
 		const isOrganization = known === undefined && segments[index - 1] === 'organizations';
-		const name = isOrganization ? organizationNames[decodeURIComponent(segment)] : known;
+		const name = isOrganization
+			? organizationNames[decodeURIComponent(segment)]
+			: known && t(known);
 		// An unknown segment is an id whose page pushes its own trail once loaded;
 		// until then it is a placeholder, never a generic "Details" that then jumps.
 		return {
-			label: name || (isOrganization ? 'Organization' : ''),
+			label: name || (isOrganization ? t('menu.navigation.organization') : ''),
 			pending: !name,
 			href: index === segments.length - 1 ? undefined : href,
 			icon: ROUTE_ICONS[segment],

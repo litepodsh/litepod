@@ -176,7 +176,7 @@
 		resolveSelectedOrganization,
 		setSelectedOrganizationId,
 	} from '#lib/utils/selected-organization.js';
-	import { setPageBreadcrumbs } from '#lib/state/page-header.svelte.js';
+	import { setPageBreadcrumbs, setProjectsOnlyCrumb } from '#lib/state/page-header.svelte.js';
 	import {
 		clearScopeHero,
 		clearShellTabs,
@@ -539,14 +539,9 @@
 	});
 
 	function isDeferredTab(value: string): value is ApplicationDeferredTab {
-		return [
-			'containers',
-			'deployment',
-			'domains',
-			'environment',
-			'networks',
-			'volumes',
-		].includes(value);
+		return ['containers', 'deployment', 'domains', 'environment', 'networks', 'volumes'].includes(
+			value,
+		);
 	}
 
 	async function refreshNetworks() {
@@ -894,6 +889,7 @@
 				{ label: t('projects.common.projects'), href: '/projects', icon: FolderKanbanIcon },
 				{
 					label: detail.project.name,
+					href: `/projects/${encodeURIComponent(pId)}`,
 					iconSnippet: projectCrumbIcon,
 					switcher: {
 						items: projectList.map((item) => ({
@@ -912,6 +908,7 @@
 				},
 				{
 					label: resolvedEnvironment.name,
+					href: `/projects/${encodeURIComponent(pId)}/environments/${encodeURIComponent(resolvedEnvironment.name)}`,
 					icon: LayersIcon,
 					switcher: {
 						items: detail.environments.map((item) => ({
@@ -954,6 +951,7 @@
 		} finally {
 			if (gen === generation) {
 				loading = false;
+				if (error) setProjectsOnlyCrumb();
 				if (activeTab === 'domains') void enterDomainsTab();
 				else void loadDeferredTab(activeTab);
 				if (activeTab === 'advanced') void refreshTab(activeTab);

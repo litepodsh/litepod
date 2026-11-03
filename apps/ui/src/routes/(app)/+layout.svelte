@@ -5,14 +5,16 @@
 	import CommandPalette from '#lib/components/custom/command-palette.svelte';
 	import { UpdateOverlay } from '#lib/components/update/index.js';
 	import OnboardingDock from '#lib/components/onboarding/onboarding-dock.svelte';
-	import DeploymentsIndicator from '#lib/components/deployments/deployments-indicator.svelte';
+	import AppSidebar from '#lib/components/shell/app-sidebar.svelte';
+	import * as Sidebar from '#lib/components/ui/sidebar/index.js';
+	import { SIDEBAR_COOKIE_NAME } from '#lib/components/ui/sidebar/constants.js';
 	import ScopeHeader from '#lib/components/shell/scope-header.svelte';
 	import ScopeHero from '#lib/components/shell/scope-hero.svelte';
 	import ScopeTabs from '#lib/components/shell/scope-tabs.svelte';
 	import AssistantRail from '#lib/components/shell/assistant-rail.svelte';
 	import type { OrganizationDto } from '#lib/clients/organization-client.js';
+	import type { SystemVersion } from '#lib/clients/system-client.js';
 	import { restoreAssistant } from '#lib/state/assistant.svelte.js';
-	import { readStoredLayoutWidth, setLayoutWidth } from '#lib/state/shell.svelte.js';
 	import {
 		getSelectedOrganizationId,
 		resolveSelectedOrganization,
@@ -21,12 +23,16 @@
 	import { loadPermissions } from '#lib/state/permissions.svelte.js';
 	let { children } = $props();
 
-	setLayoutWidth(readStoredLayoutWidth());
 	restoreAssistant();
 
 	let organizations = $state<OrganizationDto[]>([]);
 	let isSysadmin = $state(false);
 	let isCloud = $state(false);
+	let user = $state({ name: '', email: '', is_sysadmin: false });
+	let systemVersion = $state<SystemVersion | null>(null);
+	let organizationsLoaded = $state(false);
+	// The primitive writes this cookie but never reads it back.
+	let sidebarOpen = $state(!document.cookie.includes(`${SIDEBAR_COOKIE_NAME}=false`));
 
 	function pageTitle(): string {
 		const labels = resolveBreadcrumbs(page.url.pathname)
@@ -45,6 +51,7 @@
 	});
 
 	let organizationName = $derived(organizations.find((o) => o.id === organizationId)?.name);
+	let activeOrganization = $derived(resolveSelectedOrganization(organizations));
 
 	$effect(() => {
 		void loadPermissions(organizationId);
@@ -58,17 +65,33 @@
 
 <CommandPalette />
 <UpdateOverlay />
-
-<ScopeHeader bind:organizations bind:isSysadmin bind:isCloud />
-<ScopeHero />
-<ScopeTabs {organizationId} {isSysadmin} {isCloud} />
-<main class="shell-col flex min-w-0 flex-1 flex-col gap-4">
-	{@render children()}
-</main>
-
-<div class="fixed bottom-5 left-4 z-30 max-sm:hidden">
-	<DeploymentsIndicator />
-</div>
+<Sidebar.Provider bind:open={sidebarOpen}>
+	<AppSidebar
+		bind:organizations
+		active={activeOrganization}
+		{organizationsLoaded}
+		{organizationId}
+		{isSysadmin}
+		{isCloud}
+		{user}
+		{systemVersion} />
+	<!-- Not Sidebar.Inset: it renders a <main>, and the page's own <main> sits inside. -->
+	<div class="flex min-h-svh min-w-0 flex-1 flex-col">
+		<ScopeHeader
+			bind:organizations
+			bind:isSysadmin
+			bind:isCloud
+			bind:user
+			bind:systemVersion
+			bind:organizationsLoaded
+			{organizationId} />
+		<ScopeHero />
+		<ScopeTabs {organizationId} {isSysadmin} {isCloud} />
+		<main class="shell-col flex min-w-0 flex-1 flex-col gap-4">
+			{@render children()}
+		</main>
+	</div>
+</Sidebar.Provider>
 <AssistantRail {organizationId} scope={organizationName} />
 <OnboardingDock {organizationId} />
 

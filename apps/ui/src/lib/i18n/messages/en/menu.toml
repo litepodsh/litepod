@@ -35,8 +35,6 @@ title = "Command Palette"
 
 [header]
 assistant = "Assistant"
-contained_width = "Contained width"
-full_width = "Full width"
 scope = "Current scope"
 search = "Search"
 
@@ -63,6 +61,9 @@ system = "System"
 workspace = "Workspace"
 
 [sidebar]
+collapse = "Collapse"
+expand = "Expand"
+all_projects = "All projects"
 appearance_options = "Sidebar appearance options"
 contents = "Sidebar contents"
 fix = "Fix sidebar"

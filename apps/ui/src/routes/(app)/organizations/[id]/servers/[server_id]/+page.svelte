@@ -5,6 +5,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { getServerMetricsHistory } from '#lib/clients/container-metrics-client.js';
 	import { getServer, type Server } from '#lib/clients/server-client.js';
+	import { nameCurrentCrumb } from '#lib/state/page-header.svelte.js';
 	import { setSelectedOrganizationId } from '#lib/utils/selected-organization.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 
@@ -14,9 +15,16 @@
 	let server = $state<Server | null>(null);
 	$effect(() => {
 		setSelectedOrganizationId(organizationId);
+		const path = page.url.pathname;
 		getServer(organizationId, serverId).then(
-			(result) => (server = result),
-			() => (server = null),
+			(result) => {
+				server = result;
+				nameCurrentCrumb(result.name, path);
+			},
+			() => {
+				server = null;
+				nameCurrentCrumb(t('common.metrics_history.title'), path);
+			},
 		);
 	});
 </script>

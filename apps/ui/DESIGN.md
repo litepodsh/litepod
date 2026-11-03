@@ -128,8 +128,9 @@ with the shadows switched off.
 
 ## 5. Layout Principles
 
-- The desktop application shell is a restrained navigation island/sidebar with
-  a stable page header and constrained content width.
+- The application shell is a collapsible sidebar (shadcn `sidebar-07`) on the
+  page ground, with a stable page header and constrained content width. Phones
+  use a sheet for the sidebar and keep the bottom tab bar.
 - Use whitespace and sparse separators for routine groups. Reserve raised
   surfaces and double bezels for meaningful hierarchy.
 - Use CSS Grid for responsive groups. At less than `768px`, collapse all
