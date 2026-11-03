@@ -8,7 +8,7 @@
 
 **Host your apps. Keep control.**
 
-Litepod is an open-source, self-hostable PaaS built on Podman — a lightweight alternative to Heroku, Vercel and Netlify.
+Litepod is an open-source, self-hostable PaaS built on Podman — a lightweight alternative to Vercel, Coolify and Dokploy.
 Deploy applications, databases and services to servers you own, with a clean panel instead of a black box.
 
 [Website](https://litepod.sh) · [Docs](https://docs.litepod.sh) · [Live demo](https://demo.litepod.sh) · [Templates](https://templates.litepod.sh) · [Litepod Cloud](https://app.litepod.sh/register?utm_source=github&utm_medium=readme&utm_campaign=cloud) · [Roadmap](ROADMAP.md)
@@ -57,15 +57,15 @@ Connect your own agent (Claude, Cursor, …) to `/api/v1/organizations/{organiza
   - **`url`** — reads one public HTTPS page as text (a README, a `compose.yml`); a github.com repository or file address returns the README or the raw file. Responses are size-capped and marked as untrusted data, and internal addresses are refused.
   - **`web_search`** — searches the web through the provider the organization set up in the assistant settings: a SearXNG instance it runs, or a Brave Search API key. Off until an owner adds one; the key is encrypted and never shown again (it can only be turned off or deleted). Results are marked as untrusted data. Over MCP it only appears once an owner has set it up and turned it on: your agent's own web search is the default.
   - **`wait_deployment`** — blocks up to 55 seconds until an application has no deploy queued or running, then returns its final status, error and domains with their route health.
-- **`exec`** changes. `start` and `stop` run immediately. Everything else is a proposal a person confirms in Litepod: set or delete environment variables, redeploy, restart, roll back to an earlier deploy, edit the compose file or source, add, update or delete domains, update an application's settings, create, rename or delete projects and applications (empty or Compose).
-  - **`deploy_static_site`** — one confirmation for a whole static site: project (existing or new), application, upload, deploy and an optional HTTPS domain. The agent gets a one-time `upload_url` and sends the site (up to 10 MB) with `curl -T site.zip <upload_url>`.
-  - **`deploy_zip`** — one confirmation to build and run a project you have as files, not as a repository. The agent asks which folder of the ZIP holds the project and the port, gets a one-time `upload_url`, and sends the ZIP (up to 100 MB) with `curl -T project.zip <upload_url>`. It builds with Railpack, like a repository.
-  - **`deploy_repository`** — one confirmation to build and run a Git repository, public or reachable through one of your Git providers: project (existing or new), application, build, deploy and an optional HTTPS domain.
-  - **`create_from_template`** — one confirmation for a database (`postgres`, `mariadb`, `mongodb`, `dragonflydb`, `keydb`, `sqlserver`) or a catalog template such as `uptime-kuma`: project (existing or new), the variable values the user wrote, an optional domain, and the deploy.
+- **`exec`** changes. Every action runs immediately and returns its result: start and stop, set or delete environment variables, redeploy, restart, roll back to an earlier deploy, edit the compose file or source, add, update or delete domains, update an application's settings, create, rename or delete projects and applications (empty or Compose).
+  - **`deploy_static_site`** — one call for a whole static site: project (existing or new), application, upload, deploy and an optional HTTPS domain. The agent gets a one-time `upload_url` and sends the site (up to 10 MB) with `curl -T site.zip <upload_url>`.
+  - **`deploy_zip`** — one call to build and run a project you have as files, not as a repository. The agent asks which folder of the ZIP holds the project and the port, gets a one-time `upload_url`, and sends the ZIP (up to 100 MB) with `curl -T project.zip <upload_url>`. It builds with Railpack, like a repository.
+  - **`deploy_repository`** — one call to build and run a Git repository, public or reachable through one of your Git providers: project (existing or new), application, build, deploy and an optional HTTPS domain.
+  - **`create_from_template`** — one call for a database (`postgres`, `mariadb`, `mongodb`, `dragonflydb`, `keydb`, `sqlserver`) or a catalog template such as `uptime-kuma`: project (existing or new), the variable values the user wrote, an optional domain, and the deploy.
 
-  - **`deploy_compose`** — one confirmation for a Compose application from a file the agent writes: project (existing or new), the compose file, an optional `.env`, and the deploy.
+  - **`deploy_compose`** — one call for a Compose application from a file the agent writes: project (existing or new), the compose file, an optional `.env`, and the deploy.
 
-  After confirming, the agent calls `wait_deployment` until the deploy finishes and reports back.
+  After starting a deploy, the agent calls `wait_deployment` until the deploy finishes and reports back.
 
 ## Screenshots
 

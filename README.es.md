@@ -8,7 +8,7 @@
 
 **Aloja tus apps. Mantén el control.**
 
-Litepod es un PaaS open source y autoalojable construido sobre Podman — una alternativa ligera a Heroku, Vercel y Netlify.
+Litepod es un PaaS open source y autoalojable construido sobre Podman — una alternativa ligera a Vercel, Coolify y Dokploy.
 Despliega aplicaciones, bases de datos y servicios en servidores que son tuyos, con un panel claro en lugar de una caja negra.
 
 [Sitio web](https://litepod.sh) · [Documentación](https://docs.litepod.sh) · [Demo en vivo](https://demo.litepod.sh) · [Plantillas](https://templates.litepod.sh) · [Litepod Cloud](https://app.litepod.sh/register?utm_source=github&utm_medium=readme&utm_campaign=cloud) · [Roadmap](ROADMAP.es.md)
@@ -57,15 +57,15 @@ Conecta tu propio agente (Claude, Cursor, …) a `/api/v1/organizations/{organiz
   - **`url`** — lee una página HTTPS pública como texto (un README, un `compose.yml`); una dirección de repositorio o archivo de github.com devuelve el README o el archivo en crudo. Las respuestas tienen tamaño limitado, se marcan como datos no confiables y se rechazan las direcciones internas.
   - **`web_search`** — busca en la web con el proveedor que la organización configuró en los ajustes del asistente: una instancia de SearXNG propia o una clave de Brave Search API. Apagada hasta que un owner agregue una; la clave se cifra y no se vuelve a mostrar (solo se puede desactivar o eliminar). Los resultados se marcan como datos no confiables. Por MCP solo aparece cuando un owner la configuró y la activó: por defecto se usa la búsqueda web de tu propio agente.
   - **`wait_deployment`** — espera hasta 55 segundos a que una aplicación no tenga despliegues en cola ni en curso, y devuelve su estado final, el error y sus dominios con la salud de la ruta.
-- **`exec`** cambia. `start` y `stop` se ejecutan al instante. Todo lo demás es una propuesta que una persona confirma en Litepod: definir o borrar variables de entorno, redesplegar, reiniciar, volver a un despliegue anterior, editar el compose o el origen, agregar, editar o borrar dominios, actualizar los ajustes de una aplicación, crear, renombrar o borrar proyectos y aplicaciones (vacías o Compose).
-  - **`deploy_static_site`** — una sola confirmación para un sitio estático completo: proyecto (existente o nuevo), aplicación, subida, despliegue y un dominio HTTPS opcional. El agente recibe una `upload_url` de un solo uso y sube el sitio (hasta 10 MB) con `curl -T site.zip <upload_url>`.
-  - **`deploy_zip`** — una sola confirmación para construir y ejecutar un proyecto que tienes como archivos y no como repositorio. El agente pregunta en qué carpeta del ZIP está el proyecto y el puerto, recibe una `upload_url` de un solo uso y sube el ZIP (hasta 100 MB) con `curl -T project.zip <upload_url>`. Se construye con Railpack, igual que un repositorio.
-  - **`deploy_repository`** — una sola confirmación para construir y ejecutar un repositorio de Git, público o accesible mediante uno de tus proveedores de Git: proyecto (existente o nuevo), aplicación, construcción, despliegue y un dominio HTTPS opcional.
-  - **`create_from_template`** — una sola confirmación para una base de datos (`postgres`, `mariadb`, `mongodb`, `dragonflydb`, `keydb`, `sqlserver`) o una plantilla del catálogo como `uptime-kuma`: proyecto (existente o nuevo), los valores de variables que escribió el usuario, un dominio opcional y el despliegue.
+- **`exec`** cambia. Todas las acciones se ejecutan al instante y devuelven su resultado: iniciar y detener, definir o borrar variables de entorno, redesplegar, reiniciar, volver a un despliegue anterior, editar el compose o el origen, agregar, editar o borrar dominios, actualizar los ajustes de una aplicación, crear, renombrar o borrar proyectos y aplicaciones (vacías o Compose).
+  - **`deploy_static_site`** — una sola llamada para un sitio estático completo: proyecto (existente o nuevo), aplicación, subida, despliegue y un dominio HTTPS opcional. El agente recibe una `upload_url` de un solo uso y sube el sitio (hasta 10 MB) con `curl -T site.zip <upload_url>`.
+  - **`deploy_zip`** — una sola llamada para construir y ejecutar un proyecto que tienes como archivos y no como repositorio. El agente pregunta en qué carpeta del ZIP está el proyecto y el puerto, recibe una `upload_url` de un solo uso y sube el ZIP (hasta 100 MB) con `curl -T project.zip <upload_url>`. Se construye con Railpack, igual que un repositorio.
+  - **`deploy_repository`** — una sola llamada para construir y ejecutar un repositorio de Git, público o accesible mediante uno de tus proveedores de Git: proyecto (existente o nuevo), aplicación, construcción, despliegue y un dominio HTTPS opcional.
+  - **`create_from_template`** — una sola llamada para una base de datos (`postgres`, `mariadb`, `mongodb`, `dragonflydb`, `keydb`, `sqlserver`) o una plantilla del catálogo como `uptime-kuma`: proyecto (existente o nuevo), los valores de variables que escribió el usuario, un dominio opcional y el despliegue.
 
-  - **`deploy_compose`** — una sola confirmación para una aplicación Compose a partir de un archivo que escribe el agente: proyecto (existente o nuevo), el compose, un `.env` opcional y el despliegue.
+  - **`deploy_compose`** — una sola llamada para una aplicación Compose a partir de un archivo que escribe el agente: proyecto (existente o nuevo), el compose, un `.env` opcional y el despliegue.
 
-  Tras confirmar, el agente llama a `wait_deployment` hasta que el despliegue termina y avisa.
+  Tras iniciar un despliegue, el agente llama a `wait_deployment` hasta que el despliegue termina y avisa.
 
 ## Capturas
 
