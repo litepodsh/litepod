@@ -32,6 +32,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("servers/ingress.rs", "SELECT id FROM applications WHERE server_id = ?1 LIMIT 1", "only asks whether any application is on the server"),
     ("servers/monitor.rs", "JOIN applications a ON a.id = d.application_id", "reconciles every container Podman reports, the companion's included"),
     ("servers/boot_restore.rs", "JOIN applications a ON a.id = d.application_id", "restores by policy; a parked companion is desired=stopped and stays down"),
+    ("servers/repository.rs", "FROM deployment_jobs j JOIN applications a", "a companion's build also needs its images and cache left alone while it runs"),
     ("servers/repository.rs", "SELECT COUNT(*) FROM applications WHERE server_id = ?1", "a server with a companion still hosts its parent, so it is never empty"),
     ("notifications/repository.rs", "JOIN applications a ON a.id = r.application_id", "a failed page build is worth a notification, named \"Maintenance page · <app>\""),
     ("git/git_providers/provider.rs", "WHERE git_provider_id = ?1", "a companion is built from an upload and has no git provider"),

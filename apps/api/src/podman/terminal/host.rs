@@ -108,6 +108,27 @@ impl LocalSshConfig {
     }
 }
 
+/// `server` with the installer's host SSH identity filled in, so the local
+/// server can run the same SSH maintenance commands as a remote one.
+pub(crate) fn with_local_ssh(
+    mut server: repository::ServerRecord,
+) -> Result<repository::ServerRecord, AppError> {
+    let config = LocalSshConfig::load()?;
+    server.private_key_encrypted = Some(
+        crate::utils::security::encrypt_data(
+            &config.private_key,
+            &crate::utils::security::get_encryption_key(),
+        )
+        .map_err(|_| AppError::InternalError("Could not prepare host SSH identity".into()))?,
+    );
+    server.ssh_host = Some(config.target.host);
+    server.ssh_port = Some(config.target.port);
+    server.ssh_user = Some(config.target.user);
+    server.host_key_fingerprint = Some(config.fingerprint);
+    server.host_key_known_hosts = Some(config.known_hosts.trim().to_string());
+    Ok(server)
+}
+
 fn authorize_terminal(
     is_sysadmin: bool,
     server_kind: &str,

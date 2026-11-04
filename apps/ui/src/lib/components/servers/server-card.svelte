@@ -426,6 +426,10 @@
 						{/snippet}
 					</DropdownMenu.Trigger>
 					<DropdownMenu.Content align="end">
+						<DropdownMenu.Item onSelect={() => onMaintenance(server)}>
+							<WrenchIcon class="size-4" />
+							{t('organizations.servers.maintenance')}
+						</DropdownMenu.Item>
 						<DropdownMenu.Item onSelect={() => onRename(server)}>
 							<PencilIcon class="size-4" />
 							{t('organizations.servers.rename_action')}

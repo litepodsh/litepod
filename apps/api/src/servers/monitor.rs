@@ -675,6 +675,49 @@ mod tests {
         (state, path)
     }
 
+    #[tokio::test]
+    async fn an_active_deployment_blocks_only_its_own_server() {
+        let (state, path) = test_state().await;
+        let active = |server: &'static str| {
+            let state = state.clone();
+            async move {
+                crate::servers::repository::has_active_deployment(&state, server)
+                    .await
+                    .unwrap()
+            }
+        };
+        assert!(!active("local").await);
+
+        let conn = state.db.clone();
+        sqlx::query("INSERT INTO application_deployment_runs (id, application_id, source_type, build_method, status, started_at) VALUES ('run-1', 'application-1', 'git', 'railpack', 'building', 1)")
+            .execute(&conn).await.unwrap();
+        assert!(active("local").await);
+        assert!(!active("other").await);
+
+        sqlx::query(
+            "UPDATE application_deployment_runs SET status = 'succeeded' WHERE id = 'run-1'",
+        )
+        .execute(&conn)
+        .await
+        .unwrap();
+        assert!(!active("local").await);
+
+        sqlx::query("INSERT INTO deployment_jobs (id, application_id, project_id, environment_id, organization_id, run_id, source_type, source_snapshot, build_method, build_snapshot, status, queued_at) VALUES ('job-1', 'application-1', 'project-1', 'environment-1', 'organization-1', 'run-1', 'git', '{}', 'railpack', '{}', 'queued', 1)")
+            .execute(&conn).await.unwrap();
+        assert!(active("local").await);
+        sqlx::query("DELETE FROM deployment_jobs")
+            .execute(&conn)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO application_replicas (application_id, server_id, status, updated_at) VALUES ('application-1', 'local', 'deploying', 1)")
+            .execute(&conn).await.unwrap();
+        assert!(active("local").await);
+
+        state.db.close().await;
+        let _ = std::fs::remove_file(path);
+    }
+
     async fn seed_deployment(state: &SharedState, status: &str) {
         let conn = state.db.clone();
         sqlx::query(

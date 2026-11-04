@@ -663,6 +663,27 @@ pub async fn fail_interrupted_jobs(state: &SharedState) -> Result<u64, AppError>
     Ok(jobs)
 }
 
+/// True while a deployment targets the server. Pruning then could delete an image
+/// it just pulled or the build cache it is using.
+pub async fn has_active_deployment(state: &SharedState, server_id: &str) -> Result<bool, AppError> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let row = sqlx::query(
+        "SELECT 1 FROM deployment_jobs j JOIN applications a ON a.id = j.application_id \
+         WHERE a.server_id = ?1 AND j.status IN ('queued', 'building', 'deploying') \
+         UNION ALL \
+         SELECT 1 FROM application_deployment_runs r JOIN applications a ON a.id = r.application_id \
+         WHERE a.server_id = ?1 AND r.status IN ('building', 'deploying') \
+         UNION ALL \
+         SELECT 1 FROM application_replicas r WHERE r.server_id = ?1 AND r.status = 'deploying' \
+         LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_optional(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    Ok(row.is_some())
+}
+
 pub async fn has_active_setup_job(state: &SharedState, server_id: &str) -> Result<bool, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     Ok(sqlx::query(

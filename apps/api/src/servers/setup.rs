@@ -1002,7 +1002,20 @@ pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, A
         command.extend(args.iter().map(OsString::from));
         command
     };
-    let mut run = run_maintenance_command(server, podman(&["image", "prune", "-a", "-f"])).await?;
+    // Litepod's own images are left to `updater::apply::prune_old_images`, which
+    // keeps the previous version for a rollback.
+    let mut run = run_maintenance_command(
+        server,
+        podman(&[
+            "image",
+            "prune",
+            "-a",
+            "-f",
+            "--filter",
+            "label!=org.opencontainers.image.title=litepod",
+        ]),
+    )
+    .await?;
     let mut stdout = std::mem::take(&mut run.stdout);
     let mut stderr = std::mem::take(&mut run.stderr);
     let mut success = run.exit_code == 0;
@@ -1033,7 +1046,7 @@ pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, A
     )
     .await?;
     append_output(&mut stderr, &workspaces.stderr);
-    let _ = run_maintenance_command(
+    let journal = run_maintenance_command(
         server,
         maintenance_command(
             PodmanMode::privilege_prefix(ssh_user),
@@ -1041,6 +1054,12 @@ pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, A
         ),
     )
     .await;
+    if !matches!(&journal, Ok(run) if run.exit_code == 0) {
+        append_output(
+            &mut stderr,
+            "Journal logs were not cleaned. On the local server, rerun the installer to allow it.",
+        );
+    }
 
     Ok(MaintenanceOutcome {
         action: "prune_images".into(),

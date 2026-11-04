@@ -77,6 +77,12 @@
 		},
 	];
 
+	/** The local server is the host running Litepod, so only its disk actions are safe. */
+	const isLocal = $derived(server?.kind === 'local');
+	const visibleActions = $derived(
+		isLocal ? actions.filter((a) => a.id === 'prune-images' || a.id === 'check-disk') : actions,
+	);
+
 	function resultFor(action: Action) {
 		return results[action];
 	}
@@ -150,7 +156,10 @@
 			label: 'servers.maintenance.cmd_workspaces',
 			command: 'du -sh ~/.local/share/litepod/apps/* | sort -rh | head',
 		},
-		{ label: 'servers.maintenance.cmd_prune_images', command: 'podman image prune -a -f' },
+		{
+			label: 'servers.maintenance.cmd_prune_images',
+			command: 'podman image prune -a -f --filter label!=org.opencontainers.image.title=litepod',
+		},
 		{ label: 'servers.maintenance.cmd_prune_builder', command: 'podman builder prune -a -f' },
 		{ label: 'servers.maintenance.cmd_journal', command: 'journalctl --vacuum-size=200M' },
 	] as const;
@@ -231,7 +240,7 @@
 		</Dialog.Header>
 
 		<div class="space-y-3">
-			{#each actions as action}
+			{#each visibleActions as action}
 				{@const result = resultFor(action.id)}
 				<div class="rounded-lg border p-3">
 					<div class="flex items-start gap-3">
@@ -278,35 +287,37 @@
 				</div>
 			{/each}
 
-			<div class="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-				<div class="flex items-start gap-3">
-					<PowerIcon class="mt-0.5 size-4 shrink-0 text-destructive" />
-					<div class="min-w-0 flex-1 space-y-1">
-						<p class="text-sm font-medium">{t('servers.maintenance.restart_server')}</p>
-						<p class="text-xs text-muted-foreground">
-							{t('servers.maintenance.restart_description')}
-						</p>
+			{#if !isLocal}
+				<div class="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+					<div class="flex items-start gap-3">
+						<PowerIcon class="mt-0.5 size-4 shrink-0 text-destructive" />
+						<div class="min-w-0 flex-1 space-y-1">
+							<p class="text-sm font-medium">{t('servers.maintenance.restart_server')}</p>
+							<p class="text-xs text-muted-foreground">
+								{t('servers.maintenance.restart_description')}
+							</p>
+						</div>
+						<Button
+							size="sm"
+							variant="destructive"
+							disabled={running !== null}
+							onclick={() => (restartConfirmOpen = true)}>
+							{t('servers.maintenance.restart_server')}
+						</Button>
 					</div>
-					<Button
-						size="sm"
-						variant="destructive"
-						disabled={running !== null}
-						onclick={() => (restartConfirmOpen = true)}>
-						{t('servers.maintenance.restart_server')}
-					</Button>
+					{#if results.restart}
+						<div class="mt-3 flex items-center gap-2 text-xs">
+							{#if results.restart.success}
+								<CheckIcon class="size-4 text-success" />
+								<Badge variant="secondary">{t('servers.maintenance.scheduled')}</Badge>
+							{:else}
+								<XIcon class="size-4 text-destructive" />
+								<Badge variant="destructive">{t('organizations.servers.failed')}</Badge>
+							{/if}
+						</div>
+					{/if}
 				</div>
-				{#if results.restart}
-					<div class="mt-3 flex items-center gap-2 text-xs">
-						{#if results.restart.success}
-							<CheckIcon class="size-4 text-success" />
-							<Badge variant="secondary">{t('servers.maintenance.scheduled')}</Badge>
-						{:else}
-							<XIcon class="size-4 text-destructive" />
-							<Badge variant="destructive">{t('organizations.servers.failed')}</Badge>
-						{/if}
-					</div>
-				{/if}
-			</div>
+			{/if}
 		</div>
 
 		<Dialog.Footer>
