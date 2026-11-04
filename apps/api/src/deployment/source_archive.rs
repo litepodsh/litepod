@@ -20,6 +20,8 @@ const MAX_ENTRIES: usize = 20_000;
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 /// How many past uploads are kept for rollback, newest first.
 const KEPT_VERSIONS: usize = 10;
+/// How long a one-time download link stays good when nobody uses it.
+const DOWNLOAD_LINK_MS: i64 = 10 * 60 * 1000;
 
 fn archive_path(state: &SharedState, application_id: &str) -> PathBuf {
     state
@@ -128,6 +130,63 @@ async fn keep_version(
         let _ = tokio::fs::remove_file(path).await;
     }
     Ok(())
+}
+
+fn download_token_hash(token: &str) -> String {
+    Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// A link to the application's stored ZIP that needs no login, ready to `curl`.
+/// Links nobody used are swept here, so the table only holds live ones.
+pub async fn create_download_link(
+    state: &SharedState,
+    application_id: &str,
+) -> Result<String, AppError> {
+    let token = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let now = chrono::Utc::now().timestamp_millis();
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query("DELETE FROM source_archive_downloads WHERE expires_at <= ?1")
+        .bind(now)
+        .execute(&conn)
+        .await
+        .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    sqlx::query(
+        "INSERT INTO source_archive_downloads (token_hash, application_id, expires_at) VALUES (?1, ?2, ?3)",
+    )
+    .bind(download_token_hash(&token))
+    .bind(application_id)
+    .bind(now + DOWNLOAD_LINK_MS)
+    .execute(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    Ok(format!(
+        "{}/api/v1/assistant/downloads/{token}",
+        crate::handler::settings::public_base_url(state)
+            .await
+            .trim_end_matches('/')
+    ))
+}
+
+/// The application a download token is good for, spending the token. `None` when
+/// it is unknown, already used or expired. One statement, so two requests racing
+/// on the same link cannot both get it.
+pub async fn redeem_download(state: &SharedState, token: &str) -> Result<Option<String>, AppError> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query_scalar::<_, String>(
+        "DELETE FROM source_archive_downloads WHERE token_hash = ?1 AND expires_at > ?2 RETURNING application_id",
+    )
+    .bind(download_token_hash(token))
+    .bind(chrono::Utc::now().timestamp_millis())
+    .fetch_optional(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))
 }
 
 /// Whether the application builds from an uploaded archive.
@@ -316,6 +375,22 @@ mod tests {
             zip.write_all(content.as_bytes()).unwrap();
         }
         zip.finish().unwrap().into_inner()
+    }
+
+    #[tokio::test]
+    async fn an_expired_download_link_is_refused() {
+        let (state, path) = crate::testing::test_state().await;
+        let (_, _, application_id) =
+            crate::testing::seed_application(&state, "organization-a").await;
+        let link = create_download_link(&state, &application_id).await.unwrap();
+        let token = link.rsplit('/').next().unwrap();
+        sqlx::query("UPDATE source_archive_downloads SET expires_at = 0")
+            .execute(&state.db)
+            .await
+            .unwrap();
+
+        assert_eq!(redeem_download(&state, token).await.unwrap(), None);
+        crate::testing::cleanup_database(&path);
     }
 
     fn scratch() -> PathBuf {

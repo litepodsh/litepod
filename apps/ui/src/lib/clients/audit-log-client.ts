@@ -56,6 +56,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
 	'application.updated': 'Updated an application',
 	'application.deleted': 'Deleted an application',
 	'application.deployed': 'Deployed an application',
+	'application.source_download_link_created': 'Created a download link for an application source',
 	'scheduled_task.created': 'Created a scheduled task',
 	'scheduled_task.updated': 'Updated a scheduled task',
 	'scheduled_task.deleted': 'Deleted a scheduled task',

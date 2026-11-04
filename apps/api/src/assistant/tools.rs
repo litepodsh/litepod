@@ -128,7 +128,17 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
     ),
     (
         "source",
-        "`source` (how an application is fetched and built: provider, repo, branch, root path, auto deploy; needs `application`)",
+        "`source` (how an application is fetched and built: provider, repo, branch, root path, container port, auto deploy, \
+        and `source_upload` when it is built from an uploaded ZIP; needs `application`)",
+    ),
+    (
+        "source_archive",
+        "`source_archive` (the project ZIP an application built with `deploy_zip` runs from, for changing a project whose files \
+        you do not have; needs `application`. Returns a `download_url` that works once and for ten minutes: \
+        `curl -fsS -o project.zip <download_url>`, and read this again if it fails. Unpack it, make the change, and send it back \
+        with `deploy_zip` under the same `name`, taking `container_port`, `railpack_project_path` and `build_method` from \
+        `get source`. An application built from a repository has none: clone its `git_url` instead. A static site has none either: \
+        only what was published is kept)",
     ),
     (
         "domains",
@@ -1148,10 +1158,77 @@ async fn get(
                     "git_url": source.git_url,
                     "git_branch": source.git_branch,
                     "railpack_project_path": source.railpack_project_path,
+                    "dockerfile_path": source.dockerfile_path,
+                    "container_port": source.container_port,
                     "auto_deploy": source.auto_deploy,
                     "watch_paths": source.watch_paths,
+                    "source_upload": source.source_upload,
+                    "source_archive_bytes": source.source_archive_bytes,
                 })),
             }
+        }
+
+        "source_archive" => {
+            let resolved = match resolve(state, organization_id, arguments).await {
+                Ok(resolved) => resolved,
+                Err(outcome) => return *outcome,
+            };
+            let target = &resolved.target;
+            let source = match deployment::source::get(state, &target.application_id).await {
+                Ok(source) => source,
+                Err(error) => return ToolOutcome::failure(error.to_string()),
+            };
+            let bytes = match (source.source_upload, source.source_archive_bytes) {
+                (true, Some(bytes)) => bytes,
+                (true, None) => {
+                    return ToolOutcome::failure(format!(
+                        "The ZIP `{}` was built from is no longer stored. Ask the user for the project files.",
+                        target.application_name
+                    ));
+                }
+                (false, _) => {
+                    let instead = match &source.git_url {
+                        Some(url) => format!("It builds from a repository: clone {url} instead."),
+                        None => "Only an application built with `deploy_zip` has one.".to_owned(),
+                    };
+                    return ToolOutcome::failure(format!(
+                        "`{}` has no uploaded source ZIP. {instead}",
+                        target.application_name
+                    ));
+                }
+            };
+            let download_url = match deployment::source_archive::create_download_link(
+                state,
+                &target.application_id,
+            )
+            .await
+            {
+                Ok(url) => url,
+                Err(error) => return ToolOutcome::failure(error.to_string()),
+            };
+            // Whoever holds the link gets the source with no login, so handing
+            // one out is on the record even though this is a read.
+            let _ = crate::git::repositories::audit_log::record(
+                state,
+                organization_id,
+                actor,
+                "application.source_download_link_created",
+                Some("application"),
+                Some(&target.application_id),
+                Some(&target.application_name),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+            ToolOutcome::data(json!({
+                "application": target.application_name,
+                "origin": resolved.origin,
+                "download_url": download_url,
+                "bytes": bytes,
+                "next": "Download it with `curl -fsS -o project.zip <download_url>`: the link works once, for ten minutes.",
+            }))
         }
 
         "servers" => {

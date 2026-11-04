@@ -356,6 +356,11 @@ pub fn create_router(state: SharedState) -> Router {
                     crate::deployment::source_archive::MAX_ARCHIVE_BYTES,
                 )),
         )
+        // The way back: `get source_archive` hands the agent this one-time link.
+        .route(
+            "/api/v1/assistant/downloads/{token}",
+            get(webhooks::assistant_download_handler),
+        )
         .with_state(state.clone());
 
     let debug_routes = debug::routes()

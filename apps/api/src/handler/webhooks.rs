@@ -733,9 +733,77 @@ pub async fn assistant_upload_handler(
     })))
 }
 
+/// Where an MCP agent `curl`s the source ZIP `get source_archive` offered. The
+/// token in the path is the credential and works once. A wrong, used or expired
+/// token all answer the same, so there is nothing to learn by guessing.
+pub async fn assistant_download_handler(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+) -> Result<axum::response::Response, AppError> {
+    let application_id = crate::deployment::source_archive::redeem_download(&state, &token)
+        .await?
+        .ok_or(AppError::ResourceNotFound)?;
+    let bytes = tokio::fs::read(crate::deployment::source_archive::archive_file(
+        &state,
+        &application_id,
+    ))
+    .await
+    .map_err(|_| AppError::ResourceNotFound)?;
+    Ok(crate::handler::deployments::source_archive_response(bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_source_download_link_works_once() {
+        use axum::{
+            body::Body,
+            http::{Request, StatusCode, header},
+        };
+        use std::io::Write;
+        use tower::ServiceExt;
+
+        let (state, path) = crate::testing::test_state().await;
+        let (_, _, application_id) =
+            crate::testing::seed_application(&state, "organization-a").await;
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file("index.html", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"<h1>hi</h1>").unwrap();
+        let archive = zip.finish().unwrap().into_inner();
+        crate::deployment::source_archive::store(&state, &application_id, &archive)
+            .await
+            .unwrap();
+        let link = crate::deployment::source_archive::create_download_link(&state, &application_id)
+            .await
+            .unwrap();
+        let token = link.rsplit('/').next().unwrap().to_owned();
+        let router = axum::Router::new()
+            .route(
+                "/downloads/{token}",
+                axum::routing::get(assistant_download_handler),
+            )
+            .with_state(state);
+        let request = || {
+            Request::get(format!("/downloads/{token}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        let first = router.clone().oneshot(request()).await.unwrap();
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(first.headers()[header::CONTENT_TYPE], "application/zip");
+        let body = axum::body::to_bytes(first.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), archive.as_slice());
+
+        let second = router.oneshot(request()).await.unwrap();
+        assert_eq!(second.status(), StatusCode::NOT_FOUND);
+        crate::testing::cleanup_database(&path);
+    }
 
     #[tokio::test]
     async fn an_oversized_site_is_refused_with_the_limit_in_words() {

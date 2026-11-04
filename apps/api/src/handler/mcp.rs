@@ -338,6 +338,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_zip_application_offers_its_source_and_says_how_to_rebuild_it() {
+        use std::io::Write;
+
+        let (state, path) = crate::testing::test_state().await;
+        let (_, _, application_id) =
+            crate::testing::seed_application(&state, "organization-a").await;
+        sqlx::query("UPDATE organizations SET mcp_enabled = 1 WHERE id = 'organization-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE applications SET container_port = 4321 WHERE id = ?1")
+            .bind(&application_id)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file("package.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"{}").unwrap();
+        crate::deployment::source_archive::store(
+            &state,
+            &application_id,
+            &zip.finish().unwrap().into_inner(),
+        )
+        .await
+        .unwrap();
+        let router = Router::new()
+            .route("/organizations/{organization_id}/mcp", post(mcp_handler))
+            .layer(Extension(crate::testing::auth_user("editor")))
+            .with_state(state);
+
+        let params = json!({
+            "name": "get",
+            "arguments": { "resource": "source_archive", "application": application_id }
+        });
+        let (_, reply) = send(&router, "organization-a", call(3, "tools/call", params)).await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("/api/v1/assistant/downloads/"), "{text}");
+
+        let params = json!({
+            "name": "get",
+            "arguments": { "resource": "source", "application": application_id }
+        });
+        let (_, reply) = send(&router, "organization-a", call(4, "tools/call", params)).await;
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        let source: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(source["source_upload"], true, "{text}");
+        assert_eq!(source["container_port"], 4321, "{text}");
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn an_application_not_built_from_a_zip_has_no_source_to_download() {
+        let (router, path) = router("editor", true).await;
+        let params = json!({
+            "name": "get",
+            "arguments": { "resource": "source_archive", "application": "organization-a-app" }
+        });
+        let (_, reply) = send(&router, "organization-a", call(3, "tools/call", params)).await;
+        assert_eq!(reply["result"]["isError"], true, "{reply}");
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("no uploaded source ZIP"), "{text}");
+        assert!(!text.contains("download_url"), "{text}");
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
     async fn a_direct_stop_of_something_that_does_not_exist_says_so() {
         let (router, path) = router("editor", true).await;
         let params = json!({
