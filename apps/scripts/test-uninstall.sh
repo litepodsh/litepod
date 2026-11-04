@@ -84,4 +84,49 @@ podman_user_run() {
 remove_empty_litepod_network
 assert_eq true "${network_removed}"
 
+parse_uninstall_args --yes
+assert_eq true "${assume_yes}"
+
+# Nothing destructive may run until the confirmation succeeds.
+install_dir=/tmp/litepod
+declare -a workload_containers=(litepod-api my-app)
+find_install_dir() { :; }
+configure_podman_access() { podman_mode=rootless; podman_user=''; }
+discover_deployed_workloads() { :; }
+destructive_ran=false
+stop_rootless_stack_service() { destructive_ran=true; return 1; }
+cleanup_keep_data() { destructive_ran=true; }
+confirmation_source="$(mktemp)"
+for arguments in '' '--keep-applications' '--keep-data'; do
+	for reply in '' 'yes' 'UNINSTALL'; do
+		printf '%s\n' "${reply}" > "${confirmation_source}"
+		# shellcheck disable=SC2086
+		assert_fails main ${arguments}
+		assert_eq false "${destructive_ran}"
+	done
+done
+printf 'uninstall\n' > "${confirmation_source}"
+assert_fails main
+assert_eq true "${destructive_ran}"
+destructive_ran=false
+main --keep-data >/dev/null 2>&1
+assert_eq true "${destructive_ran}"
+rm -f -- "${confirmation_source}"
+
+# No terminal: refuses unless --yes was passed.
+destructive_ran=false
+confirmation_source=/nonexistent/tty
+assert_fails main
+assert_eq false "${destructive_ran}"
+assert_fails main --yes
+assert_eq true "${destructive_ran}"
+
+keep_data=false
+application_policy=purge
+listed="$(describe_uninstall)"
+[[ "${listed}" == *my-app* && "${listed}" != *'      litepod-api'* ]] || {
+	printf '%s\n' 'purge summary must list applications, not core containers' >&2
+	exit 1
+}
+
 printf '%s\n' 'uninstall tests passed'
