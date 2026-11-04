@@ -188,6 +188,15 @@ pub async fn update_project(
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ProjectNotFound)?;
+    // An older value stays editable around: the form sends it back on every save.
+    if let Some(Some(value)) = &req.icon_url
+        && existing.icon_url.as_ref() != Some(value)
+    {
+        crate::icons::check_value(
+            value,
+            &format!("/api/v1/organizations/{organization_id}/projects/{project_id}/icon/"),
+        )?;
+    }
     let name = match req.name.as_deref() {
         Some(value) => required_name(value, "Project")?.to_owned(),
         None => existing.name.clone(),
@@ -461,6 +470,17 @@ pub async fn update_application(
         .as_deref()
         .unwrap_or(&existing.description)
         .to_owned();
+    // An older value stays editable around: the form sends it back on every save.
+    if let Some(Some(value)) = &req.icon_url
+        && existing.icon_url.as_ref() != Some(value)
+    {
+        crate::icons::check_value(
+            value,
+            &format!(
+                "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/icon/"
+            ),
+        )?;
+    }
     // Tri-state: field omitted keeps the existing override, `Some(None)`
     // clears it, `Some(Some(url))` sets it.
     let icon_url = req
