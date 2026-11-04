@@ -10,6 +10,9 @@ pub async fn list_users(state: &SharedState) -> Result<Vec<UserWithOrgsDto>, App
     let mut usage = user::list_usage(state)
         .await
         .map_err(AppError::DatabaseError)?;
+    let mut running = user::list_running_work(state)
+        .await
+        .map_err(AppError::DatabaseError)?;
 
     let mut users = Vec::new();
     for row in rows {
@@ -44,14 +47,28 @@ pub async fn list_users(state: &SharedState) -> Result<Vec<UserWithOrgsDto>, App
             })
             .collect();
         let is_sysadmin = user::is_sysadmin(state, &row.id).await;
+        let disabled = row.status_id == 4;
+        let activity = running
+            .remove(&row.id)
+            .map(|(action, target)| (action, Some(target)))
+            .or_else(|| {
+                crate::users::presence::status(&row.id).map(|recent| (recent.action, recent.target))
+            })
+            .filter(|_| !disabled);
+        let online = activity.is_some();
+        let (recent_action, recent_action_target) = activity.unzip();
+        let recent_action_target = recent_action_target.flatten();
         let usage = usage.remove(&row.id).unwrap_or_default();
         users.push(UserWithOrgsDto {
             id: row.id,
             email: row.email,
             name: row.name,
             created_at: row.created_at,
-            disabled: row.status_id == 4,
+            disabled,
             is_sysadmin,
+            online,
+            recent_action,
+            recent_action_target,
             last_login_at: usage.last_login_at,
             remote_servers: usage.remote_servers,
             remote_servers_ready: usage.remote_servers_ready,

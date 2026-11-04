@@ -36,6 +36,7 @@ pub async fn record_connection_event(
         Some(host) => format!("{} ({host})", server.name),
         None => server.name.clone(),
     };
+    crate::users::presence::on_audit(&actor.user_id, action, Some(&target));
     let _ = crate::security::security_events::record_for_organization(
         state,
         organization_id,

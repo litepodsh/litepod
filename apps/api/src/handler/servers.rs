@@ -948,6 +948,7 @@ pub async fn maintenance_restart_handler(
     if result.success {
         repository::set_state(&state, &server.id, ServerState::Offline).await?;
     }
+    record_connection_event(&state, &organization_id, &org.user, &server, "server.restarted").await;
     Ok(ok(maintenance_dto(result)))
 }
 
@@ -980,7 +981,16 @@ pub async fn maintenance_restart_podman_handler(
 ) -> Result<impl IntoResponse, AppError> {
     let organization_id = org.organization_id;
     let server = maintenance_server(&state, &organization_id, &server_id).await?;
-    Ok(ok(maintenance_dto(setup::restart_podman(&server).await?)))
+    let result = setup::restart_podman(&server).await?;
+    record_connection_event(
+        &state,
+        &organization_id,
+        &org.user,
+        &server,
+        "server.podman_restarted",
+    )
+    .await;
+    Ok(ok(maintenance_dto(result)))
 }
 
 pub async fn maintenance_check_disk_handler(

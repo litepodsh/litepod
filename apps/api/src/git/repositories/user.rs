@@ -252,6 +252,42 @@ pub async fn list_usage(
         .map_err(|e| e.to_string())
 }
 
+/// What each user has running right now, as an action and its target. Someone with several shows
+/// one of them, deployments first.
+pub async fn list_running_work(
+    state: &SharedState,
+) -> Result<std::collections::HashMap<String, (String, String)>, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let rows = sqlx::query(
+        "SELECT r.created_by, 'deployment.running', a.name
+         FROM application_deployment_runs r
+         JOIN applications a ON a.id = r.application_id
+         WHERE a.maintenance_for IS NULL
+           AND r.created_by IS NOT NULL
+           AND r.status IN ('building', 'deploying')
+         UNION ALL
+         SELECT t.created_by, 'scheduled_task.running', t.name
+         FROM scheduled_task_executions x
+         JOIN scheduled_tasks t ON t.id = x.task_id
+         WHERE x.status = 'running'
+         ORDER BY 2",
+    )
+    .fetch_all(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut running = std::collections::HashMap::new();
+    for row in &rows {
+        running
+            .entry(row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?)
+            .or_insert((
+                row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?,
+                row.try_get(2).map_err(|e: sqlx::Error| e.to_string())?,
+            ));
+    }
+    Ok(running)
+}
+
 pub async fn update_user(
     state: &SharedState,
     user_id: &str,
@@ -394,6 +430,62 @@ mod tests {
             passes_cloud_pin(false, "admin", Some("someone-else")),
             "self-hosted ignores it"
         );
+    }
+
+    #[tokio::test]
+    async fn running_work_is_attributed_to_its_user_and_prefers_deployments() {
+        let (state, path) = test_state().await;
+        crate::testing::seed_application(&state, "organization-a").await;
+        for (id, status, created_by) in [
+            ("run-viewer", "building", Some("viewer")),
+            ("run-finished", "succeeded", Some("outsider")),
+            ("run-webhook", "deploying", None),
+        ] {
+            sqlx::query("INSERT INTO application_deployment_runs (id, application_id, source_type, build_method, status, started_at, created_by) VALUES (?1, 'organization-a-app', 'git', 'docker', ?2, 1, ?3)")
+                .bind(id)
+                .bind(status)
+                .bind(created_by)
+                .execute(&state.db)
+                .await
+                .unwrap();
+        }
+        for (task, created_by, status) in [
+            ("task-editor", "editor", "running"),
+            ("task-viewer", "viewer", "running"),
+            ("task-queued", "outsider", "queued"),
+        ] {
+            sqlx::query("INSERT INTO scheduled_tasks (id, organization_id, server_id, name, cron_expression, runner, shell, script, timeout_seconds, created_by, created_at, updated_at) VALUES (?1, 'organization-a', 'local', ?1, '* * * * *', 'litepod_api', 'sh', 'echo ran', 10, ?2, 1, 1)")
+                .bind(task)
+                .bind(created_by)
+                .execute(&state.db)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO scheduled_task_executions (id, task_id, organization_id, server_id, trigger, runner, shell, script, timeout_seconds, status, queued_at) VALUES (?1, ?1, 'organization-a', 'local', 'scheduled', 'litepod_api', 'sh', 'echo ran', 10, ?2, 1)")
+                .bind(task)
+                .bind(status)
+                .execute(&state.db)
+                .await
+                .unwrap();
+        }
+
+        let running = list_running_work(&state).await.unwrap();
+
+        assert_eq!(
+            running["viewer"],
+            (
+                "deployment.running".to_string(),
+                "organization-a-app".to_string()
+            )
+        );
+        assert_eq!(
+            running["editor"],
+            (
+                "scheduled_task.running".to_string(),
+                "task-editor".to_string()
+            )
+        );
+        assert!(!running.contains_key("outsider"));
+        cleanup_database(&path);
     }
 
     #[tokio::test]

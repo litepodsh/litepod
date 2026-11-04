@@ -58,6 +58,7 @@ pub async fn record(
     outcome: Option<AuditOutcome>,
     error_message: Option<&str>,
 ) -> Result<(), String> {
+    crate::users::presence::on_audit(&actor.user_id, action, target_name);
     if state.is_cloud {
         let foreign_sysadmin = actor.is_sysadmin
             && crate::git::repositories::role::get_organization_member_role(

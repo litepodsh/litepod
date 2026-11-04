@@ -188,6 +188,11 @@ export type UserWithOrgs = {
 	/** Locked out by a SysAdmin. */
 	disabled: boolean;
 	is_sysadmin: boolean;
+	/** Did something in Litepod within the last few minutes, or has a deployment or scheduled task running. */
+	online: boolean;
+	/** What they have running or just did, e.g. `deployment.running`, `deployment.triggered`. */
+	recent_action: string | null;
+	recent_action_target: string | null;
 	last_login_at: string | null;
 	/** Remote servers and applications in the organizations this user created. */
 	remote_servers: number;

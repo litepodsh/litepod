@@ -30,6 +30,12 @@ pub struct UserWithOrgsDto {
     /// Locked out by a SysAdmin; only a SysAdmin lifts it.
     pub disabled: bool,
     pub is_sysadmin: bool,
+    /// Did something in Litepod within the last few minutes, or has a deployment or scheduled
+    /// task running.
+    pub online: bool,
+    /// What they have running or just did, e.g. `deployment.running`, `deployment.triggered`.
+    pub recent_action: Option<String>,
+    pub recent_action_target: Option<String>,
     pub last_login_at: Option<String>,
     /// Remote servers and applications in the organizations this user created.
     pub remote_servers: i64,
