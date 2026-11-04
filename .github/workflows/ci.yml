@@ -1,12 +1,12 @@
 name: ci
 
-# Compile gate for main: API (with the `saml` feature the release binary
+# Compile gate for main and next: API (with the `saml` feature the release binary
 # ships) and UI type-check + build. The Dockerfile is exercised by the release
 # workflow (manual dispatch defaults to a dry run).
 
 on:
   push:
-    branches: [main]
+    branches: [main, next]
     paths: ["apps/**", ".github/workflows/ci.yml"]
   pull_request:
     branches: [main]
