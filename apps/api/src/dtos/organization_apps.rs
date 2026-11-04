@@ -51,6 +51,18 @@ pub struct AppContainersDto {
     pub total: i64,
 }
 
+/// Live resource usage for one application, keyed for the org-wide stats batch.
+/// The home overview used to fan out one `/stats` request per application; this
+/// carries the same fields plus the id so a single request can update every app.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ApplicationStatsItemDto {
+    pub application_id: String,
+    pub status: String,
+    pub cpu_percent: Option<f64>,
+    pub mem_usage_bytes: Option<u64>,
+    pub mem_limit_bytes: Option<u64>,
+}
+
 /// One row of the organization app summary: everything the org-wide lists need
 /// about a single application, fetched in bulk so the lists stop paying one
 /// request per application.

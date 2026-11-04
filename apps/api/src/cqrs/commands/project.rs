@@ -188,6 +188,15 @@ pub async fn update_project(
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ProjectNotFound)?;
+    // An older value stays editable around: the form sends it back on every save.
+    if let Some(Some(value)) = &req.icon_url
+        && existing.icon_url.as_ref() != Some(value)
+    {
+        crate::icons::check_value(
+            value,
+            &format!("/api/v1/organizations/{organization_id}/projects/{project_id}/icon/"),
+        )?;
+    }
     let name = match req.name.as_deref() {
         Some(value) => required_name(value, "Project")?.to_owned(),
         None => existing.name.clone(),
@@ -225,6 +234,29 @@ pub async fn update_project(
         created_at: existing.created_at,
         updated_at,
     })
+}
+
+/// Keeps an image as the project's icon and points the project at it.
+pub async fn set_project_icon(
+    state: &SharedState,
+    organization_id: &str,
+    project_id: &str,
+    bytes: &[u8],
+) -> Result<ProjectDto, AppError> {
+    let filename = crate::icons::store(state, "projects", project_id, bytes).await?;
+    update_project(
+        state,
+        organization_id,
+        project_id,
+        &UpdateProjectRequest {
+            name: None,
+            description: None,
+            icon_url: Some(Some(format!(
+                "/api/v1/organizations/{organization_id}/projects/{project_id}/icon/{filename}"
+            ))),
+        },
+    )
+    .await
 }
 
 pub async fn delete_project(
@@ -461,6 +493,17 @@ pub async fn update_application(
         .as_deref()
         .unwrap_or(&existing.description)
         .to_owned();
+    // An older value stays editable around: the form sends it back on every save.
+    if let Some(Some(value)) = &req.icon_url
+        && existing.icon_url.as_ref() != Some(value)
+    {
+        crate::icons::check_value(
+            value,
+            &format!(
+                "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/icon/"
+            ),
+        )?;
+    }
     // Tri-state: field omitted keeps the existing override, `Some(None)`
     // clears it, `Some(Some(url))` sets it.
     let icon_url = req
@@ -512,6 +555,35 @@ pub async fn update_application(
         created_at: existing.created_at,
         updated_at,
     })
+}
+
+/// Keeps an image as the application's icon and points the application at it.
+pub async fn set_application_icon(
+    state: &SharedState,
+    organization_id: &str,
+    project_id: &str,
+    environment_id: &str,
+    application_id: &str,
+    bytes: &[u8],
+) -> Result<ApplicationDto, AppError> {
+    let filename = crate::icons::store(state, "applications", application_id, bytes).await?;
+    update_application(
+        state,
+        organization_id,
+        project_id,
+        environment_id,
+        application_id,
+        &UpdateApplicationRequest {
+            name: None,
+            description: None,
+            icon_url: Some(Some(format!(
+                "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/icon/{filename}"
+            ))),
+            server_id: None,
+            server_group_id: None,
+        },
+    )
+    .await
 }
 
 pub async fn delete_application(

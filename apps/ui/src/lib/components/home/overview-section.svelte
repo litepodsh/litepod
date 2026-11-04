@@ -8,12 +8,12 @@
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { allowed } from '#lib/state/permissions.svelte.js';
 	import {
-		getApplicationStats,
 		type ApplicationDto,
 		type ApplicationStatsDto,
 		type ProjectDto,
 	} from '#lib/clients/project-client.js';
 	import { getOrganizationDashboard } from '#lib/clients/dashboard-client.js';
+	import { listOrganizationAppsStats } from '#lib/clients/organization-client.js';
 	import { toast } from '#lib/utils/toast.js';
 	import OverviewProjectCard from './overview-project-card.svelte';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
@@ -86,36 +86,25 @@
 		}
 	}
 
-	async function fetchStats(
-		projectId: string,
-		environmentId: string,
-		applicationId: string,
-	): Promise<ApplicationStatsDto | null> {
-		try {
-			return await getApplicationStats(organizationId, projectId, environmentId, applicationId);
-		} catch {
-			return null;
-		}
-	}
-
 	async function pollStats() {
 		if (overviews.length === 0) return;
-		const updated = await Promise.all(
-			overviews.map(async (overview) => {
-				const apps = await Promise.all(
-					overview.apps.map(async (app): Promise<AppOverview> => {
-						if (app.deployment?.status !== 'running') return app;
-						const stats = await fetchStats(
-							overview.project.id,
-							overview.environmentId,
-							app.application.id,
-						);
-						return { ...app, stats };
-					}),
-				);
-				return { ...overview, apps };
-			}),
-		);
+		let statsByApp: Map<string, ApplicationStatsDto>;
+		try {
+			const items = await listOrganizationAppsStats(organizationId);
+			statsByApp = new Map(
+				items.map(({ application_id, ...stats }) => [application_id, stats]),
+			);
+		} catch {
+			return;
+		}
+		const updated = overviews.map((overview) => {
+			const apps = overview.apps.map((app) => {
+				if (app.deployment?.status !== 'running') return app;
+				const stats = statsByApp.get(app.application.id) ?? null;
+				return { ...app, stats };
+			});
+			return { ...overview, apps };
+		});
 		overviews = updated;
 	}
 </script>

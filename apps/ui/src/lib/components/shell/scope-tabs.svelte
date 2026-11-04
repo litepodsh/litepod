@@ -3,7 +3,6 @@
 	import { goto } from '$app/navigation';
 	import { tick, type Component } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
-	import { fade } from 'svelte/transition';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import { activeTab, orgTabs, scopeOf } from '#lib/navigation/scope-tabs.js';
 	import { scopeHero, shellTabs } from '#lib/state/shell.svelte.js';
@@ -381,12 +380,6 @@
 					</Tooltip.Provider>
 				{/each}
 			</div>
-			{#if stuck && scopeHero.current?.path === path && scopeHero.current.actions}
-				<span
-					transition:fade={{ duration: reduced() ? 0 : 200 }}
-					class="mini ms-auto flex shrink-0 items-center gap-2 ps-3"
-					>{@render scopeHero.current.actions()}</span>
-			{/if}
 		</div>
 	</div>
 {/if}

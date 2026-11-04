@@ -6,6 +6,7 @@
 	import ManagedVolumeFormDialog from '#lib/components/projects/managed-volume-form-dialog.svelte';
 	import ManagedVolumeDeleteDialog from '#lib/components/projects/managed-volume-delete-dialog.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
+	import SkeletonRows from '#lib/components/custom/skeleton-rows.svelte';
 	import type {
 		CreateManagedVolumeInput,
 		ManagedVolumeDto,
@@ -23,6 +24,7 @@
 		isCompose,
 		composeServices = [],
 		busy = false,
+		loading = false,
 		onRefresh,
 		onCreateManagedVolume,
 		onAttachManagedVolume,
@@ -36,6 +38,8 @@
 		isCompose: boolean;
 		composeServices?: string[];
 		busy?: boolean;
+		/** First fetch still running: the lists being empty means nothing yet. */
+		loading?: boolean;
 		onRefresh: () => Promise<void>;
 		onCreateManagedVolume: (input: CreateManagedVolumeInput) => Promise<void>;
 		onAttachManagedVolume: (volumeId: string) => Promise<void>;
@@ -156,6 +160,12 @@
 				</article>
 			{/each}
 		</div>
+	{:else if loading}
+		<SkeletonRows
+			rows={1}
+			height="h-20"
+			label={t('projects.application_volumes.loading')}
+			class="mt-4" />
 	{:else}
 		<p class="mt-4 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
 			{t('projects.application_volumes.empty_managed')}
@@ -223,7 +233,11 @@
 							></tr
 						>{/each}</tbody>
 			</table>
-		</div>{:else}<p class="mt-4 text-sm text-muted-foreground">
+		</div>{:else if loading}<SkeletonRows
+			rows={1}
+			height="h-5"
+			label={t('projects.application_volumes.loading')}
+			class="mt-4" />{:else}<p class="mt-4 text-sm text-muted-foreground">
 			{t('projects.application_volumes.no_live_mounts')}
 		</p>{/if}
 </section>

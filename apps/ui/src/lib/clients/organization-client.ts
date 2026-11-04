@@ -203,3 +203,26 @@ export async function listOrganizationAppsSummary(
 	);
 	return response.data ?? [];
 }
+
+/** Live resource usage for one application, keyed by id for the home board. */
+export type ApplicationStatsItemDto = {
+	application_id: string;
+	status: string;
+	cpu_percent: number | null;
+	mem_usage_bytes: number | null;
+	mem_limit_bytes: number | null;
+};
+
+/**
+ * Live stats for every application in the organization in one request. The home
+ * overview used to fan out one `/stats` request per application; this replaces
+ * that burst with a single poll.
+ */
+export async function listOrganizationAppsStats(
+	organizationId: string,
+): Promise<ApplicationStatsItemDto[]> {
+	const response = await api<ApplicationStatsItemDto[]>(
+		`/api/v1/organizations/${organizationId}/applications-stats`,
+	);
+	return response.data ?? [];
+}

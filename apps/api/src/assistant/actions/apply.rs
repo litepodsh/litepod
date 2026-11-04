@@ -9,6 +9,7 @@ use crate::{
 
 use super::lifecycle::*;
 use super::types::*;
+use super::upload::{IconChange, take_icon};
 
 pub(super) async fn apply_environment_variable(
     state: &SharedState,
@@ -40,6 +41,25 @@ pub(super) async fn apply_update_application(
     let arguments: UpdateApplication = serde_json::from_str(&stored.arguments)
         .map_err(|error| AppError::InternalError(error.to_string()))?;
 
+    let icon = take_icon(
+        state,
+        &stored.id,
+        arguments.icon_url.as_deref(),
+        &arguments.upload_token_hash,
+    )
+    .await?;
+    if let IconChange::Image(bytes) = &icon {
+        crate::cqrs::commands::project::set_application_icon(
+            state,
+            &stored.organization_id,
+            &stored.project_id,
+            &stored.environment_id,
+            &stored.application_id,
+            bytes,
+        )
+        .await?;
+    }
+
     crate::cqrs::commands::project::update_application(
         state,
         &stored.organization_id,
@@ -49,9 +69,7 @@ pub(super) async fn apply_update_application(
         &crate::dtos::project::UpdateApplicationRequest {
             name: arguments.name.clone(),
             description: arguments.description.clone(),
-            // Absent, not null: the icon is nobody's business here, and a `None`
-            // inner value would clear it.
-            icon_url: None,
+            icon_url: icon.field(),
             server_id: None,
             server_group_id: None,
         },
@@ -60,9 +78,90 @@ pub(super) async fn apply_update_application(
 
     Ok(Applied {
         audit_action: "application.updated",
-        added: arguments.name.map(|name| format!("name = {name}")),
+        added: arguments
+            .name
+            .map(|name| format!("name = {name}"))
+            .or((!matches!(icon, IconChange::Keep)).then(|| "icon".to_owned())),
         removed: None,
     })
+}
+
+/// A new application's icon: the one asked for, or a random one from the list.
+async fn give_application_icon(
+    state: &SharedState,
+    organization_id: &str,
+    project_id: &str,
+    environment_id: &str,
+    application_id: &str,
+    icon: IconChange,
+) -> Result<(), AppError> {
+    let name = match icon {
+        IconChange::Image(bytes) => {
+            crate::cqrs::commands::project::set_application_icon(
+                state,
+                organization_id,
+                project_id,
+                environment_id,
+                application_id,
+                &bytes,
+            )
+            .await?;
+            return Ok(());
+        }
+        IconChange::Named(name) => name,
+        IconChange::Keep | IconChange::Clear => crate::icons::random_name().to_owned(),
+    };
+    crate::cqrs::commands::project::update_application(
+        state,
+        organization_id,
+        project_id,
+        environment_id,
+        application_id,
+        &crate::dtos::project::UpdateApplicationRequest {
+            name: None,
+            description: None,
+            icon_url: Some(Some(name)),
+            server_id: None,
+            server_group_id: None,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+/// A new project's icon: the one asked for, or a random one from the list.
+async fn give_project_icon(
+    state: &SharedState,
+    organization_id: &str,
+    project_id: &str,
+    icon: IconChange,
+) -> Result<(), AppError> {
+    let name = match icon {
+        IconChange::Image(bytes) => {
+            crate::cqrs::commands::project::set_project_icon(
+                state,
+                organization_id,
+                project_id,
+                &bytes,
+            )
+            .await?;
+            return Ok(());
+        }
+        IconChange::Named(name) => name,
+        IconChange::Keep | IconChange::Clear => crate::icons::random_name().to_owned(),
+    };
+    crate::cqrs::commands::project::update_project(
+        state,
+        organization_id,
+        project_id,
+        &crate::dtos::project::UpdateProjectRequest {
+            name: None,
+            description: None,
+            icon_url: Some(Some(name)),
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 /// Merges the proposed fields onto the current configuration.
@@ -262,6 +361,13 @@ pub(super) async fn apply_create_application(
 ) -> Result<Applied, AppError> {
     let arguments: CreateApplication = serde_json::from_str(&stored.arguments)
         .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let icon = take_icon(
+        state,
+        &stored.id,
+        arguments.icon_url.as_deref(),
+        &arguments.upload_token_hash,
+    )
+    .await?;
 
     let application = crate::cqrs::commands::project::create_application(
         state,
@@ -291,6 +397,27 @@ pub(super) async fn apply_create_application(
         }
     }
 
+    if let Err(error) = give_application_icon(
+        state,
+        &stored.organization_id,
+        &stored.project_id,
+        &stored.environment_id,
+        &application.id,
+        icon,
+    )
+    .await
+    {
+        let _ = crate::cqrs::commands::project::delete_application(
+            state,
+            &stored.organization_id,
+            &stored.project_id,
+            &stored.environment_id,
+            &application.id,
+        )
+        .await;
+        return Err(error);
+    }
+
     Ok(Applied {
         audit_action: "application.created",
         added: Some(format!("{} ({})", application.name, application.id)),
@@ -304,6 +431,13 @@ pub(super) async fn apply_create_project(
 ) -> Result<Applied, AppError> {
     let arguments: ProjectFields = serde_json::from_str(&stored.arguments)
         .map_err(|error| AppError::InternalError(error.to_string()))?;
+    let icon = take_icon(
+        state,
+        &stored.id,
+        arguments.icon_url.as_deref(),
+        &arguments.upload_token_hash,
+    )
+    .await?;
 
     let project = crate::cqrs::commands::project::create_project(
         state,
@@ -314,6 +448,15 @@ pub(super) async fn apply_create_project(
         },
     )
     .await?;
+    if let Err(error) = give_project_icon(state, &stored.organization_id, &project.id, icon).await {
+        let _ = crate::cqrs::commands::project::delete_project(
+            state,
+            &stored.organization_id,
+            &project.id,
+        )
+        .await;
+        return Err(error);
+    }
 
     Ok(Applied {
         audit_action: "project.created",
@@ -329,6 +472,23 @@ pub(super) async fn apply_update_project(
     let arguments: ProjectFields = serde_json::from_str(&stored.arguments)
         .map_err(|error| AppError::InternalError(error.to_string()))?;
 
+    let icon = take_icon(
+        state,
+        &stored.id,
+        arguments.icon_url.as_deref(),
+        &arguments.upload_token_hash,
+    )
+    .await?;
+    if let IconChange::Image(bytes) = &icon {
+        crate::cqrs::commands::project::set_project_icon(
+            state,
+            &stored.organization_id,
+            &stored.project_id,
+            bytes,
+        )
+        .await?;
+    }
+
     let project = crate::cqrs::commands::project::update_project(
         state,
         &stored.organization_id,
@@ -336,15 +496,17 @@ pub(super) async fn apply_update_project(
         &crate::dtos::project::UpdateProjectRequest {
             name: arguments.name.clone(),
             description: arguments.description.clone(),
-            // Absent, not null: a `None` inner value would clear the icon.
-            icon_url: None,
+            icon_url: icon.field(),
         },
     )
     .await?;
 
     Ok(Applied {
         audit_action: "project.updated",
-        added: arguments.name.map(|_| format!("name = {}", project.name)),
+        added: arguments
+            .name
+            .map(|_| format!("name = {}", project.name))
+            .or((!matches!(icon, IconChange::Keep)).then(|| "icon".to_owned())),
         removed: None,
     })
 }
@@ -707,6 +869,16 @@ pub(super) async fn apply_static_site(
             },
         )
         .await?;
+        // Cosmetic: no reason to fail the deploy over it.
+        let _ = give_application_icon(
+            state,
+            organization_id,
+            &project_id,
+            &environment_id,
+            &application.id,
+            IconChange::Keep,
+        )
+        .await;
         match publish_static_site(state, actor, &application.id, &site, filename, bytes).await {
             Ok(url) => Ok((application, url)),
             Err(error) => {
@@ -965,6 +1137,14 @@ async fn ensure_project(
         },
     )
     .await?;
+    // Cosmetic: no reason to fail the deploy over it.
+    let _ = give_project_icon(
+        state,
+        &stored.organization_id,
+        &project.id,
+        IconChange::Keep,
+    )
+    .await;
     let detail =
         crate::cqrs::queries::project::get_project(state, &stored.organization_id, &project.id)
             .await?;
@@ -1236,6 +1416,16 @@ pub(super) async fn apply_deploy_compose(
             },
         )
         .await?;
+        // Cosmetic: no reason to fail the deploy over it.
+        let _ = give_application_icon(
+            state,
+            organization_id,
+            &project_id,
+            &environment_id,
+            &application.id,
+            IconChange::Keep,
+        )
+        .await;
         let finished = async {
             write_compose(state, &application.id, &arguments.compose, arguments.port).await?;
             if !arguments.env.trim().is_empty() {
@@ -1413,6 +1603,16 @@ pub(super) async fn apply_source_app(
             },
         )
         .await?;
+        // Cosmetic: no reason to fail the deploy over it.
+        let _ = give_application_icon(
+            state,
+            organization_id,
+            &project_id,
+            &environment_id,
+            &application.id,
+            IconChange::Keep,
+        )
+        .await;
         match publish_source_app(state, actor, &application.id, &app, zip).await {
             Ok(url) => Ok((application, url)),
             Err(error) => {

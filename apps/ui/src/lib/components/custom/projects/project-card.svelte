@@ -14,6 +14,8 @@
 		type Sparklines,
 	} from '#lib/clients/analytics-client.js';
 	import { isDisplayableImageUrl } from '#lib/utils/application-card-icon.js';
+	import { isNamedIcon } from '#lib/utils/organization-icons.js';
+	import OrganizationIcon from '#lib/components/organization-icon.svelte';
 	import {
 		applicationHref,
 		statusTone,
@@ -105,7 +107,9 @@
 	<header class="flex items-start gap-3">
 		<span
 			class="tile flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[9px] border bg-muted text-sm font-semibold">
-			{#if isDisplayableImageUrl(project.icon_url) && !iconFailed}
+			{#if isNamedIcon(project.icon_url)}
+				<OrganizationIcon icon={project.icon_url} class="size-5" />
+			{:else if isDisplayableImageUrl(project.icon_url) && !iconFailed}
 				<img
 					src={project.icon_url}
 					alt=""

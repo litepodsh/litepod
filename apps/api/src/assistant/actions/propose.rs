@@ -98,9 +98,10 @@ pub async fn propose_update_application(
         .map(str::trim)
         .filter(|n| !n.is_empty());
     let description = arguments.description.as_deref().map(str::trim);
-    if name.is_none() && description.is_none() {
+    let icon = arguments.icon_url.is_some() || !arguments.upload_token_hash.is_empty();
+    if name.is_none() && description.is_none() && !icon {
         return Err(AppError::ValidationError(
-            "Nothing to change: pass a name, a description, or both".into(),
+            "Nothing to change: pass a name, a description, or an icon".into(),
         ));
     }
     if name.is_some_and(|name| name.chars().count() > 64) {
@@ -109,14 +110,24 @@ pub async fn propose_update_application(
         ));
     }
 
-    let title = match name {
-        Some(name) => format!("Rename {} to {name}", target.application_name),
-        None => format!("Change the description of {}", target.application_name),
+    let title = match (name, description) {
+        (Some(name), _) if icon => format!(
+            "Rename {} to {name} and change its icon",
+            target.application_name
+        ),
+        (Some(name), _) => format!("Rename {} to {name}", target.application_name),
+        (None, None) => format!("Change the icon of {}", target.application_name),
+        (None, Some(_)) if icon => format!(
+            "Change the description and icon of {}",
+            target.application_name
+        ),
+        (None, Some(_)) => format!("Change the description of {}", target.application_name),
     };
     let summary = arguments
         .reason
         .clone()
         .unwrap_or_else(|| match (name, description) {
+            (None, None) => "Replaces the application's icon. Nothing is redeployed.".into(),
             (Some(_), Some(_)) => "Renames the application and replaces its description.".into(),
             (Some(_), None) => "Renames the application. Nothing is redeployed.".into(),
             _ => "Replaces the application's description. Nothing is redeployed.".into(),
@@ -137,7 +148,9 @@ pub async fn propose_update_application(
     .await?;
 
     Ok(ActionDto {
-        added: name.map(|name| format!("name = {name}")),
+        added: name
+            .map(|name| format!("name = {name}"))
+            .or(icon.then(|| "icon".to_owned())),
         ..stored
     })
 }
@@ -1010,20 +1023,30 @@ pub async fn propose_update_project(
         None => None,
     };
     let description = arguments.description.as_deref().map(str::trim);
-    if name.is_none() && description.is_none() {
+    let icon = arguments.icon_url.is_some() || !arguments.upload_token_hash.is_empty();
+    if name.is_none() && description.is_none() && !icon {
         return Err(AppError::ValidationError(
-            "Nothing to change: pass a name, a description, or both".into(),
+            "Nothing to change: pass a name, a description, or an icon".into(),
         ));
     }
 
-    let title = match &name {
-        Some(name) => format!("Rename {} to {name}", target.project_name),
-        None => format!("Change the description of {}", target.project_name),
+    let title = match (&name, description) {
+        (Some(name), _) if icon => format!(
+            "Rename {} to {name} and change its icon",
+            target.project_name
+        ),
+        (Some(name), _) => format!("Rename {} to {name}", target.project_name),
+        (None, None) => format!("Change the icon of {}", target.project_name),
+        (None, Some(_)) if icon => {
+            format!("Change the description and icon of {}", target.project_name)
+        }
+        (None, Some(_)) => format!("Change the description of {}", target.project_name),
     };
     let summary = arguments
         .reason
         .clone()
         .unwrap_or_else(|| match (&name, description) {
+            (None, None) => "Replaces the project's icon. Nothing is redeployed.".into(),
             (Some(_), Some(_)) => "Renames the project and replaces its description.".into(),
             (Some(_), None) => "Renames the project. Nothing is redeployed.".into(),
             _ => "Replaces the project's description. Nothing is redeployed.".into(),
@@ -1047,7 +1070,9 @@ pub async fn propose_update_project(
     .await?;
 
     Ok(ActionDto {
-        added: name.map(|name| format!("name = {name}")),
+        added: name
+            .map(|name| format!("name = {name}"))
+            .or(icon.then(|| "icon".to_owned())),
         ..stored
     })
 }

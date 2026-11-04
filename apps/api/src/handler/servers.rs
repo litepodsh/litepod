@@ -857,6 +857,26 @@ async fn maintenance_server(
     repository::ensure_host_key_known_hosts(state, server).await
 }
 
+/// Disk actions also reach the local server, which is the host itself, so like
+/// its console they are limited to a sysadmin.
+async fn disk_maintenance_server(
+    state: &SharedState,
+    organization_id: &str,
+    is_sysadmin: bool,
+    server_id: &str,
+) -> Result<ServerRecord, AppError> {
+    let server = repository::get_for_server_route(state, server_id, organization_id)
+        .await?
+        .ok_or(AppError::ResourceNotFound)?;
+    if server.kind != "local" {
+        return maintenance_server(state, organization_id, server_id).await;
+    }
+    if !is_sysadmin {
+        return Err(AppError::InsufficientPermissions);
+    }
+    crate::podman::terminal::host::with_local_ssh(server)
+}
+
 fn maintenance_dto(result: setup::MaintenanceOutcome) -> ServerMaintenanceResultDto {
     ServerMaintenanceResultDto {
         action: result.action,
@@ -899,8 +919,18 @@ pub async fn maintenance_prune_images_handler(
     // The extractor covers `organization_id`.
     Path((_, server_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    let organization_id = org.organization_id;
-    let server = maintenance_server(&state, &organization_id, &server_id).await?;
+    let server = disk_maintenance_server(
+        &state,
+        &org.organization_id,
+        org.user.is_sysadmin,
+        &server_id,
+    )
+    .await?;
+    if repository::has_active_deployment(&state, &server.id).await? {
+        return Err(AppError::ValidationError(
+            "A deployment is running on this server. Try again when it finishes.".into(),
+        ));
+    }
     Ok(ok(maintenance_dto(setup::prune_images(&server).await?)))
 }
 
@@ -921,8 +951,13 @@ pub async fn maintenance_check_disk_handler(
     // The extractor covers `organization_id`.
     Path((_, server_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    let organization_id = org.organization_id;
-    let server = maintenance_server(&state, &organization_id, &server_id).await?;
+    let server = disk_maintenance_server(
+        &state,
+        &org.organization_id,
+        org.user.is_sysadmin,
+        &server_id,
+    )
+    .await?;
     Ok(ok(maintenance_dto(setup::check_disk(&server).await?)))
 }
 

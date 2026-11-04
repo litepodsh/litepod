@@ -10,6 +10,8 @@
 	import { environmentApplicationsHref } from '#lib/utils/environment-route.js';
 	import ApplicationIcon from '#lib/components/projects/application-icon.svelte';
 	import { isDisplayableImageUrl } from '#lib/utils/application-card-icon.js';
+	import { isNamedIcon } from '#lib/utils/organization-icons.js';
+	import OrganizationIcon from '#lib/components/organization-icon.svelte';
 	import { statusTone, type OrganizationApp } from '#lib/utils/organization-apps.js';
 	import { toneDot } from '#lib/utils/status-tone.js';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -63,7 +65,9 @@
 	<header class="flex items-start gap-3">
 		<span
 			class="lp-inset grid size-9 shrink-0 place-items-center overflow-hidden rounded-[9px] border bg-muted">
-			{#if isDisplayableImageUrl(overview.project.icon_url)}
+			{#if isNamedIcon(overview.project.icon_url)}
+				<OrganizationIcon icon={overview.project.icon_url} class="size-5" />
+			{:else if isDisplayableImageUrl(overview.project.icon_url)}
 				<img src={overview.project.icon_url} alt="" class="size-5 object-contain" />
 			{:else}
 				<FolderKanbanIcon class="size-4 text-muted-foreground" />

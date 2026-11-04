@@ -28,7 +28,12 @@
 		const on = capsule?.querySelector<HTMLElement>('[aria-selected="true"]');
 		indicator.x = on?.offsetLeft ?? 0;
 		indicator.w = on?.offsetWidth ?? 0;
-		on?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+		if (!capsule || !on) return;
+		// Not scrollIntoView: on a capsule below the fold it would drag the whole page down to it.
+		const item = on.getBoundingClientRect();
+		const box = capsule.getBoundingClientRect();
+		if (item.left < box.left) capsule.scrollLeft -= box.left - item.left;
+		else if (item.right > box.right) capsule.scrollLeft += item.right - box.right;
 	}
 
 	$effect(() => {

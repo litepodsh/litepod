@@ -177,15 +177,14 @@ async fn call(state: &SharedState, org: &OrgScope, params: &Value) -> Result<Val
 
     // Confirmed here, as the token's user, instead of waiting in the panel. A
     // proposal that failed to store has no action and falls through, and so does
-    // a static site still waiting for its upload.
-    let uploaded = serde_json::from_str::<Value>(&outcome.result)
+    // anything still waiting for its upload.
+    let waiting_for_upload = serde_json::from_str::<Value>(&outcome.result)
         .ok()
-        .and_then(|result| result.get("uploaded").and_then(Value::as_bool))
-        .unwrap_or(false);
+        .is_some_and(|result| result.get("upload_url").is_some());
     if name == tools::EXEC
         && let Some(action) = arguments.get("action").and_then(Value::as_str)
         && capabilities::mcp_auto_confirm(action)
-        && (!matches!(action, "deploy_static_site" | "deploy_zip") || uploaded)
+        && !waiting_for_upload
         && let Some(proposed) = outcome.action.as_ref()
     {
         let (result, is_error) =
@@ -376,6 +375,28 @@ mod tests {
         let text = reply["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("\"proposed\":true"), "{text}");
         assert!(text.contains("upload_url"), "{text}");
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn an_icon_upload_waits_and_a_named_icon_does_not() {
+        let (router, path) = router("editor", true).await;
+        let waits = json!({
+            "name": "exec",
+            "arguments": { "action": "create_project", "name": "uploaded", "icon_upload": true, "reason": "test" }
+        });
+        let (_, reply) = send(&router, "organization-a", call(5, "tools/call", waits)).await;
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("\"proposed\":true"), "{text}");
+        assert!(text.contains("upload_url"), "{text}");
+
+        let now = json!({
+            "name": "exec",
+            "arguments": { "action": "create_project", "name": "named", "icon": "rocket", "reason": "test" }
+        });
+        let (_, reply) = send(&router, "organization-a", call(5, "tools/call", now)).await;
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("\"status\":\"applied\""), "{text}");
         crate::testing::cleanup_database(&path);
     }
 

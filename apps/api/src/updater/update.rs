@@ -141,6 +141,18 @@ pub fn spawn(state: SharedState) {
         initialize_update_state(&mut s, channel, interval, &manifest_url, &container);
     }
 
+    // Every update path ends in this boot (the updater and the installer), and
+    // neither removes the image it replaced.
+    let state_for_cleanup = state.clone();
+    tokio::spawn(async move {
+        apply::prune_old_images(
+            &state_for_cleanup.container_name,
+            &state_for_cleanup.image_repo,
+            &state_for_cleanup.podman_socket,
+        )
+        .await;
+    });
+
     if interval == 0 {
         tracing::info!("litepod self-update disabled (LITEPOD_UPDATE_INTERVAL=0)");
         return;
@@ -339,34 +351,40 @@ pub async fn apply_now(
         channel,
         applied_at: Utc::now(),
     };
-    apply::pull_and_recreate(&state.container_name, &image, &state.podman_socket, || {
-        let env = state
-            .stack_env_file
-            .clone()
-            .map(super::stack_env::StackEnv::open)
-            .transpose()
-            .map_err(|error| apply::ApplyError::Persist(error.to_string()))?;
-        let previous_pin = pin::read(&state.data_dir);
-        pin::write(&state.data_dir, &record)
-            .map_err(|error| apply::ApplyError::Persist(error.to_string()))?;
-        // This must run inside the callback: retiring our own container kills
-        // this process. A configured .env is required to persist successfully.
-        if let Some(env) = env {
-            if let Err(error) = env.set_app_tag(&target) {
-                let rollback = match previous_pin {
-                    Some(previous) => pin::write(&state.data_dir, &previous),
-                    None => std::fs::remove_file(pin::path(&state.data_dir)),
-                };
-                if let Err(rollback_error) = rollback {
-                    return Err(apply::ApplyError::Persist(format!(
-                        "{error}; could not restore previous update pin: {rollback_error}"
-                    )));
+    apply::pull_and_recreate(
+        &state.container_name,
+        &image,
+        &state.podman_socket,
+        true,
+        || {
+            let env = state
+                .stack_env_file
+                .clone()
+                .map(super::stack_env::StackEnv::open)
+                .transpose()
+                .map_err(|error| apply::ApplyError::Persist(error.to_string()))?;
+            let previous_pin = pin::read(&state.data_dir);
+            pin::write(&state.data_dir, &record)
+                .map_err(|error| apply::ApplyError::Persist(error.to_string()))?;
+            // This must run inside the callback: retiring our own container kills
+            // this process. A configured .env is required to persist successfully.
+            if let Some(env) = env {
+                if let Err(error) = env.set_app_tag(&target) {
+                    let rollback = match previous_pin {
+                        Some(previous) => pin::write(&state.data_dir, &previous),
+                        None => std::fs::remove_file(pin::path(&state.data_dir)),
+                    };
+                    if let Err(rollback_error) = rollback {
+                        return Err(apply::ApplyError::Persist(format!(
+                            "{error}; could not restore previous update pin: {rollback_error}"
+                        )));
+                    }
+                    return Err(apply::ApplyError::Persist(error.to_string()));
                 }
-                return Err(apply::ApplyError::Persist(error.to_string()));
             }
-        }
-        Ok(())
-    })
+            Ok(())
+        },
+    )
     .await
 }
 
@@ -411,6 +429,7 @@ mod tests {
             "missing_env",
             "pin",
             "start",
+            "crashes_after_start",
             "env_without_pin",
             "no_env",
         ] {
@@ -447,7 +466,12 @@ mod tests {
                         let path = uri.path();
                         requests.lock().unwrap().push(format!("{method} {uri}"));
                         if path.ends_with("/containers/litepod-api/json") {
-                            return Json(json!({"Config": {}, "HostConfig": {}})).into_response();
+                            let running = failure != "crashes_after_start";
+                            return Json(json!({
+                                "Config": {}, "HostConfig": {},
+                                "State": {"Running": running, "StartedAt": "2026-11-03T00:00:00Z"},
+                            }))
+                            .into_response();
                         }
                         if path.ends_with("/images/pull") {
                             return "{}\n".into_response();
@@ -503,7 +527,7 @@ mod tests {
                 );
             } else {
                 assert!(result.is_err(), "{failure}");
-                if failure != "start" {
+                if !matches!(failure, "start" | "crashes_after_start") {
                     assert!(
                         matches!(result, Err(super::apply::ApplyError::Persist(_))),
                         "{failure}: {result:?}"

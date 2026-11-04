@@ -208,7 +208,7 @@ const ACTION_HELP: &[(&str, &str)] = &[
     ),
     (
         "update_application",
-        "`update_application` (rename or re-describe: `name`, `description`, or both)",
+        "`update_application` (rename, re-describe or change the icon: `name`, `description`, an icon, or any of them)",
     ),
     (
         "set_source",
@@ -244,17 +244,17 @@ const ACTION_HELP: &[(&str, &str)] = &[
     ),
     (
         "create_project",
-        "`create_project` (needs `name`, optionally `description`; takes no `application`)",
+        "`create_project` (needs `name`, optionally `description` and an icon; takes no `application`)",
     ),
     (
         "create_application",
         "`create_application` (needs `project` and `name`; pass the whole `compose` file and the \
         container `port` it publishes to create a Compose application, and `environment` and \
-        `server` when the project has more than one of either)",
+        `server` when the project has more than one of either; optionally an icon)",
     ),
     (
         "update_project",
-        "`update_project` (needs `project`, plus `name`, `description`, or both)",
+        "`update_project` (needs `project`, plus `name`, `description`, an icon, or any of them)",
     ),
     (
         "delete_project",
@@ -325,6 +325,21 @@ const ACTION_HELP: &[(&str, &str)] = &[
         read `get deployments` and `get applications` until its `status` is `running` and tell the user)",
     ),
 ];
+
+/// What an agent needs to choose or generate a good icon.
+const ICON_GUIDE: &str = "Icons: `create_project`, `create_application`, `update_project` and \
+    `update_application` take at most one of `icon` (a name from its list), `icon_url` (a public HTTPS \
+    image; Litepod downloads it and serves its own copy, and refuses internal addresses), `icon_base64` \
+    (the image in the call: only for small ones, such as an SVG) or `icon_upload: true` (returns an \
+    `upload_url`, the way to send an image you generated: `curl -fsS -T icon.png <upload_url>`, then the \
+    person confirms it in Litepod). When the user asks for nothing, send none: a new project or application \
+    gets a random icon from the list. A blank `icon_url` on an update removes the icon. Images: square, \
+    512x512 pixels (128x128 at least), PNG or WebP with a transparent background, or an SVG with a square \
+    `viewBox`; JPEG works but has no transparency. Up to 2 MiB, ideally under 200 KB. Icons show as small as \
+    16 pixels: one bold shape on a transparent background, no small text. SVGs keep only shapes, paths, \
+    text and gradients; scripts, `<style>`, `<use>` and `<image>` are removed. The `deploy_*` actions and \
+    `create_from_template` take no icon: set it afterwards with `update_application` or `update_project`. A \
+    template application keeps its template's icon until then.";
 
 fn help_for(names: &[&str], help: &[(&str, &str)]) -> String {
     names
@@ -408,7 +423,7 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
             .all(|action| direct.contains(action))
         {
             "Make a change. Every action happens immediately and returns its result, except a \
-            `deploy_static_site` or `deploy_zip` sent without `files` or `zip_base64`, which waits for its upload. "
+            `deploy_static_site` or `deploy_zip` sent without `files` or `zip_base64`, or an action with `icon_upload`, which waits for its upload. "
                 .to_owned()
         } else if direct.is_empty() {
             "Propose a change. This NEVER performs it: every action returns an id the user has to confirm in the panel, so say you have proposed it and never that it is done, live or deploying. ".to_owned()
@@ -431,7 +446,7 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
                     `application` is required for every action except `create_application`, `create_project`, \
                     `update_project`, `delete_project`, `deploy_static_site`, `deploy_zip`, `deploy_repository`, `create_from_template` and `deploy_compose`, which take `project` instead \
                     (`create_project` takes neither). \
-                    Always pass `reason`: it is the one line the user reads before deciding.",
+                    Always pass `reason`: it is the one line the user reads before deciding. {ICON_GUIDE}",
                     help_for(capabilities::ACTIONS, ACTION_HELP)
                 ),
                 parameters: json!({
@@ -453,6 +468,10 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
                         "env": { "type": "string", "description": "`deploy_compose` only: the `.env` file as text, `KEY=VALUE` per line." },
                         "use_own_compose": { "type": "boolean", "description": "Only once the user chose their own compose over the catalog templates offered; ignored until the catalog has answered once. Used by `deploy_compose`, `create_application` with a `compose`, and `set_compose_file`." },
                         "description": { "type": "string" },
+                        "icon": { "type": "string", "enum": crate::icons::NAMES, "description": "An icon from the Litepod list, for the project and application actions." },
+                        "icon_url": { "type": "string", "description": "A public HTTPS image Litepod downloads and keeps, for the project and application actions. Blank removes the icon on an update." },
+                        "icon_base64": { "type": "string", "description": "The image in the call, as base64 or a data URL, for the project and application actions. Only for small images; prefer `icon_upload`." },
+                        "icon_upload": { "type": "boolean", "description": "`true` returns an `upload_url` to send the image to, for the project and application actions." },
                         "git_provider_id": { "type": "string", "description": "From `get git_providers`." },
                         "git_url": { "type": "string", "description": "Repository URL." },
                         "git_branch": { "type": "string", "description": "Defaults to `main` when a repository is set without one." },
@@ -1356,6 +1375,10 @@ async fn exec(
         }
 
         "update_application" => {
+            let icon = match actions::IconRequest::parse(arguments) {
+                Ok(icon) => icon,
+                Err(error) => return ToolOutcome::failure(error.to_string()),
+            };
             match actions::propose_update_application(
                 state,
                 conversation_id,
@@ -1364,15 +1387,22 @@ async fn exec(
                 actions::UpdateApplication {
                     name: string_of(arguments, "name"),
                     description: string_of(arguments, "description"),
+                    icon_url: icon.value.clone(),
+                    upload_token_hash: icon.upload_token_hash.clone(),
                     reason,
                 },
             )
             .await
             {
-                Ok(action) => ToolOutcome::proposed(
-                    action,
-                    "Not renamed. The user has to confirm this in the panel.",
-                ),
+                Ok(action) => {
+                    proposed_with_icon(
+                        state,
+                        action,
+                        "Not changed yet. The user has to confirm this in the panel.",
+                        icon,
+                    )
+                    .await
+                }
                 Err(error) => ToolOutcome::failure(error.to_string()),
             }
         }
@@ -1622,6 +1652,24 @@ async fn project_action(
         name: string_of(arguments, "name"),
         description: string_of(arguments, "description"),
         reason: reason.clone(),
+        ..Default::default()
+    };
+    // Only the actions that take one: a delete with an odd icon is still a delete.
+    let icon = if matches!(
+        action,
+        "create_project" | "update_project" | "create_application"
+    ) {
+        match actions::IconRequest::parse(arguments) {
+            Ok(icon) => icon,
+            Err(error) => return Some(ToolOutcome::failure(error.to_string())),
+        }
+    } else {
+        actions::IconRequest::default()
+    };
+    let with_icon = |fields: actions::ProjectFields| actions::ProjectFields {
+        icon_url: icon.value.clone(),
+        upload_token_hash: icon.upload_token_hash.clone(),
+        ..fields
     };
 
     // A create has no project to look up: the target carries the organization
@@ -1629,13 +1677,24 @@ async fn project_action(
     if action == "create_project" {
         let target = ActionTarget::project(organization_id, "", "");
         return Some(
-            match actions::propose_create_project(state, conversation_id, actor, &target, fields())
-                .await
+            match actions::propose_create_project(
+                state,
+                conversation_id,
+                actor,
+                &target,
+                with_icon(fields()),
+            )
+            .await
             {
-                Ok(action) => ToolOutcome::proposed(
-                    action,
-                    "Not created. The user has to confirm this in the panel.",
-                ),
+                Ok(action) => {
+                    proposed_with_icon(
+                        state,
+                        action,
+                        "Not created. The user has to confirm this in the panel.",
+                        icon,
+                    )
+                    .await
+                }
                 Err(error) => ToolOutcome::failure(error.to_string()),
             },
         );
@@ -1754,28 +1813,46 @@ async fn project_action(
                     server_id,
                     compose: string_of(arguments, "compose"),
                     port: arguments.get("port").and_then(|value| value.as_i64()),
+                    icon_url: icon.value.clone(),
+                    upload_token_hash: icon.upload_token_hash.clone(),
                     reason,
                 },
             )
             .await
             {
-                Ok(action) => ToolOutcome::proposed(
-                    action,
-                    "Not created. The user has to confirm this in the panel.",
-                ),
+                Ok(action) => {
+                    proposed_with_icon(
+                        state,
+                        action,
+                        "Not created. The user has to confirm this in the panel.",
+                        icon,
+                    )
+                    .await
+                }
                 Err(error) => ToolOutcome::failure(error.to_string()),
             },
         );
     }
 
     Some(if action == "update_project" {
-        match actions::propose_update_project(state, conversation_id, actor, &target, fields())
-            .await
+        match actions::propose_update_project(
+            state,
+            conversation_id,
+            actor,
+            &target,
+            with_icon(fields()),
+        )
+        .await
         {
-            Ok(action) => ToolOutcome::proposed(
-                action,
-                "Not renamed. The user has to confirm this in the panel.",
-            ),
+            Ok(action) => {
+                proposed_with_icon(
+                    state,
+                    action,
+                    "Not changed yet. The user has to confirm this in the panel.",
+                    icon,
+                )
+                .await
+            }
             Err(error) => ToolOutcome::failure(error.to_string()),
         }
     } else {
@@ -1789,6 +1866,32 @@ async fn project_action(
             Err(error) => ToolOutcome::failure(error.to_string()),
         }
     })
+}
+
+/// A stored proposal, plus what its icon still needs: an inline image is staged
+/// here, and an `icon_upload` hands the agent the address to send it to.
+async fn proposed_with_icon(
+    state: &SharedState,
+    action: actions::ActionDto,
+    note: &str,
+    icon: actions::IconRequest,
+) -> ToolOutcome {
+    match icon.finish(state, &action.id).await {
+        Ok(None) => ToolOutcome::proposed(action, note),
+        Ok(Some(upload_url)) => {
+            let mut outcome = ToolOutcome::proposed(
+                action,
+                "Nothing has changed yet. Upload the icon to `upload_url` now, then tell the user to confirm it in Litepod. The link only works while this proposal is pending.",
+            );
+            let mut result: serde_json::Value =
+                serde_json::from_str(&outcome.result).unwrap_or_default();
+            result["upload_url"] = json!(upload_url);
+            result["upload_command"] = json!(format!("curl -fsS -T icon.png '{upload_url}'"));
+            outcome.result = result.to_string();
+            outcome
+        }
+        Err(error) => ToolOutcome::failure(error.to_string()),
+    }
 }
 
 /// Where a whole-application action lands: the named project when it exists

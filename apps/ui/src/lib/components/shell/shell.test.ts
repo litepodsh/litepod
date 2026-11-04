@@ -1,4 +1,5 @@
 import { cleanup, render } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import LayersIcon from '@lucide/svelte/icons/layers';
 
@@ -158,4 +159,17 @@ it('hero shows its stats only on the page that set it', () => {
 	const { getByTestId, getByText } = render(ScopeHero);
 	expect(getByText('tools')).toBeTruthy();
 	expect(getByTestId('hero-stats').querySelectorAll('dt')).toHaveLength(1);
+});
+
+it('hero refreshing its siblings never scrolls the page', async () => {
+	const scrollIntoView = vi.fn();
+	Element.prototype.scrollIntoView = scrollIntoView;
+	url.current = new URL('http://x/projects/p1');
+	const siblings = [{ id: 'a1', label: 'api', href: '/a1', current: true }];
+	setScopeHero({ title: 'api', siblings }, '/projects/p1');
+	render(ScopeHero);
+	// Polling replaces the hero: this is what used to pull a scrolled page back to the strip.
+	setScopeHero({ title: 'api', siblings: [...siblings] }, '/projects/p1');
+	await tick();
+	expect(scrollIntoView).not.toHaveBeenCalled();
 });

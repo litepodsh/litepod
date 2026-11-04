@@ -30,6 +30,7 @@
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { allowed } from '#lib/state/permissions.svelte.js';
+	import { focusOnDesktop } from '#lib/utils/desktop-focus.js';
 
 	let organization = $state<OrganizationDto | null>(null);
 	let projects = $state<ProjectDto[]>([]);
@@ -43,6 +44,7 @@
 	let editingProject = $state<ProjectDto | null>(null);
 	let deleteDialogOpen = $state(false);
 	let projectToDelete = $state<ProjectDto | null>(null);
+	let searchInput = $state<HTMLInputElement | null>(null);
 
 	let needle = $derived(query.trim().toLowerCase());
 	let visible = $derived(
@@ -66,6 +68,12 @@
 		const reload = () => void loadPage();
 		window.addEventListener('projects-updated', reload);
 		return () => window.removeEventListener('projects-updated', reload);
+	});
+
+	// The search field only exists once projects have loaded, so focus it when
+	// its ref appears rather than in onMount. Touch devices are skipped.
+	$effect(() => {
+		focusOnDesktop(searchInput);
 	});
 
 	async function loadPage() {
@@ -193,6 +201,7 @@
 						class="lp-well relative flex min-w-0 flex-1 items-center rounded-full bg-muted/60 sm:w-64 sm:flex-none">
 						<SearchIcon class="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
 						<Input
+							bind:ref={searchInput}
 							bind:value={query}
 							placeholder={t('projects.projects.search_all')}
 							aria-label={t('projects.projects.search_all')}

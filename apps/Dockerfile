@@ -130,7 +130,7 @@ ENV LITEPOD_GIT_SHA=${LITEPOD_GIT_SHA}
 
 LABEL org.opencontainers.image.title="litepod"
 LABEL org.opencontainers.image.description="litepod — pod management UI + API (single image)"
-LABEL org.opencontainers.image.source="https://github.com/litepod/litepod"
+LABEL org.opencontainers.image.source="https://github.com/litepodsh/litepod"
 LABEL org.opencontainers.image.version=${LITEPOD_VERSION}
 LABEL org.opencontainers.image.revision=${LITEPOD_GIT_SHA}
 LABEL org.opencontainers.image.licenses="MIT"

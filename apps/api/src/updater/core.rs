@@ -133,6 +133,8 @@ pub async fn apply_core_services(
                 &container,
                 &format!("{DRAGONFLY_IMAGE_REPO}:{}", targets.dragonfly),
                 &state.podman_socket,
+                // Each extra second of overlap sends more writes to the store being retired.
+                false,
                 || Ok(()),
             )
             .await?;
@@ -150,6 +152,8 @@ pub async fn apply_core_services(
                 &state.caddy_container,
                 &format!("{CADDY_IMAGE_REPO}:{}", targets.caddy),
                 &state.podman_socket,
+                // `wait_for_caddy` below checks it.
+                false,
                 || Ok(()),
             )
             .await?;

@@ -19,6 +19,9 @@ use uuid::Uuid;
 use crate::dtos::response::AppError;
 use crate::state::state::SharedState;
 
+mod validate;
+pub use validate::{NAMES, check_value, prepare, random_name};
+
 pub const MAX_ICON_BYTES: usize = 2 * 1024 * 1024;
 
 fn icon_dir(state: &SharedState, prefix: &str, id: &str) -> std::path::PathBuf {
@@ -152,18 +155,7 @@ pub async fn store(
     id: &str,
     bytes: &[u8],
 ) -> Result<String, AppError> {
-    if bytes.len() > MAX_ICON_BYTES {
-        return Err(AppError::ValidationError(format!(
-            "Icon exceeds the {}MiB upload limit",
-            MAX_ICON_BYTES / (1024 * 1024)
-        )));
-    }
-    let kind = sniff_image_kind(bytes)?;
-    let stored_bytes = if kind == "svg" {
-        sanitize_svg(bytes)?
-    } else {
-        bytes.to_vec()
-    };
+    let (kind, stored_bytes) = prepare(bytes)?;
 
     let dir = icon_dir(state, prefix, id);
     tokio::fs::create_dir_all(&dir).await.map_err(|error| {
