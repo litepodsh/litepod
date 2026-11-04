@@ -54,6 +54,48 @@ pub async fn record_anonymous(
     insert(state, None, None, action, metadata).await
 }
 
+/// Writes an event about `user_id` with nobody signed in to attribute it to,
+/// such as an email confirmation, which is authenticated by its code alone.
+pub async fn record_about(
+    state: &SharedState,
+    user_id: &str,
+    action: &str,
+    metadata: Option<&str>,
+) -> Result<(), String> {
+    insert(state, Some(user_id), None, action, metadata).await
+}
+
+/// Cloud SysAdmin's view of what happens inside organizations. Independent of
+/// the organization's own audit log and its toggle. `actor` is `None` when no
+/// user is behind it (a Git push, a deploy hook).
+pub async fn record_for_organization(
+    state: &SharedState,
+    organization_id: &str,
+    actor: Option<&AuthUser>,
+    action: &str,
+    target_name: Option<&str>,
+) -> Result<(), String> {
+    if !state.is_cloud {
+        return Ok(());
+    }
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let organization: Option<String> =
+        sqlx::query_scalar("SELECT name FROM organizations WHERE id = ?1")
+            .bind(organization_id)
+            .fetch_optional(&conn)
+            .await
+            .map_err(|e| e.to_string())?;
+    let metadata = [organization.as_deref(), target_name]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
+    // An empty id is a non-user actor (SCIM), which `actor_user_id` cannot reference.
+    let actor = actor.filter(|actor| !actor.user_id.is_empty());
+    let subject = actor.map(|actor| actor.user_id.as_str());
+    insert(state, subject, actor, action, Some(&metadata)).await
+}
+
 async fn insert(
     state: &SharedState,
     subject_user_id: Option<&str>,

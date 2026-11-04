@@ -243,7 +243,7 @@ async fn trigger_push_deploys(
         let task_state = state.clone();
         let task_application = application_id.clone();
         tokio::spawn(async move {
-            if let Err(error) = crate::deployment::enqueue_for_application(
+            match crate::deployment::enqueue_for_application(
                 &task_state,
                 &task_application,
                 "webhook",
@@ -251,7 +251,19 @@ async fn trigger_push_deploys(
             )
             .await
             {
-                tracing::warn!("auto-deploy for {task_application} failed to enqueue: {error}");
+                Ok(job) => {
+                    let _ = crate::security::security_events::record_for_organization(
+                        &task_state,
+                        &job.organization_id,
+                        None,
+                        "deployment.triggered",
+                        Some(&format!("{} · webhook", job.application_name)),
+                    )
+                    .await;
+                }
+                Err(error) => {
+                    tracing::warn!("auto-deploy for {task_application} failed to enqueue: {error}");
+                }
             }
         });
         triggered += 1;
@@ -679,6 +691,14 @@ pub async fn deploy_hook_handler(
         .await
         .map_err(|_| AppError::ApplicationNotFound)?;
     let job = crate::deployment::deploy_hook::trigger(&state, &application_id).await?;
+    let _ = crate::security::security_events::record_for_organization(
+        &state,
+        &job.organization_id,
+        None,
+        "deployment.triggered",
+        Some(&format!("{} · deploy hook", job.application_name)),
+    )
+    .await;
     Ok(axum::Json(
         serde_json::json!({ "triggered": true, "job": job }),
     ))

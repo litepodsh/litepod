@@ -176,7 +176,7 @@ title = "Notifications"
 [security]
 action = "Event"
 by = "by {actor}"
-description = "Sign-ins, failed logins and account changes across every user. Suspicious events are flagged and sent to the Security Alert notification."
+description = "New accounts, sign-ins and sign-outs, account changes, remote server connections and deployments across every user. Suspicious events are flagged and sent to the Security Alert notification."
 device = "Device"
 empty = "No security events"
 empty_description = "Nothing matches these filters yet."

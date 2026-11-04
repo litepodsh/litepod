@@ -204,6 +204,14 @@ pub async fn handler(
             return Err(error);
         }
     };
+    terminal::record_connection_event(
+        &state,
+        &org.organization_id,
+        &org.user,
+        &server,
+        "server.terminal_opened",
+    )
+    .await;
     Ok(ws.on_upgrade(move |ws| bridge(ws, state, session, launch)))
 }
 

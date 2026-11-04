@@ -142,6 +142,15 @@ pub async fn create_user(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
+    // On the caller's transaction: going through the pool would wait on the write lock it holds.
+    sqlx::query(
+        "INSERT INTO security_events (id, user_id, action, metadata) VALUES (?1, ?2, 'auth.registered', 'sso')",
+    )
+    .bind(Uuid::now_v7().to_string())
+    .bind(&id)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
     Ok(id)
 }
 

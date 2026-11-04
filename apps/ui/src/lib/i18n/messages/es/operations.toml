@@ -176,7 +176,7 @@ title = "Notificaciones"
 [security]
 action = "Evento"
 by = "por {actor}"
-description = "Inicios de sesión, intentos fallidos y cambios de cuenta de todos los usuarios. Los eventos sospechosos se marcan y se envían a la notificación Alerta de seguridad."
+description = "Cuentas creadas, inicios y cierres de sesión, cambios de cuenta, conexiones a servidores remotos y despliegues de todos los usuarios. Los eventos sospechosos se marcan y se envían a la notificación Alerta de seguridad."
 device = "Dispositivo"
 empty = "No hay eventos de seguridad"
 empty_description = "Todavía no hay nada que coincida con estos filtros."

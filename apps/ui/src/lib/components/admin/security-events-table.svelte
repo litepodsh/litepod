@@ -153,6 +153,9 @@
 										<Badge variant="destructive">{t(`operations.security.flag_${event.flag}`)}</Badge>
 									{/if}
 								</div>
+								{#if event.metadata && event.action !== 'auth.login_failed'}
+									<p class="text-muted-foreground mt-0.5 text-xs">{event.metadata}</p>
+								{/if}
 								{#if event.actor_user_id && event.actor_user_id !== event.user_id}
 									<p class="text-muted-foreground mt-0.5 text-xs">
 										{t('operations.security.by', {

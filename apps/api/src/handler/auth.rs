@@ -618,6 +618,14 @@ pub async fn logout_handler(
                 token_name: None,
             };
             audit_auth_event(&state, &actor, "auth.logout", None, context.as_deref()).await;
+            let _ = crate::security::security_events::record(
+                &state,
+                Some(&actor.user_id),
+                &actor,
+                "auth.logout",
+                None,
+            )
+            .await;
         }
         // The local session goes first and unconditionally.
         let _ = auth::logout(&state, cookie.value()).await;
@@ -628,7 +636,6 @@ pub async fn logout_handler(
             reauth = redirect_url.is_none();
         }
     }
-    let _ = crate::security::security_events::record_anonymous(&state, "auth.logout", None).await;
     let mut jar = clear_session_cookie(&state, jar).await;
     if reauth {
         jar = crate::utils::cookie::add_sso_reauth_cookie(&state, jar).await;
@@ -748,6 +755,12 @@ mod tests {
             "{redirect}"
         );
         assert!(!reauth_set(&cookies));
+        let logged_out: Option<String> =
+            sqlx::query_scalar("SELECT user_id FROM security_events WHERE action = 'auth.logout'")
+                .fetch_one(&state.db)
+                .await
+                .unwrap();
+        assert_eq!(logged_out.as_deref(), Some("editor"));
         assert!(
             crate::git::repositories::session::get_session_by_token_result(&state, &token)
                 .await

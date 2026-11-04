@@ -28,6 +28,7 @@ use crate::{
         repository::{self, ServerJobRecord, ServerRecord},
         setup::{self, ServerFacts},
         ssh::{SshExecutor, validate_imported_private_key},
+        terminal::record_connection_event,
     },
     state::state::SharedState,
     utils::security::{encrypt_data, get_encryption_key},
@@ -722,7 +723,20 @@ pub async fn preflight_handler(
             server.ssh_port.unwrap_or_default(),
             server.ssh_user.as_deref().unwrap_or_default(),
         )?;
-        let observed = SshExecutor::discover_host_key(&target).await?;
+        let observed = match SshExecutor::discover_host_key(&target).await {
+            Ok(observed) => observed,
+            Err(error) => {
+                record_connection_event(
+                    &state,
+                    &organization_id,
+                    &org.user,
+                    &server,
+                    "server.connection_failed",
+                )
+                .await;
+                return Err(error);
+            }
+        };
         let server = dto(&state, server).await?;
         return Ok(ok(ServerPreflightDto {
             server,
@@ -732,6 +746,14 @@ pub async fn preflight_handler(
     let server = repository::ensure_host_key_known_hosts(&state, server).await?;
     match setup::preflight(&server).await {
         Ok((facts, next)) => {
+            record_connection_event(
+                &state,
+                &organization_id,
+                &org.user,
+                &server,
+                "server.connection_verified",
+            )
+            .await;
             let facts_json = serde_json::to_string(&facts)
                 .map_err(|error| AppError::InternalError(error.to_string()))?;
             let updated =
@@ -742,6 +764,14 @@ pub async fn preflight_handler(
             }))
         }
         Err(error) => {
+            record_connection_event(
+                &state,
+                &organization_id,
+                &org.user,
+                &server,
+                "server.connection_failed",
+            )
+            .await;
             let message = error.to_string();
             let _ = repository::set_state_error(
                 &state,
@@ -789,6 +819,14 @@ pub async fn confirm_host_key_handler(
         ServerState::NeedsSetup,
     )
     .await?;
+    record_connection_event(
+        &state,
+        &organization_id,
+        &org.user,
+        &confirmed,
+        "server.host_key_confirmed",
+    )
+    .await;
     Ok(ok(dto(&state, confirmed).await?))
 }
 
@@ -1135,6 +1173,18 @@ async fn queue_setup(
         ));
     }
     let job = repository::create_job(&state, &server_id, &user.user_id, kind).await?;
+    record_connection_event(
+        &state,
+        &organization_id,
+        &user,
+        &server,
+        if kind == "setup" {
+            "server.setup_started"
+        } else {
+            "server.repair_started"
+        },
+    )
+    .await;
     tokio::spawn(execute_setup_job(state, server_id, job.id.clone()));
     Ok(accepted(job_dto(job)))
 }

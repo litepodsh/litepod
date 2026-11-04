@@ -268,6 +268,14 @@ async fn audit_backchannel(state: &SharedState, connection_id: &str, subject: &s
     let metadata = json!({ "method": "sso_backchannel" }).to_string();
     crate::handler::auth::audit_auth_event(state, &actor, "auth.logout", Some(&metadata), None)
         .await;
+    let _ = crate::security::security_events::record(
+        state,
+        Some(&actor.user_id),
+        &actor,
+        "auth.logout",
+        Some("sso_backchannel"),
+    )
+    .await;
 }
 
 #[cfg(feature = "saml")]
