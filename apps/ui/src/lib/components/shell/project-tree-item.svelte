@@ -13,6 +13,8 @@
 	import { getProject, type EnvironmentDto, type ProjectDto } from '#lib/clients/project-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { isDisplayableImageUrl } from '#lib/utils/application-card-icon.js';
+	import { isNamedIcon } from '#lib/utils/organization-icons.js';
+	import OrganizationIcon from '#lib/components/organization-icon.svelte';
 	import { preloadOnHover } from '#lib/utils/preload.js';
 
 	let {
@@ -63,7 +65,9 @@
 		<Sidebar.MenuButton isActive={path === href}>
 			{#snippet child({ props })}
 				<a {href} onclick={(event) => toggleOrGo(event, inProject, () => (open = !open), () => (open = true))} use:preloadOnHover={href} {...props}>
-					{#if isDisplayableImageUrl(project.icon_url)}
+					{#if isNamedIcon(project.icon_url)}
+						<OrganizationIcon icon={project.icon_url} class="size-4 shrink-0" />
+					{:else if isDisplayableImageUrl(project.icon_url)}
 						<img src={project.icon_url} alt="" class="size-4 shrink-0 object-contain" />
 					{:else}
 						{#if open}<FolderOpenIcon />{:else}<FolderIcon />{/if}

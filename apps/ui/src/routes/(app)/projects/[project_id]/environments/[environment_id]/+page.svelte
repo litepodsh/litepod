@@ -46,6 +46,8 @@
 	import ApplicationIcon from '#lib/components/projects/application-icon.svelte';
 	import ProjectIcon from '#lib/components/projects/project-icon.svelte';
 	import { isDisplayableImageUrl } from '#lib/utils/application-card-icon.js';
+	import { isNamedIcon } from '#lib/utils/organization-icons.js';
+	import OrganizationIcon from '#lib/components/organization-icon.svelte';
 	import { listOrganizations } from '#lib/clients/organization-client.js';
 	import {
 		resolveSelectedOrganization,
@@ -831,7 +833,9 @@
 
 {#snippet heroAvatar()}
 	<span class="grid size-full place-items-center bg-muted">
-		{#if isDisplayableImageUrl(detail?.project.icon_url) && !projectIconFailed}
+		{#if isNamedIcon(detail?.project.icon_url)}
+			<OrganizationIcon icon={detail.project.icon_url} class="size-5" />
+		{:else if isDisplayableImageUrl(detail?.project.icon_url) && !projectIconFailed}
 			<img
 				src={detail?.project.icon_url}
 				alt=""
@@ -865,7 +869,9 @@
 {/snippet}
 
 {#snippet projectCrumbIcon()}
-	{#if isDisplayableImageUrl(detail?.project.icon_url) && !projectIconFailed}
+	{#if isNamedIcon(detail?.project.icon_url)}
+		<OrganizationIcon icon={detail.project.icon_url} class="size-3.5" />
+	{:else if isDisplayableImageUrl(detail?.project.icon_url) && !projectIconFailed}
 		<img
 			src={detail?.project.icon_url}
 			alt=""

@@ -21,6 +21,8 @@
 	import ApplicationIcon from '#lib/components/projects/application-icon.svelte';
 	import ProjectIcon from '#lib/components/projects/project-icon.svelte';
 	import { isDisplayableImageUrl } from '#lib/utils/application-card-icon.js';
+	import { isNamedIcon } from '#lib/utils/organization-icons.js';
+	import OrganizationIcon from '#lib/components/organization-icon.svelte';
 	import MongoDbResourceDetail from '#lib/components/projects/mongodb-resource-detail.svelte';
 	import RedeployConfirmDialog from '#lib/components/projects/redeploy-confirm-dialog.svelte';
 	import RedeployWithPullDialog from '#lib/components/projects/redeploy-with-pull-dialog.svelte';
@@ -2209,7 +2211,9 @@
 {/snippet}
 
 {#snippet projectCrumbIcon()}
-	{#if isDisplayableImageUrl(projectDetail?.project.icon_url) && !projectIconFailed}
+	{#if isNamedIcon(projectDetail?.project.icon_url)}
+		<OrganizationIcon icon={projectDetail.project.icon_url} class="size-3.5" />
+	{:else if isDisplayableImageUrl(projectDetail?.project.icon_url) && !projectIconFailed}
 		<img
 			src={projectDetail?.project.icon_url}
 			alt=""

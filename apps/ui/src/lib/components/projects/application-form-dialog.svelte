@@ -22,6 +22,9 @@
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { tabIndexFromKeydown } from '#lib/utils/tab-shortcut.js';
 	import IconUploadButton from '#lib/components/icon-upload-button.svelte';
+	import OrganizationIcon from '#lib/components/organization-icon.svelte';
+	import { isNamedIcon } from '#lib/utils/organization-icons.js';
+	import IconNamePicker from './icon-name-picker.svelte';
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -788,22 +791,26 @@
 				</div>
 				{#if application}<div class="grid gap-2">
 						<Label for="application-icon">{t('projects.projects.icon')}</Label>
-						<div class="flex items-center gap-2">
-							<div
-								class="flex size-9 shrink-0 items-center justify-center rounded-md border overflow-hidden bg-muted">
-								{#if previewIconUrl.trim()}
-									<img
-										src={previewIconUrl}
-										alt=""
-										loading="lazy"
-										class="size-full object-contain" />
+						<div class="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+							<IconNamePicker
+								value={iconUrl.trim()}
+								onpick={(name) => {
+									iconUrl = name;
+									previewIconUrl = name;
+								}}>
+								{#if isNamedIcon(previewIconUrl.trim())}
+									<OrganizationIcon icon={previewIconUrl.trim()} class="size-4" />
+								{:else if previewIconUrl.trim()}
+									<img src={previewIconUrl} alt="" loading="lazy" class="size-5 object-contain" />
 								{:else}
 									<PackageIcon class="size-4 text-muted-foreground" />
 								{/if}
-							</div>
+							</IconNamePicker>
 							<Input
 								id="application-icon"
-								bind:value={iconUrl}
+								class="order-last basis-full sm:order-none sm:basis-auto"
+								value={isNamedIcon(iconUrl.trim()) ? '' : iconUrl}
+								oninput={(event) => (iconUrl = event.currentTarget.value)}
 								placeholder={t('projects.projects.icon_placeholder')} />
 							{#if onUploadIcon}
 								<IconUploadButton

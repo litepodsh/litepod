@@ -7,6 +7,8 @@
 	import MongoDbIcon from '#lib/components/icons/mongodb-icon.svelte';
 	import BoxesIcon from '@lucide/svelte/icons/boxes';
 	import { displayApplicationIconUrl } from '#lib/utils/application-card-icon.js';
+	import { isNamedIcon } from '#lib/utils/organization-icons.js';
+	import OrganizationIcon from '#lib/components/organization-icon.svelte';
 
 	let {
 		templateKind,
@@ -31,7 +33,9 @@
 	);
 </script>
 
-{#if displayUrl}
+{#if isNamedIcon(iconUrl)}
+	<OrganizationIcon icon={iconUrl} class={iconClass} />
+{:else if displayUrl}
 	<img
 		src={displayUrl}
 		alt=""
