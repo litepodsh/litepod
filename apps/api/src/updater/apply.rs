@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use futures_util::StreamExt;
 use podman_api::{
     Podman, models,
     opts::{
         ContainerCreateOpts, ContainerDeleteOpts, ContainerListOpts, ContainerRestartPolicy,
-        PullOpts,
+        ImageListOpts, PullOpts,
     },
 };
 use thiserror::Error;
@@ -102,6 +102,94 @@ pub fn parse_image_tag(image: &str) -> Option<String> {
     }
 }
 
+/// How long a replacement must keep running before the old container is retired.
+const STAYS_RUNNING_CHECKS: u32 = 11;
+const STAYS_RUNNING_INTERVAL: Duration = Duration::from_millis(if cfg!(test) { 1 } else { 2000 });
+
+/// False when `container` stops or restarts during the check window.
+// shortcut: catches a crash at boot, not a process that stays up without serving; add a readiness probe once it cannot wait on locks the old container still holds.
+async fn stays_running(podman: &Podman, container: &str) -> bool {
+    let mut first_start = None;
+    for check in 0..STAYS_RUNNING_CHECKS {
+        if check > 0 {
+            tokio::time::sleep(STAYS_RUNNING_INTERVAL).await;
+        }
+        let state = match podman.containers().get(container).inspect().await {
+            Ok(info) => info.state,
+            Err(_) => return false,
+        };
+        let Some(state) = state.filter(|state| state.running == Some(true)) else {
+            return false;
+        };
+        if *first_start.get_or_insert(state.started_at) != state.started_at {
+            return false;
+        }
+    }
+    true
+}
+
+/// Images of `repo` that are safe to delete: all but the running one and the
+/// newest other one, which a rollback needs. Empty when the running image does
+/// not come from `repo`, so a development host keeps its images.
+fn stale_image_ids(
+    images: &[models::LibpodImageSummary],
+    repo: &str,
+    running: &str,
+) -> Vec<String> {
+    let in_repo = |image: &&models::LibpodImageSummary| {
+        let named = |names: &Option<Vec<String>>, separator: char| {
+            names.iter().flatten().any(|name| {
+                name.strip_prefix(repo)
+                    .is_some_and(|rest| rest.starts_with(separator))
+            })
+        };
+        named(&image.repo_tags, ':') || named(&image.repo_digests, '@')
+    };
+    let (mut current, mut others): (Vec<_>, Vec<_>) = images
+        .iter()
+        .filter(in_repo)
+        .partition(|image| image.id.as_deref() == Some(running));
+    if current.pop().is_none() {
+        return Vec::new();
+    }
+    others.sort_by_key(|image| std::cmp::Reverse(image.created));
+    others
+        .into_iter()
+        .skip(1)
+        .filter_map(|image| image.id.clone())
+        .collect()
+}
+
+/// Deletes old images of `repo` so updates do not fill the disk. Best effort:
+/// nothing is forced, so Podman refuses any image a container still uses.
+pub async fn prune_old_images(container: &str, repo: &str, podman_socket: &str) {
+    let Ok(podman) = client(podman_socket) else {
+        return;
+    };
+    let Some(running) = podman
+        .containers()
+        .get(container)
+        .inspect()
+        .await
+        .ok()
+        .and_then(|info| info.image)
+    else {
+        return;
+    };
+    let images = match podman.images().list(&ImageListOpts::default()).await {
+        Ok(images) => images,
+        Err(error) => {
+            tracing::warn!(%error, "updater: could not list images to clean up");
+            return;
+        }
+    };
+    for id in stale_image_ids(&images, repo, &running) {
+        if let Err(error) = podman.images().get(&id).delete().await {
+            tracing::warn!(%error, image = %id, "updater: could not delete an old image");
+        }
+    }
+}
+
 /// Pull the latest image and recreate the container with the same config.
 ///
 /// This process runs *inside* `container`, so the naive stop-then-create
@@ -110,11 +198,13 @@ pub fn parse_image_tag(image: &str) -> Option<String> {
 /// it keeps running), create and start the replacement under the original
 /// name, and force-delete the renamed-away old container once the new one is
 /// up. Any failure before that point renames the old container back so the
-/// running instance never loses its name.
+/// running instance never loses its name. `verify_stays_running` also keeps the
+/// old container when the replacement crashes within seconds of starting.
 pub async fn pull_and_recreate<F>(
     container: &str,
     image: &str,
     podman_socket: &str,
+    verify_stays_running: bool,
     after_start_before_retire: F,
 ) -> Result<(), ApplyError>
 where
@@ -183,8 +273,16 @@ where
     // 5. the replacement is running while the old process is still alive.
     // Persist any state that must survive self-recreation now. If persistence
     // fails, roll back to the old container instead of reporting an update
-    // that was never durably recorded.
-    if let Err(error) = after_start_before_retire() {
+    // that was never durably recorded. Verifying comes first so a replacement
+    // that crashes leaves the persisted version untouched.
+    let outcome = if verify_stays_running && !stays_running(&podman, container).await {
+        Err(ApplyError::Recreate(
+            "the new version did not stay running; kept the previous version".into(),
+        ))
+    } else {
+        after_start_before_retire()
+    };
+    if let Err(error) = outcome {
         let _ = new_container.stop(&Default::default()).await;
         let _ = new_container
             .delete(&ContainerDeleteOpts::builder().force(true).build())
@@ -467,6 +565,29 @@ mod tests {
                 json!(["caddy", "run", "--config", "/custom/Caddyfile", "--resume"])
             );
         }
+    }
+
+    #[test]
+    fn stale_images_keep_the_running_one_and_the_newest_other() {
+        use serde_json::json;
+        const REPO: &str = "docker.io/litepod/litepod";
+        let image = |id: &str, created: i64, tag: &str| json!({"Id": id, "Created": created, "RepoTags": [tag]});
+        let images: Vec<models::LibpodImageSummary> = serde_json::from_value(json!([
+            image("v1", 1, "docker.io/litepod/litepod:v1"),
+            image("v3", 3, "docker.io/litepod/litepod:v3"),
+            image("v2", 2, "docker.io/litepod/litepod:v2"),
+            // Rolled back to v2, so the newer v3 stays as the other version.
+            {"Id": "by-digest", "Created": 0, "RepoDigests": ["docker.io/litepod/litepod@sha256:a"]},
+            image("similar", 0, "docker.io/litepod/litepod-railpack:v1"),
+            image("caddy", 0, "docker.io/library/caddy:2"),
+        ]))
+        .unwrap();
+
+        let mut stale = stale_image_ids(&images, REPO, "v2");
+        stale.sort();
+        assert_eq!(stale, ["by-digest", "v1"]);
+        assert!(stale_image_ids(&images, REPO, "dev-build").is_empty());
+        assert!(stale_image_ids(&images, REPO, "caddy").is_empty());
     }
 
     #[test]
