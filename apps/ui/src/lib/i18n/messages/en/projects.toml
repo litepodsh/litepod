@@ -591,6 +591,7 @@ empty_managed = "No managed volumes yet. Add one to create persistent files befo
 files_retained = "Files are retained"
 live_mounts = "Live mounts"
 live_mounts_hint = "Mounts reported by the current Podman container."
+loading = "Loading volumes"
 manage_files = "Manage files"
 managed_volumes = "Managed volumes"
 managed_volumes_hint = "Persistent storage managed by litepod. Changes apply on the next deployment."

@@ -591,6 +591,7 @@ empty_managed = "Aún no hay volúmenes gestionados. Agrega uno para crear archi
 files_retained = "Los archivos se conservan"
 live_mounts = "Montajes en vivo"
 live_mounts_hint = "Montajes informados por el contenedor de Podman actual."
+loading = "Cargando volúmenes"
 manage_files = "Administrar archivos"
 managed_volumes = "Volúmenes gestionados"
 managed_volumes_hint = "Almacenamiento persistente gestionado por litepod. Los cambios se aplican en el próximo despliegue."

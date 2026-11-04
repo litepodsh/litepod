@@ -15,9 +15,12 @@
 	let strip = $state<HTMLElement | null>(null);
 	$effect(() => {
 		void hero?.siblings;
-		strip
-			?.querySelector<HTMLElement>('[aria-current="page"]')
-			?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+		const on = strip?.querySelector<HTMLElement>('[aria-current="page"]');
+		if (!strip || !on) return;
+		// Not scrollIntoView: pages refresh the hero while polling, and it would pull a scrolled page back up here.
+		const item = on.getBoundingClientRect();
+		const box = strip.getBoundingClientRect();
+		strip.scrollLeft += item.left + item.width / 2 - (box.left + box.width / 2);
 	});
 </script>
 

@@ -2326,7 +2326,8 @@
 	{:else if application && environment && projectDetail}
 		{#if deployment}
 			<div class="mt-2 min-w-0 max-w-full">
-				{#if refreshingTab && activeTab !== 'general' && activeTab !== 'deployment'}
+				<!-- Containers stays mounted while loading: a shorter skeleton collapses the page and moves the scroll. -->
+				{#if refreshingTab && !['general', 'deployment', 'containers'].includes(activeTab)}
 					<SkeletonRows rows={4} height="h-20" label="Loading tab" />
 				{:else if activeTab === 'general' && application.template_kind === 'postgres'}
 					<PostgresResourceDetail
@@ -2761,6 +2762,7 @@
 								(source?.deploy_type === 'git' && source?.build_method === 'compose')}
 							composeServices={composeServices.map((service) => service.name)}
 							{busy}
+							loading={refreshingTab}
 							onRefresh={refreshVolumeState}
 							onCreateManagedVolume={handleCreateManagedVolume}
 							onAttachManagedVolume={handleAttachManagedVolume}
