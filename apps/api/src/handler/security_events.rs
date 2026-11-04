@@ -1,5 +1,6 @@
 use axum::{
     Extension,
+    Json,
     extract::{Query, State},
     response::IntoResponse,
 };
@@ -8,6 +9,7 @@ use sqlx::Row;
 
 use crate::dtos::response::{AppError, ok};
 use crate::security::middleware::auth::AuthUser;
+use crate::security::security_events;
 use crate::state::state::SharedState;
 
 const MAX_LIMIT: i64 = 200;
@@ -46,6 +48,16 @@ pub struct SecurityEventDto {
     pub created_at: String,
 }
 
+async fn require_cloud_sysadmin(state: &SharedState, user: &AuthUser) -> Result<(), AppError> {
+    if !state.is_cloud {
+        return Err(AppError::ResourceNotFound);
+    }
+    if !crate::git::repositories::user::is_sysadmin(state, &user.user_id).await {
+        return Err(AppError::InsufficientPermissions);
+    }
+    Ok(())
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/admin/security-events",
@@ -67,12 +79,7 @@ pub async fn list_security_events_handler(
     Extension(user): Extension<AuthUser>,
     Query(query): Query<SecurityEventsQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    if !state.is_cloud {
-        return Err(AppError::ResourceNotFound);
-    }
-    if !crate::git::repositories::user::is_sysadmin(&state, &user.user_id).await {
-        return Err(AppError::InsufficientPermissions);
-    }
+    require_cloud_sysadmin(&state, &user).await?;
     let blank = |value: Option<String>| value.filter(|value| !value.trim().is_empty());
     let conn = crate::git::repositories::db::get_conn(&state).await;
     let rows = sqlx::query(
@@ -124,3 +131,81 @@ pub async fn list_security_events_handler(
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(ok(events))
 }
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct SecurityEventRetentionDto {
+    pub retention_days: i64,
+    pub default_days: i64,
+    pub max_days: i64,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateSecurityEventRetentionRequest {
+    pub retention_days: i64,
+}
+
+async fn retention_dto(state: &SharedState) -> Result<SecurityEventRetentionDto, AppError> {
+    Ok(SecurityEventRetentionDto {
+        retention_days: security_events::retention_days(state)
+            .await
+            .map_err(AppError::DatabaseError)?,
+        default_days: security_events::DEFAULT_RETENTION_DAYS,
+        max_days: security_events::MAX_RETENTION_DAYS,
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/security-events/retention",
+    responses(
+        (status = 200, description = "How long security events are kept (cloud SysAdmin only)", body = SecurityEventRetentionDto),
+    ),
+    tag = "users"
+)]
+pub async fn get_retention_handler(
+    State(state): State<SharedState>,
+    Extension(user): Extension<AuthUser>,
+) -> Result<impl IntoResponse, AppError> {
+    require_cloud_sysadmin(&state, &user).await?;
+    Ok(ok(retention_dto(&state).await?))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/security-events/retention",
+    request_body = UpdateSecurityEventRetentionRequest,
+    responses(
+        (status = 200, description = "Updated retention", body = SecurityEventRetentionDto),
+        (status = 400, description = "Outside the allowed range"),
+    ),
+    tag = "users"
+)]
+pub async fn update_retention_handler(
+    State(state): State<SharedState>,
+    Extension(user): Extension<AuthUser>,
+    Json(request): Json<UpdateSecurityEventRetentionRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_cloud_sysadmin(&state, &user).await?;
+    let (min, max) = (
+        security_events::DEFAULT_RETENTION_DAYS,
+        security_events::MAX_RETENTION_DAYS,
+    );
+    if !(min..=max).contains(&request.retention_days) {
+        return Err(AppError::ValidationError(format!(
+            "Retention must be between {min} and {max} days"
+        )));
+    }
+    security_events::set_retention_days(&state, request.retention_days)
+        .await
+        .map_err(AppError::DatabaseError)?;
+    let _ = security_events::record(
+        &state,
+        None,
+        &user,
+        "settings.security_event_retention_updated",
+        Some(&request.retention_days.to_string()),
+    )
+    .await;
+    Ok(ok(retention_dto(&state).await?))
+}
+

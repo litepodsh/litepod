@@ -141,8 +141,95 @@ async fn insert(
     Ok(())
 }
 
+pub const DEFAULT_RETENTION_DAYS: i64 = 90;
+pub const MAX_RETENTION_DAYS: i64 = 365;
+
+pub async fn retention_days(state: &SharedState) -> Result<i64, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query_scalar("SELECT retention_days FROM security_event_settings WHERE id = 1")
+        .fetch_one(&conn)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Stores the window and applies a shorter one right away instead of at the next daily purge.
+pub async fn set_retention_days(state: &SharedState, days: i64) -> Result<(), String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query("UPDATE security_event_settings SET retention_days = ?1 WHERE id = 1")
+        .bind(days)
+        .execute(&conn)
+        .await
+        .map_err(|e| e.to_string())?;
+    purge_expired(state).await.map(|_| ())
+}
+
+pub async fn purge_expired(state: &SharedState) -> Result<u64, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let result = sqlx::query(
+        "DELETE FROM security_events WHERE created_at < datetime('now', '-' || \
+         (SELECT retention_days FROM security_event_settings WHERE id = 1) || ' days')",
+    )
+    .execute(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(result.rows_affected())
+}
+
+/// Purges at startup, then daily. Cloud only: the privacy policy promises this
+/// window for Litepod Cloud, and self-hosted operators set their own rules.
+pub fn spawn(state: SharedState) {
+    if !state.is_cloud {
+        return;
+    }
+    tokio::spawn(async move {
+        let mut daily = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+        loop {
+            daily.tick().await;
+            if let Err(error) = purge_expired(&state).await {
+                tracing::warn!(%error, "security event purge failed");
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::testing::{cleanup_database, test_state_for};
+
+    async fn seed(state: &SharedState, id: &str, age_days: i64) {
+        sqlx::query(
+            "INSERT INTO security_events (id, action, created_at) \
+             VALUES (?1, 'auth.login', datetime('now', '-' || ?2 || ' days'))",
+        )
+        .bind(id)
+        .bind(age_days)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+
+    async fn ids(state: &SharedState) -> Vec<String> {
+        sqlx::query_scalar("SELECT id FROM security_events ORDER BY id")
+            .fetch_all(&state.db)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn purge_follows_the_default_and_an_extended_window() {
+        let (state, path) = test_state_for(true).await;
+        assert_eq!(retention_days(&state).await.unwrap(), DEFAULT_RETENTION_DAYS);
+        for (id, age) in [("a-89", 89), ("b-120", 120), ("c-400", 400)] {
+            seed(&state, id, age).await;
+        }
+        set_retention_days(&state, 365).await.unwrap();
+        assert_eq!(ids(&state).await, ["a-89", "b-120"]);
+        set_retention_days(&state, 90).await.unwrap();
+        assert_eq!(ids(&state).await, ["a-89"]);
+        cleanup_database(&path);
+    }
+
     #[test]
     fn security_events_schema_stores_lifecycle_only() {
         let migration = include_str!("../../migrations/0044_security_events.sql");

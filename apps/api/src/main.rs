@@ -477,6 +477,7 @@ async fn async_main(sentry_kind: Option<&'static str>) {
     crate::scheduled_tasks::scheduler::spawn(shared_state.clone());
     crate::health_checks::spawn(shared_state.clone());
     crate::git::repositories::audit_log::spawn(shared_state.clone());
+    crate::security::security_events::spawn(shared_state.clone());
     crate::billing::audit::spawn(shared_state.clone());
     crate::servers::monitor::spawn(shared_state.clone());
     crate::metrics_history::spawn(shared_state.clone());
