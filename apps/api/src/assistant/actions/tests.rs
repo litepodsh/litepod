@@ -5,7 +5,13 @@ use crate::{
     state::state::SharedState,
 };
 
-use super::{apply::*, lifecycle::*, propose::*, types::*};
+use super::{
+    apply::*,
+    lifecycle::*,
+    propose::*,
+    types::*,
+    upload::{IconRequest, stage_upload},
+};
 use crate::testing::{auth_user, cleanup_database, seed_application, test_state};
 
 /// `test_state` already seeds `organization-a` and `organization-b`.
@@ -661,11 +667,7 @@ async fn a_change_that_changes_nothing_never_becomes_a_card() {
             &chat,
             &auth_user("editor"),
             &target,
-            UpdateApplication {
-                name: None,
-                description: None,
-                reason: None,
-            },
+            UpdateApplication::default(),
         )
         .await
         .is_err()
@@ -688,8 +690,7 @@ async fn renaming_waits_for_the_confirm() {
         &target,
         UpdateApplication {
             name: Some("renamed".into()),
-            description: None,
-            reason: None,
+            ..UpdateApplication::default()
         },
     )
     .await
@@ -853,8 +854,7 @@ async fn a_project_action_stores_no_application_and_still_applies() {
         &target,
         ProjectFields {
             name: Some("  Billing  ".into()),
-            description: None,
-            reason: None,
+            ..ProjectFields::default()
         },
     )
     .await
@@ -2010,4 +2010,313 @@ async fn a_restart_of_a_container_the_application_does_not_have_is_refused() {
     assert_eq!(whole.tool, RESTART_APPLICATION);
     assert!(whole.summary.contains("it hangs"), "{}", whole.summary);
     cleanup_database(&path);
+}
+
+const PNG: [u8; 10] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0];
+
+/// `test_state` keeps files under the working directory; icons are real files.
+async fn state_with_files() -> (SharedState, std::path::PathBuf, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("litepod-icons-{}", Uuid::now_v7()));
+    let (state, path) = crate::testing::test_state_with_network("", dir.clone()).await;
+    (state, path, dir)
+}
+
+async fn project_icon(state: &SharedState, id: &str) -> Option<String> {
+    sqlx::query_scalar("SELECT icon_url FROM projects WHERE id = ?1")
+        .bind(id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_new_project_with_no_icon_gets_a_random_name_from_the_list() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let target = ActionTarget::project("organization-a", "", "");
+
+    let action = propose_create_project(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        ProjectFields {
+            name: Some("plain".into()),
+            ..ProjectFields::default()
+        },
+    )
+    .await
+    .unwrap();
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+
+    let project = crate::cqrs::queries::project::list_projects(&state, "organization-a")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|project| project.name == "plain")
+        .unwrap();
+    let icon = project.icon_url.expect("a random icon");
+    assert!(crate::icons::NAMES.contains(&icon.as_str()), "{icon}");
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn an_uploaded_icon_waits_for_its_bytes_and_is_served_as_our_own() {
+    let (state, path, dir) = state_with_files().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let icon = IconRequest::parse(&serde_json::json!({ "icon_upload": true })).unwrap();
+    let token_hash = icon.upload_token_hash.clone();
+    assert!(!token_hash.is_empty());
+
+    let action = propose_update_project(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        ProjectFields {
+            upload_token_hash: token_hash,
+            ..ProjectFields::default()
+        },
+    )
+    .await
+    .unwrap();
+    let url = icon.finish(&state, &action.id).await.unwrap().unwrap();
+    let token = url.rsplit('/').next().unwrap();
+
+    // A wrong token learns nothing; what is no image is refused while it can be fixed.
+    assert!(
+        stage_upload(&state, &action.id, "wrong", &PNG)
+            .await
+            .is_err()
+    );
+    assert!(
+        stage_upload(&state, &action.id, token, b"<html></html>")
+            .await
+            .is_err()
+    );
+    stage_upload(&state, &action.id, token, &PNG).await.unwrap();
+
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+    let icon = project_icon(&state, &target.project_id).await.unwrap();
+    assert!(
+        icon.starts_with(&format!(
+            "/api/v1/organizations/organization-a/projects/{}/icon/",
+            target.project_id
+        )),
+        "{icon}"
+    );
+    assert!(icon.ends_with(".png"), "{icon}");
+
+    cleanup_database(&path);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn an_inline_icon_is_staged_with_the_proposal_and_needs_no_upload() {
+    let (state, path, dir) = state_with_files().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let icon = IconRequest::parse(&serde_json::json!({
+        "icon_base64": "data:image/png;base64,iVBORw0KGgoAAA=="
+    }))
+    .unwrap();
+
+    let action = propose_update_project(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        ProjectFields {
+            upload_token_hash: icon.upload_token_hash.clone(),
+            ..ProjectFields::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(icon.finish(&state, &action.id).await.unwrap(), None);
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+    assert!(
+        project_icon(&state, &target.project_id)
+            .await
+            .unwrap()
+            .ends_with(".png")
+    );
+
+    cleanup_database(&path);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn confirming_before_the_icon_arrives_changes_nothing() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let icon = IconRequest::parse(&serde_json::json!({ "icon_upload": true })).unwrap();
+
+    let action = propose_update_application(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        UpdateApplication {
+            name: Some("renamed".into()),
+            upload_token_hash: icon.upload_token_hash.clone(),
+            ..UpdateApplication::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        confirm(&state, "organization-a", &actor, &action.id)
+            .await
+            .is_err()
+    );
+    let name: String = sqlx::query_scalar("SELECT name FROM applications WHERE id = ?1")
+        .bind(&target.application_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_ne!(name, "renamed");
+
+    cleanup_database(&path);
+}
+
+#[tokio::test]
+async fn a_name_sets_and_a_blank_url_clears_an_application_icon() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let icon = || async {
+        sqlx::query_scalar::<_, Option<String>>("SELECT icon_url FROM applications WHERE id = ?1")
+            .bind(&target.application_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap()
+    };
+
+    for (value, expected) in [("rocket", Some("rocket".to_owned())), ("", None)] {
+        let action = propose_update_application(
+            &state,
+            &chat,
+            &actor,
+            &target,
+            UpdateApplication {
+                icon_url: Some(value.into()),
+                ..UpdateApplication::default()
+            },
+        )
+        .await
+        .unwrap();
+        confirm(&state, "organization-a", &actor, &action.id)
+            .await
+            .unwrap();
+        assert_eq!(icon().await, expected);
+    }
+
+    cleanup_database(&path);
+}
+
+#[test]
+fn an_icon_request_refuses_bad_input_before_anything_is_stored() {
+    use serde_json::json;
+    for bad in [
+        json!({ "icon": "no-such-icon" }),
+        json!({ "icon_url": "http://example.com/a.png" }),
+        json!({ "icon_url": "https://169.254.169.254/latest/meta-data" }),
+        json!({ "icon_url": "file:///etc/passwd" }),
+        json!({ "icon_base64": "not base64!" }),
+        json!({ "icon_base64": "PGh0bWw+PC9odG1sPg==" }),
+        json!({ "icon": "rocket", "icon_url": "https://example.com/a.png" }),
+        json!({ "icon": "rocket", "icon_upload": true }),
+    ] {
+        assert!(IconRequest::parse(&bad).is_err(), "{bad}");
+    }
+    assert!(IconRequest::parse(&json!({ "icon": "rocket" })).is_ok());
+    assert!(IconRequest::parse(&json!({ "icon_url": "" })).is_ok());
+    // A data URL is what generators often hand back.
+    let parsed =
+        IconRequest::parse(&json!({ "icon_base64": "data:image/png;base64,iVBORw0KGgoAAA==" }))
+            .unwrap();
+    assert!(!parsed.upload_token_hash.is_empty());
+}
+
+#[tokio::test]
+async fn an_icon_url_to_an_internal_host_is_refused_on_confirm_too() {
+    let (state, path) = test_state().await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let target = ActionTarget::project("organization-a", "", "");
+    // Past `IconRequest::parse`, as a stored proposal would be: the check that
+    // counts is the one right before the request.
+    let action = propose_create_project(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        ProjectFields {
+            name: Some("internal".into()),
+            icon_url: Some("https://localhost/a.png".into()),
+            ..ProjectFields::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        confirm(&state, "organization-a", &actor, &action.id)
+            .await
+            .is_err()
+    );
+    let projects = crate::cqrs::queries::project::list_projects(&state, "organization-a")
+        .await
+        .unwrap();
+    assert!(
+        !projects.iter().any(|project| project.name == "internal"),
+        "a failed icon must not leave the project behind"
+    );
+
+    cleanup_database(&path);
+}
+
+/// A real image over the real network, through the same guards.
+#[tokio::test]
+#[ignore = "needs the network"]
+async fn an_icon_url_is_downloaded_and_kept() {
+    let (state, path, dir) = state_with_files().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    let actor = auth_user("editor");
+    let action = propose_update_project(
+        &state,
+        &chat,
+        &actor,
+        &target,
+        ProjectFields {
+            icon_url: Some("https://github.githubassets.com/favicons/favicon.png".into()),
+            ..ProjectFields::default()
+        },
+    )
+    .await
+    .unwrap();
+    confirm(&state, "organization-a", &actor, &action.id)
+        .await
+        .unwrap();
+    let icon = project_icon(&state, &target.project_id).await.unwrap();
+    assert!(icon.starts_with("/api/v1/organizations/"), "{icon}");
+    assert!(icon.ends_with(".png"), "{icon}");
+
+    cleanup_database(&path);
+    let _ = std::fs::remove_dir_all(&dir);
 }

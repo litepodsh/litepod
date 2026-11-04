@@ -1,4 +1,5 @@
-//! The upload half of `deploy_static_site` and `deploy_zip`.
+//! The upload half of `deploy_static_site` and `deploy_zip`, and of an icon on a
+//! project or application action.
 //!
 //! The agent gets a URL with a one-time token when it proposes, and `curl`s
 //! the site there. The bytes wait under the action's id until a person
@@ -43,8 +44,18 @@ struct UploadToken {
     upload_token_hash: String,
 }
 
-/// Keeps an upload for a pending `deploy_static_site` or `deploy_zip`. A second
-/// upload replaces the first, so a wrong zip is fixed by sending the right one.
+/// The actions that may carry an icon.
+const ICON_TOOLS: [&str; 4] = [
+    CREATE_PROJECT,
+    UPDATE_PROJECT,
+    CREATE_APPLICATION,
+    UPDATE_APPLICATION,
+];
+const ICON_FILE: &str = "icon";
+
+/// Keeps an upload for a pending `deploy_static_site`, `deploy_zip` or icon. A
+/// second upload replaces the first, so a wrong zip is fixed by sending the
+/// right one.
 pub async fn stage_upload(
     state: &SharedState,
     action_id: &str,
@@ -53,11 +64,15 @@ pub async fn stage_upload(
 ) -> Result<(), AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let row = sqlx::query(
-        "SELECT arguments, status, expires_at, tool FROM assistant_actions WHERE id = ?1 AND tool IN (?2, ?3)",
+        "SELECT arguments, status, expires_at, tool FROM assistant_actions WHERE id = ?1 AND tool IN (?2, ?3, ?4, ?5, ?6, ?7)",
     )
     .bind(action_id)
     .bind(DEPLOY_STATIC_SITE)
     .bind(DEPLOY_ZIP)
+    .bind(ICON_TOOLS[0])
+    .bind(ICON_TOOLS[1])
+    .bind(ICON_TOOLS[2])
+    .bind(ICON_TOOLS[3])
     .fetch_optional(&conn)
     .await
     .map_err(|error| AppError::DatabaseError(error.to_string()))?
@@ -86,6 +101,12 @@ pub async fn stage_upload(
         ));
     }
 
+    if ICON_TOOLS.contains(&tool.as_str()) {
+        // Refused now, so the agent can fix it before anyone confirms.
+        crate::icons::prepare(bytes)?;
+        return write_staged(state, action_id, ICON_FILE, bytes).await;
+    }
+
     let filename = match crate::deployment::file_kind("upload", bytes) {
         Ok("zip") => "site.zip",
         _ if tool == DEPLOY_ZIP => {
@@ -107,6 +128,15 @@ pub async fn stage_upload(
             "The ZIP is larger than 100 MB, the upload limit.".into(),
         ));
     }
+    write_staged(state, action_id, filename, bytes).await
+}
+
+async fn write_staged(
+    state: &SharedState,
+    action_id: &str,
+    filename: &str,
+    bytes: &[u8],
+) -> Result<(), AppError> {
     let dir = staging_dir(state, action_id);
     let _ = tokio::fs::remove_dir_all(&dir).await;
     tokio::fs::create_dir_all(&dir)
@@ -116,6 +146,176 @@ pub async fn stage_upload(
         .await
         .map_err(|error| AppError::InternalError(error.to_string()))?;
     Ok(())
+}
+
+/// How a tool call wants to set an icon, checked before anything is stored.
+#[derive(Default)]
+pub struct IconRequest {
+    /// `icon` or `icon_url`, kept in the proposal.
+    pub value: Option<String>,
+    pub upload_token_hash: String,
+    token: String,
+    inline: Option<Vec<u8>>,
+}
+
+impl IconRequest {
+    /// Reads `icon`, `icon_url`, `icon_base64` and `icon_upload`: one at most.
+    pub fn parse(arguments: &serde_json::Value) -> Result<Self, AppError> {
+        use base64::Engine;
+
+        let text = |key: &str| arguments.get(key).and_then(|value| value.as_str());
+        let name = text("icon");
+        let url = text("icon_url").map(str::trim);
+        let encoded = text("icon_base64");
+        let upload = arguments
+            .get("icon_upload")
+            .and_then(|value| value.as_bool())
+            == Some(true);
+        let given = usize::from(name.is_some())
+            + usize::from(url.is_some())
+            + usize::from(encoded.is_some())
+            + usize::from(upload);
+        if given > 1 {
+            return Err(AppError::ValidationError(
+                "Pass only one of `icon`, `icon_url`, `icon_base64` or `icon_upload`".into(),
+            ));
+        }
+        if let Some(name) = name
+            && !crate::icons::NAMES.contains(&name)
+        {
+            return Err(AppError::ValidationError(format!(
+                "`{name}` is not an icon. Use one of: {}",
+                crate::icons::NAMES.join(", ")
+            )));
+        }
+        if let Some(url) = url.filter(|url| !url.is_empty()) {
+            crate::security::ssrf::parse_https_url(url)
+                .map_err(|error| AppError::ValidationError(format!("`icon_url`: {error}")))?;
+        }
+        let inline = match encoded {
+            None => None,
+            Some(encoded) => {
+                // Generators often hand back a data URL rather than bare base64.
+                let bare = encoded
+                    .split_once(";base64,")
+                    .map_or(encoded, |(_, bare)| bare);
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(bare.trim())
+                    .map_err(|error| {
+                        AppError::ValidationError(format!("`icon_base64` is not base64: {error}"))
+                    })?;
+                crate::icons::prepare(&bytes)?;
+                Some(bytes)
+            }
+        };
+        let token = if upload || inline.is_some() {
+            format!(
+                "{}{}",
+                uuid::Uuid::new_v4().simple(),
+                uuid::Uuid::new_v4().simple()
+            )
+        } else {
+            String::new()
+        };
+        Ok(Self {
+            value: name.or(url).map(str::to_owned),
+            upload_token_hash: if token.is_empty() {
+                String::new()
+            } else {
+                hash_token(&token)
+            },
+            token,
+            inline,
+        })
+    }
+
+    /// Stages an inline image under the stored proposal. `Some` is the address
+    /// the agent still has to send the image to.
+    pub async fn finish(
+        self,
+        state: &SharedState,
+        action_id: &str,
+    ) -> Result<Option<String>, AppError> {
+        if let Some(bytes) = &self.inline {
+            stage_upload(state, action_id, &self.token, bytes).await?;
+            return Ok(None);
+        }
+        if self.token.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(upload_url(state, action_id, &self.token).await))
+    }
+}
+
+/// What a confirmed action does to the icon.
+pub(super) enum IconChange {
+    Keep,
+    Clear,
+    Named(String),
+    Image(Vec<u8>),
+}
+
+impl IconChange {
+    /// The update request's tri-state field; an image goes through its own call.
+    pub(super) fn field(&self) -> Option<Option<String>> {
+        match self {
+            Self::Clear => Some(None),
+            Self::Named(name) => Some(Some(name.clone())),
+            Self::Keep | Self::Image(_) => None,
+        }
+    }
+}
+
+/// Resolves the icon of a confirmed action, before it changes anything: a dead
+/// link must not leave a project behind.
+pub(super) async fn take_icon(
+    state: &SharedState,
+    action_id: &str,
+    value: Option<&str>,
+    upload_token_hash: &str,
+) -> Result<IconChange, AppError> {
+    if !upload_token_hash.is_empty() {
+        let path = staging_dir(state, action_id).join(ICON_FILE);
+        let Ok(bytes) = tokio::fs::read(&path).await else {
+            return Err(AppError::ValidationError(
+                "The icon has not been uploaded yet. The agent has to send it to the upload URL first."
+                    .into(),
+            ));
+        };
+        discard(state, action_id).await;
+        return Ok(IconChange::Image(bytes));
+    }
+    match value.map(str::trim) {
+        None => Ok(IconChange::Keep),
+        Some("") => Ok(IconChange::Clear),
+        Some(name) if crate::icons::NAMES.contains(&name) => Ok(IconChange::Named(name.to_owned())),
+        Some(url) => fetch_icon(url)
+            .await
+            .map(IconChange::Image)
+            .map_err(AppError::ValidationError),
+    }
+}
+
+/// Downloads an image through `security::ssrf` and keeps it to the icon limit.
+/// Litepod serves its own copy, so a link that expires or a third party that
+/// logs visitors never reaches the people looking at the icon.
+async fn fetch_icon(raw: &str) -> Result<Vec<u8>, String> {
+    use futures_util::StreamExt;
+
+    let url = crate::security::ssrf::parse_https_url(raw)?;
+    let (_, response) =
+        crate::assistant::web::get_public(url, "image/png, image/jpeg, image/webp, image/svg+xml")
+            .await?;
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        body.extend_from_slice(&chunk.map_err(|_| "The image stopped downloading".to_string())?);
+        if body.len() > crate::icons::MAX_ICON_BYTES {
+            return Err("The image at `icon_url` is larger than the 2 MiB icon limit".into());
+        }
+    }
+    crate::icons::prepare(&body).map_err(|error| error.to_string())?;
+    Ok(body)
 }
 
 /// The upload route's own limit, so a site is refused the same either way.

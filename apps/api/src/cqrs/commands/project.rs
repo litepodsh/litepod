@@ -236,6 +236,29 @@ pub async fn update_project(
     })
 }
 
+/// Keeps an image as the project's icon and points the project at it.
+pub async fn set_project_icon(
+    state: &SharedState,
+    organization_id: &str,
+    project_id: &str,
+    bytes: &[u8],
+) -> Result<ProjectDto, AppError> {
+    let filename = crate::icons::store(state, "projects", project_id, bytes).await?;
+    update_project(
+        state,
+        organization_id,
+        project_id,
+        &UpdateProjectRequest {
+            name: None,
+            description: None,
+            icon_url: Some(Some(format!(
+                "/api/v1/organizations/{organization_id}/projects/{project_id}/icon/{filename}"
+            ))),
+        },
+    )
+    .await
+}
+
 pub async fn delete_project(
     state: &SharedState,
     organization_id: &str,
@@ -532,6 +555,35 @@ pub async fn update_application(
         created_at: existing.created_at,
         updated_at,
     })
+}
+
+/// Keeps an image as the application's icon and points the application at it.
+pub async fn set_application_icon(
+    state: &SharedState,
+    organization_id: &str,
+    project_id: &str,
+    environment_id: &str,
+    application_id: &str,
+    bytes: &[u8],
+) -> Result<ApplicationDto, AppError> {
+    let filename = crate::icons::store(state, "applications", application_id, bytes).await?;
+    update_application(
+        state,
+        organization_id,
+        project_id,
+        environment_id,
+        application_id,
+        &UpdateApplicationRequest {
+            name: None,
+            description: None,
+            icon_url: Some(Some(format!(
+                "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/icon/{filename}"
+            ))),
+            server_id: None,
+            server_group_id: None,
+        },
+    )
+    .await
 }
 
 pub async fn delete_application(

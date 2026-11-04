@@ -221,20 +221,8 @@ pub async fn upload_project_icon_handler(
         return Err(AppError::ValidationError("Upload exactly one icon".into()));
     }
 
-    let filename = icons::store(&state, "projects", &project_id, &bytes).await?;
-    let icon_url =
-        format!("/api/v1/organizations/{organization_id}/projects/{project_id}/icon/{filename}");
-    let project = project_cmd::update_project(
-        &state,
-        &organization_id,
-        &project_id,
-        &UpdateProjectRequest {
-            name: None,
-            description: None,
-            icon_url: Some(Some(icon_url)),
-        },
-    )
-    .await?;
+    let project =
+        project_cmd::set_project_icon(&state, &organization_id, &project_id, &bytes).await?;
     Ok(ok(project))
 }
 

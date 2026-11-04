@@ -162,12 +162,18 @@ pub struct SetComposeFile {
 
 /// Validated arguments for [`UPDATE_APPLICATION`]. Both optional, at least one
 /// present - a card that changes nothing is a card nobody should be shown.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateApplication {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// An icon name or an image URL fetched on confirm; blank removes the icon.
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    /// SHA-256 of the token an icon is uploaded with; empty when none is.
+    #[serde(default)]
+    pub upload_token_hash: String,
     #[serde(default)]
     pub reason: Option<String>,
 }
@@ -231,6 +237,12 @@ pub struct CreateApplication {
     /// that publishes it, so the application gets a public URL.
     #[serde(default)]
     pub port: Option<i64>,
+    /// An icon name or an image URL fetched on confirm.
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    /// SHA-256 of the token an icon is uploaded with; empty when none is.
+    #[serde(default)]
+    pub upload_token_hash: String,
     #[serde(default)]
     pub reason: Option<String>,
 }
@@ -244,6 +256,12 @@ pub struct ProjectFields {
     pub name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// An icon name or an image URL fetched on confirm; blank removes the icon.
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    /// SHA-256 of the token an icon is uploaded with; empty when none is.
+    #[serde(default)]
+    pub upload_token_hash: String,
     #[serde(default)]
     pub reason: Option<String>,
 }

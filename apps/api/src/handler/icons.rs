@@ -10,7 +10,6 @@ use axum::{
 };
 
 use crate::cqrs::commands::project as project_cmd;
-use crate::dtos::project::UpdateApplicationRequest;
 use crate::dtos::response::{AppError, ok};
 use crate::icons;
 use crate::security::authz::extract::{RequireApp, perm};
@@ -60,24 +59,13 @@ pub async fn upload_application_icon_handler(
         return Err(AppError::ValidationError("Upload exactly one icon".into()));
     }
 
-    let filename = icons::store(&state, "applications", &app.application_id, &bytes).await?;
-    let icon_url = format!(
-        "/api/v1/organizations/{}/projects/{}/environments/{}/applications/{}/icon/{filename}",
-        app.organization_id, app.project_id, app.environment_id, app.application_id
-    );
-    let application = project_cmd::update_application(
+    let application = project_cmd::set_application_icon(
         &state,
         &app.organization_id,
         &app.project_id,
         &app.environment_id,
         &app.application_id,
-        &UpdateApplicationRequest {
-            name: None,
-            description: None,
-            icon_url: Some(Some(icon_url)),
-            server_id: None,
-            server_group_id: None,
-        },
+        &bytes,
     )
     .await?;
     Ok(ok(application))

@@ -202,6 +202,19 @@ mod tests {
     }
 
     #[test]
+    fn exec_tells_an_agent_how_to_make_a_good_icon() {
+        let list = tools_list(true);
+        let exec = &list["tools"][1];
+        let description = exec["description"].as_str().unwrap();
+        assert!(description.contains("512x512"), "{description}");
+        assert!(description.contains("2 MiB"), "{description}");
+        let names = exec["inputSchema"]["properties"]["icon"]["enum"]
+            .as_array()
+            .unwrap();
+        assert_eq!(names.len(), crate::icons::NAMES.len());
+    }
+
+    #[test]
     fn a_modern_request_names_its_version_in_meta() {
         let params = json!({ "_meta": { META_VERSION: "2026-07-28" } });
         assert_eq!(declared_version(&params), Some("2026-07-28"));

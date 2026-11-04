@@ -57,8 +57,47 @@ fn is_text(content_type: &str) -> bool {
 }
 
 pub async fn fetch(raw: &str) -> Result<Value, String> {
-    let mut url = rewrite(crate::security::ssrf::parse_https_url(raw)?);
+    let url = rewrite(crate::security::ssrf::parse_https_url(raw)?);
+    let (checked, response) = get_public(
+        url,
+        "text/*, application/json, application/yaml, application/xml",
+    )
+    .await?;
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    if !is_text(&content_type) {
+        return Err(format!("That is `{content_type}`, not text"));
+    }
 
+    let mut body = Vec::new();
+    let mut truncated = false;
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| "The page stopped answering".to_string())?;
+        let room = MAX_BYTES - body.len();
+        if chunk.len() > room {
+            body.extend_from_slice(&chunk[..room]);
+            truncated = true;
+            break;
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(json!({
+        "url": checked.as_str(),
+        "content_type": content_type,
+        "truncated": truncated,
+        "untrusted": UNTRUSTED,
+        "content": String::from_utf8_lossy(&body),
+    }))
+}
+
+/// GET a public HTTPS address, redirects included, through `security::ssrf`.
+/// Returns the address that answered and its successful response.
+pub async fn get_public(mut url: Url, accept: &str) -> Result<(Url, reqwest::Response), String> {
     for _ in 0..=MAX_REDIRECTS {
         // Shape-check this hop (https, no credentials, no literal IP), resolve
         // its host once, and pin the client to exactly those addresses so a
@@ -78,10 +117,7 @@ pub async fn fetch(raw: &str) -> Result<Value, String> {
             .map_err(|error| error.to_string())?;
         let response = client
             .get(checked.as_str())
-            .header(
-                "accept",
-                "text/*, application/json, application/yaml, application/xml",
-            )
+            .header("accept", accept)
             .send()
             .await
             .map_err(|_| {
@@ -109,36 +145,7 @@ pub async fn fetch(raw: &str) -> Result<Value, String> {
                 response.status()
             ));
         }
-        let content_type = response
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default()
-            .to_owned();
-        if !is_text(&content_type) {
-            return Err(format!("That is `{content_type}`, not text"));
-        }
-
-        let mut body = Vec::new();
-        let mut truncated = false;
-        let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|_| "The page stopped answering".to_string())?;
-            let room = MAX_BYTES - body.len();
-            if chunk.len() > room {
-                body.extend_from_slice(&chunk[..room]);
-                truncated = true;
-                break;
-            }
-            body.extend_from_slice(&chunk);
-        }
-        return Ok(json!({
-            "url": checked.as_str(),
-            "content_type": content_type,
-            "truncated": truncated,
-            "untrusted": UNTRUSTED,
-            "content": String::from_utf8_lossy(&body),
-        }));
+        return Ok((checked, response));
     }
     Err("Too many redirects".into())
 }
