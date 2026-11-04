@@ -11,6 +11,7 @@
 		type OrganizationApp,
 	} from '#lib/utils/organization-apps.js';
 	import { t } from '#lib/i18n/index.svelte.js';
+	import { focusOnDesktop } from '#lib/utils/desktop-focus.js';
 
 	const organizationId = $derived(page.params.id ?? '');
 	const ALL = '';
@@ -21,6 +22,7 @@
 	let query = $state('');
 	let projectId = $state(ALL);
 	let failedApplicationIds = $state(new Set<string>());
+	let searchInput = $state<HTMLInputElement | null>(null);
 
 	let projects = $derived(
 		[...new Map(apps.map((app) => [app.project.id, app.project.name])).entries()].map(
@@ -28,6 +30,10 @@
 		),
 	);
 	let visible = $derived(filterApps(apps, query, projectId || null));
+
+	$effect(() => {
+		focusOnDesktop(searchInput);
+	});
 
 	$effect(() => {
 		const id = organizationId;
@@ -54,6 +60,7 @@
 			class="lp-well relative flex min-w-0 flex-1 items-center rounded-full bg-muted/60 sm:max-w-sm">
 			<SearchIcon class="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
 			<Input
+				bind:ref={searchInput}
 				bind:value={query}
 				placeholder={t('common.org_apps.search')}
 				aria-label={t('common.org_apps.search')}
