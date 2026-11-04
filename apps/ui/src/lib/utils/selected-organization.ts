@@ -19,3 +19,14 @@ export function resolveSelectedOrganization<T extends { id: string }>(
 		null
 	);
 }
+
+/**
+ * The same section under another organization, because organization pages read
+ * their id from the URL. Anything deeper (a server id) belongs to the old one.
+ */
+export function organizationPathFor(pathname: string, organizationId: string): string {
+	return pathname.replace(
+		/^\/organizations\/[^/]+(\/[^/]+)?.*$/,
+		(_, section = '') => `/organizations/${encodeURIComponent(organizationId)}${section}`,
+	);
+}
