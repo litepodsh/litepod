@@ -20,12 +20,13 @@ use crate::{
     dtos::{
         organization_apps::{
             AppContainersDto, AppSummaryApplicationDto, AppSummaryDomainDto, AppSummaryDto,
-            AppSummaryEnvironmentDto, AppSummaryProjectDto,
+            AppSummaryEnvironmentDto, AppSummaryProjectDto, ApplicationStatsItemDto,
         },
         response::AppError,
     },
     git::repositories::db::get_conn,
     handler::deployments::is_running_container,
+    podman::podman_metrics::{ContainerIdentity, ContainerMetricState, normalize_stats},
     servers::runtime::ServerRuntime,
     state::state::SharedState,
 };
@@ -75,6 +76,29 @@ struct AppRow {
     container_name: Option<String>,
     status: Option<String>,
     deployed_at: Option<i64>,
+}
+
+fn parse_app_row(row: &sqlx::sqlite::SqliteRow) -> Result<AppRow, AppError> {
+    Ok(AppRow {
+        project_id: read(row, 0)?,
+        project_name: read(row, 1)?,
+        environment_id: read(row, 2)?,
+        environment_name: read(row, 3)?,
+        is_production: read_int(row, 4)? != 0,
+        application_id: read(row, 5)?,
+        name: read(row, 6)?,
+        template_kind: read_opt(row, 7)?,
+        catalog_icon_url: read_opt(row, 8)?,
+        icon_url: read_opt(row, 9)?,
+        created_at: read_int(row, 10)?,
+        updated_at: read_int(row, 11)?,
+        deploy_type: read(row, 12)?,
+        server_id: read_opt(row, 13)?,
+        server_group_id: read_opt(row, 14)?,
+        container_name: read_opt(row, 15)?,
+        status: read_opt(row, 16)?,
+        deployed_at: read_opt_int(row, 17)?,
+    })
 }
 
 const APPS_SQL: &str = "SELECT p.id, p.name, e.id, e.name, e.is_production,
@@ -141,28 +165,7 @@ pub async fn list_organization_apps(
         .map_err(db)?;
     let apps: Vec<AppRow> = rows
         .iter()
-        .map(|row| {
-            Ok(AppRow {
-                project_id: read(row, 0)?,
-                project_name: read(row, 1)?,
-                environment_id: read(row, 2)?,
-                environment_name: read(row, 3)?,
-                is_production: read_int(row, 4)? != 0,
-                application_id: read(row, 5)?,
-                name: read(row, 6)?,
-                template_kind: read_opt(row, 7)?,
-                catalog_icon_url: read_opt(row, 8)?,
-                icon_url: read_opt(row, 9)?,
-                created_at: read_int(row, 10)?,
-                updated_at: read_int(row, 11)?,
-                deploy_type: read(row, 12)?,
-                server_id: read_opt(row, 13)?,
-                server_group_id: read_opt(row, 14)?,
-                container_name: read_opt(row, 15)?,
-                status: read_opt(row, 16)?,
-                deployed_at: read_opt_int(row, 17)?,
-            })
-        })
+        .map(parse_app_row)
         .collect::<Result<Vec<_>, AppError>>()?;
 
     let domains = domains_by_application(&conn, organization_id).await?;
@@ -207,6 +210,119 @@ pub async fn list_organization_apps(
                     .unwrap_or_default(),
                 containers: counts.get(&app.application_id).cloned().flatten(),
             }
+        })
+        .collect())
+}
+
+/// One application's live stats plus the project/environment ids the handler
+/// needs to scope the response to what the caller can read.
+pub(crate) struct AppStatsRow {
+    pub project_id: String,
+    pub environment_id: String,
+    pub stats: ApplicationStatsItemDto,
+}
+
+/// Live CPU/memory for every application in the organization, in one request.
+/// Mirrors the single-application `/stats` handler: an application resolves to
+/// a concrete server and its primary container name; running containers carry
+/// usage, everything else reads as `stopped`. One `podman stats` per server,
+/// whatever the application count, so the home overview stops fanning out one
+/// request per application.
+pub async fn list_organization_apps_stats(
+    state: &SharedState,
+    organization_id: &str,
+) -> Result<Vec<AppStatsRow>, AppError> {
+    let conn = get_conn(state).await;
+    let rows = sqlx::query(APPS_SQL)
+        .bind(organization_id)
+        .fetch_all(&conn)
+        .await
+        .map_err(db)?;
+    let apps: Vec<AppRow> = rows
+        .iter()
+        .map(parse_app_row)
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    // Default `stopped` for every app; running containers overwrite it below.
+    let mut stats = apps
+        .iter()
+        .map(|app| {
+            Some(ApplicationStatsItemDto {
+                application_id: app.application_id.clone(),
+                status: "stopped".into(),
+                cpu_percent: None,
+                mem_usage_bytes: None,
+                mem_limit_bytes: None,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    // Group the apps that target a concrete server by that server, keeping only
+    // the primary container name each one runs under. Group-targeted and
+    // server-less applications stay `stopped`, matching the single-app handler.
+    let mut by_server: HashMap<String, Vec<(usize, String)>> = HashMap::new();
+    for (index, app) in apps.iter().enumerate() {
+        let Some(server_id) = app.server_id.as_deref() else {
+            continue;
+        };
+        let name = runtime_name(state, app);
+        if name.is_empty() {
+            continue;
+        }
+        by_server
+            .entry(server_id.to_string())
+            .or_default()
+            .push((index, name));
+    }
+
+    for (server_id, entries) in by_server {
+        let identities = entries
+            .iter()
+            .map(|(_, name)| ContainerIdentity::running(name.clone(), name.clone()))
+            .collect::<Vec<_>>();
+        let output = match ServerRuntime::for_server(state, &server_id).await {
+            Ok(runtime) => runtime
+                .podman(&[
+                    "stats".into(),
+                    "--no-stream".into(),
+                    "--format".into(),
+                    "json".into(),
+                ])
+                .await
+                .ok()
+                .map(|output| output.stdout),
+            Err(_) => None,
+        };
+        let value = output
+            .and_then(|stdout| serde_json::from_str::<serde_json::Value>(&stdout).ok())
+            .unwrap_or(serde_json::Value::Array(Vec::new()));
+        let snapshot = normalize_stats(value, &identities, chrono::Utc::now());
+        for ((index, _), metric) in entries.iter().zip(snapshot.metrics.iter()) {
+            if metric.state == ContainerMetricState::Running {
+                stats[*index] = Some(ApplicationStatsItemDto {
+                    application_id: apps[*index].application_id.clone(),
+                    status: "running".into(),
+                    cpu_percent: metric.cpu_percent,
+                    mem_usage_bytes: metric.memory_usage_bytes,
+                    mem_limit_bytes: metric.memory_limit_bytes,
+                });
+            }
+        }
+    }
+
+    Ok(apps
+        .into_iter()
+        .zip(stats)
+        .map(|(app, stats)| AppStatsRow {
+            project_id: app.project_id,
+            environment_id: app.environment_id,
+            stats: stats.unwrap_or(ApplicationStatsItemDto {
+                application_id: app.application_id,
+                status: "stopped".into(),
+                cpu_percent: None,
+                mem_usage_bytes: None,
+                mem_limit_bytes: None,
+            }),
         })
         .collect())
 }
@@ -634,6 +750,29 @@ mod tests {
             aggregate_status(&["queued".to_string()]),
             STATUS_NOT_DEPLOYED
         );
+    }
+
+    #[tokio::test]
+    async fn stats_read_as_stopped_when_the_server_is_offline() {
+        let (state, _path) = crate::testing::test_state().await;
+        seed_server(&state, "srv-a", "organization-a").await;
+        seed_application(&state, "app-a", "Ghost", "organization-a", "srv-a").await;
+        sqlx::query("INSERT INTO application_deployments (application_id, status, container_name, hostname, updated_at, deployed_at) VALUES ('app-a', 'running', 'ghost-abc123', 'host', 1, 1)")
+            .execute(&state.db)
+            .await
+            .unwrap();
+
+        let stats = list_organization_apps_stats(&state, "organization-a")
+            .await
+            .unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].project_id, "app-a-project");
+        assert_eq!(stats[0].environment_id, "app-a-env");
+        assert_eq!(stats[0].stats.application_id, "app-a");
+        // The offline server cannot answer, so the app reads as stopped rather
+        // than inventing numbers.
+        assert_eq!(stats[0].stats.status, "stopped");
+        assert_eq!(stats[0].stats.cpu_percent, None);
     }
 
     #[test]

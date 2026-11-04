@@ -91,6 +91,7 @@ const METRICS_ALLOWED_PATHS: &[&str] = &[
     projects::list_projects_handler,
     dashboard::organization_dashboard_handler,
     organization_apps::list_organization_apps_handler,
+    organization_apps::list_organization_apps_stats_handler,
     permissions::my_permissions_handler,
     access::catalog_handler,
     access::list_roles_handler,
@@ -632,6 +633,10 @@ pub fn create_router(state: SharedState) -> Router {
         .route(
             "/api/v1/organizations/{organization_id}/apps/summary",
             get(organization_apps::list_organization_apps_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/applications-stats",
+            get(organization_apps::list_organization_apps_stats_handler),
         )
         .route("/api/v1/organizations/{organization_id}/me/permissions", get(permissions::my_permissions_handler))
         .route("/api/v1/organizations/{organization_id}/permissions/catalog", get(access::catalog_handler))
