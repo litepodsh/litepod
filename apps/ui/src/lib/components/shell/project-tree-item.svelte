@@ -13,6 +13,7 @@
 	import { getProject, type EnvironmentDto, type ProjectDto } from '#lib/clients/project-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { isDisplayableImageUrl } from '#lib/utils/application-card-icon.js';
+	import { preloadOnHover } from '#lib/utils/preload.js';
 
 	let {
 		project,
@@ -61,7 +62,7 @@
 	<Sidebar.MenuItem>
 		<Sidebar.MenuButton isActive={path === href}>
 			{#snippet child({ props })}
-				<a {href} onclick={(event) => toggleOrGo(event, inProject, () => (open = !open), () => (open = true))} {...props}>
+				<a {href} onclick={(event) => toggleOrGo(event, inProject, () => (open = !open), () => (open = true))} use:preloadOnHover={href} {...props}>
 					{#if isDisplayableImageUrl(project.icon_url)}
 						<img src={project.icon_url} alt="" class="size-4 shrink-0 object-contain" />
 					{:else}
@@ -93,6 +94,7 @@
 												() => (openEnvs[env.id] = !envOpen(env, eh)),
 												() => (openEnvs[env.id] = true),
 											)}
+										use:preloadOnHover={eh}
 										{...props}
 										class="{props.class} pe-12">
 										{#if env.is_production}<ShieldCheckIcon />{:else}<FlaskConicalIcon />{/if}
@@ -132,7 +134,7 @@
 										<Sidebar.MenuSubItem>
 											<Sidebar.MenuSubButton isActive={path === ah || path.startsWith(`${ah}/`)}>
 												{#snippet child({ props })}
-													<a href={ah} onclick={onNavigate} {...props}>
+													<a href={ah} onclick={onNavigate} use:preloadOnHover={ah} {...props}>
 														<ApplicationIcon
 															templateKind={app.template_kind}
 															catalogIconUrl={app.catalog_icon_url}

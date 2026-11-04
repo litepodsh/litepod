@@ -13,6 +13,7 @@
 	import { branding } from '#lib/ee/branding/branding.svelte.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { activeTab, orgTabs } from '#lib/navigation/scope-tabs.js';
+	import { preloadOnHover } from '#lib/utils/preload.js';
 	import ProjectTreeItem from './project-tree-item.svelte';
 	import OrgSwitcher from './org-switcher.svelte';
 	import UserMenu from './user-menu.svelte';
@@ -119,6 +120,7 @@
 										href={tab.href}
 										aria-current={tab.id === current ? 'page' : undefined}
 										onclick={closeOnPhone}
+										use:preloadOnHover={tab.href}
 										{...props}>
 										<tab.icon />
 										<span>{t(tab.labelKey)}</span>
@@ -152,7 +154,7 @@
 						<Sidebar.MenuItem>
 							<Sidebar.MenuButton class="text-sidebar-foreground/70">
 								{#snippet child({ props })}
-									<a href="/projects" onclick={closeOnPhone} {...props}>
+									<a href="/projects" onclick={closeOnPhone} use:preloadOnHover={'/projects'} {...props}>
 										<EllipsisIcon />
 										<span>{t('menu.sidebar.all_projects')}</span>
 									</a>
