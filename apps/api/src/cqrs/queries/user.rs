@@ -7,6 +7,9 @@ pub async fn list_users(state: &SharedState) -> Result<Vec<UserWithOrgsDto>, App
     let rows = user::list_all_users(state)
         .await
         .map_err(|e| AppError::DatabaseError(e))?;
+    let mut usage = user::list_usage(state)
+        .await
+        .map_err(AppError::DatabaseError)?;
 
     let mut users = Vec::new();
     for row in rows {
@@ -41,6 +44,7 @@ pub async fn list_users(state: &SharedState) -> Result<Vec<UserWithOrgsDto>, App
             })
             .collect();
         let is_sysadmin = user::is_sysadmin(state, &row.id).await;
+        let usage = usage.remove(&row.id).unwrap_or_default();
         users.push(UserWithOrgsDto {
             id: row.id,
             email: row.email,
@@ -48,6 +52,11 @@ pub async fn list_users(state: &SharedState) -> Result<Vec<UserWithOrgsDto>, App
             created_at: row.created_at,
             disabled: row.status_id == 4,
             is_sysadmin,
+            last_login_at: usage.last_login_at,
+            remote_servers: usage.remote_servers,
+            remote_servers_ready: usage.remote_servers_ready,
+            applications: usage.applications,
+            applications_running: usage.applications_running,
             organizations: orgs,
         });
     }

@@ -188,6 +188,12 @@ export type UserWithOrgs = {
 	/** Locked out by a SysAdmin. */
 	disabled: boolean;
 	is_sysadmin: boolean;
+	last_login_at: string | null;
+	/** Remote servers and applications in the organizations this user created. */
+	remote_servers: number;
+	remote_servers_ready: number;
+	applications: number;
+	applications_running: number;
 	organizations: UserOrganizationMembership[];
 };
 

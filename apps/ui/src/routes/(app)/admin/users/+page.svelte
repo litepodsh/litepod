@@ -9,9 +9,10 @@
 	import { listAdminUsers, type UserWithOrgs } from '#lib/clients/admin-users-client.js';
 	import UserDisableDialog from '#lib/components/admin/user-disable-dialog.svelte';
 	import { toast } from '#lib/utils/toast.js';
+	import { relativeTime } from '#lib/utils/relative-time.js';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import UsersIcon from '@lucide/svelte/icons/users';
-	import { t } from '#lib/i18n/index.svelte.js';
+	import { i18n, t } from '#lib/i18n/index.svelte.js';
 
 	let users = $state<UserWithOrgs[]>([]);
 	let loading = $state(true);
@@ -128,6 +129,8 @@
 						<th class="p-3 font-medium">{t('operations.users.email')}</th>
 						<th class="p-3 font-medium">{t('operations.users.joined')}</th>
 						<th class="p-3 font-medium">{t('operations.users.organizations')}</th>
+						<th class="p-3 font-medium">{t('operations.users.last_login')}</th>
+						<th class="p-3 font-medium">{t('operations.users.usage')}</th>
 						<th class="p-3 font-medium">{t('operations.users.status')}</th>
 						<th class="p-3"></th>
 					</tr>
@@ -152,6 +155,33 @@
 											</Badge>
 										{/each}
 									</div>
+								{/if}
+							</td>
+							<td class="text-muted-foreground p-3 whitespace-nowrap">
+								{#if user.last_login_at}
+									<time datetime={user.last_login_at} title={formatDate(user.last_login_at)}>
+										{relativeTime(Date.parse(user.last_login_at), Date.now(), i18n.locale)}
+									</time>
+								{:else}
+									—
+								{/if}
+							</td>
+							<td class="text-muted-foreground p-3 text-xs whitespace-nowrap">
+								{#if user.remote_servers === 0 && user.applications === 0}
+									—
+								{:else}
+									<p>
+										{t('operations.users.servers_usage', {
+											ready: user.remote_servers_ready,
+											total: user.remote_servers,
+										})}
+									</p>
+									<p>
+										{t('operations.users.apps_usage', {
+											running: user.applications_running,
+											total: user.applications,
+										})}
+									</p>
 								{/if}
 							</td>
 							<td class="p-3">

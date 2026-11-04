@@ -30,6 +30,12 @@ pub struct UserWithOrgsDto {
     /// Locked out by a SysAdmin; only a SysAdmin lifts it.
     pub disabled: bool,
     pub is_sysadmin: bool,
+    pub last_login_at: Option<String>,
+    /// Remote servers and applications in the organizations this user created.
+    pub remote_servers: i64,
+    pub remote_servers_ready: i64,
+    pub applications: i64,
+    pub applications_running: i64,
     pub organizations: Vec<UserOrganizationDto>,
 }
 
