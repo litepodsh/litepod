@@ -139,17 +139,13 @@ pub(crate) async fn deliver(email: &str, subject: &str, html: String) -> Result<
     Ok(())
 }
 
+fn code_email_html(code: &str) -> String {
+    include_str!("verification_code_email.html").replace("{{code}}", code)
+}
+
 async fn send(state: &SharedState, email: &str, code: &str) -> Result<(), ()> {
     let _ = state;
-    let html = format!(
-        "<pre style=\"font-family: monospace; font-size: 32px; letter-spacing: 8px; text-align: center;\">  {}</pre>\
-         <p>Enter this code on the verification page. It expires in 2 hours.</p>",
-        code.chars()
-            .map(|c| c.to_string())
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
-    deliver(email, "Your litepod verification code", html).await
+    deliver(email, "Your litepod verification code", code_email_html(code)).await
 }
 
 /// Sent instead of an `AlreadyExists` error when someone tries to register an
@@ -568,6 +564,13 @@ pub fn spawn_cleanup(state: SharedState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn code_email_shows_the_code_unbroken() {
+        let html = code_email_html("4B72K9");
+        assert!(html.contains(">4B72K9<"));
+        assert!(!html.contains("{{"));
+    }
 
     #[test]
     fn code_generates_6_chars() {
