@@ -75,6 +75,7 @@ resize = "Cambiar tamaño de la barra lateral"
 toggle = "Alternar barra lateral"
 
 [tabs]
+admin = "Administración"
 analytics = "Analíticas"
 apps = "Apps"
 billing = "Facturación"

@@ -6,7 +6,7 @@
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import * as Empty from '#lib/components/ui/empty/index.js';
-	import { listUsersWithOrgs, type UserWithOrgs } from '#lib/clients/auth-client.js';
+	import { listAdminUsers, type UserWithOrgs } from '#lib/clients/admin-users-client.js';
 	import UserDisableDialog from '#lib/components/admin/user-disable-dialog.svelte';
 	import { toast } from '#lib/utils/toast.js';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -26,7 +26,7 @@
 		loading = true;
 		try {
 			// Newest sign-ups first, whatever order the API answers in.
-			users = (await listUsersWithOrgs()).sort(
+			users = (await listAdminUsers()).sort(
 				(a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
 			);
 		} catch (error) {

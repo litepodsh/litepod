@@ -49,13 +49,7 @@ pub struct SecurityEventDto {
 }
 
 async fn require_cloud_sysadmin(state: &SharedState, user: &AuthUser) -> Result<(), AppError> {
-    if !state.is_cloud {
-        return Err(AppError::ResourceNotFound);
-    }
-    if !crate::git::repositories::user::is_sysadmin(state, &user.user_id).await {
-        return Err(AppError::InsufficientPermissions);
-    }
-    Ok(())
+    crate::handler::common::require_cloud_sysadmin(state, user).await
 }
 
 #[utoipa::path(

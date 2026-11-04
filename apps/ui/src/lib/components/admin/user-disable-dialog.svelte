@@ -1,8 +1,7 @@
 <script lang="ts">
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
-	import type { UserWithOrgs } from '#lib/clients/auth-client.js';
-	import { setUserDisabled } from '#lib/clients/organization-client.js';
+	import { setAdminUserDisabled, type UserWithOrgs } from '#lib/clients/admin-users-client.js';
 	import { toast } from '#lib/utils/toast.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 
@@ -20,7 +19,7 @@
 		const disabled = !target.disabled;
 		busy = true;
 		try {
-			await setUserDisabled(target.id, disabled);
+			await setAdminUserDisabled(target.id, disabled);
 			onChanged(target.id, disabled);
 			toast.success(
 				t(disabled ? 'organizations.members.disabled_done' : 'organizations.members.enabled_done', {

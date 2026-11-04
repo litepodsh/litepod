@@ -73,6 +73,8 @@ const METRICS_ALLOWED_PATHS: &[&str] = &[
     users::update_user_handler,
     users::delete_user_handler,
     users::set_user_disabled_handler,
+    users::admin_list_users_handler,
+    users::admin_set_user_disabled_handler,
     security_events::list_security_events_handler,
     security_events::get_retention_handler,
     security_events::update_retention_handler,
@@ -476,6 +478,11 @@ pub fn create_router(state: SharedState) -> Router {
         )
         .route("/api/v1/users/{user_id}/disabled", put(users::set_user_disabled_handler))
         .route("/api/v1/admin/security-events", get(security_events::list_security_events_handler))
+        .route("/api/v1/admin/users", get(users::admin_list_users_handler))
+        .route(
+            "/api/v1/admin/users/{user_id}/disabled",
+            put(users::admin_set_user_disabled_handler),
+        )
         .route("/api/v1/admin/security-events/retention", get(security_events::get_retention_handler).put(security_events::update_retention_handler))
         .route("/api/v1/invitations", get(invitations::list_handler).post(invitations::create_handler))
         .route("/api/v1/invitations/organizations", get(invitations::eligible_organizations_handler))

@@ -75,6 +75,7 @@ resize = "Resize sidebar"
 toggle = "Toggle sidebar"
 
 [tabs]
+admin = "Admin"
 analytics = "Analytics"
 apps = "Apps"
 billing = "Billing"

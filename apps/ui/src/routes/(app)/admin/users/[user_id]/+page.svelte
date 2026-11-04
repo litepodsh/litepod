@@ -6,7 +6,7 @@
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import UserDisableDialog from '#lib/components/admin/user-disable-dialog.svelte';
 	import SecurityEventsTable from '#lib/components/admin/security-events-table.svelte';
-	import { listUsersWithOrgs, type UserWithOrgs } from '#lib/clients/auth-client.js';
+	import { listAdminUsers, type UserWithOrgs } from '#lib/clients/admin-users-client.js';
 	import { nameCurrentCrumb } from '#lib/state/page-header.svelte.js';
 	import { toast } from '#lib/utils/toast.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -19,7 +19,7 @@
 	onMount(async () => {
 		const path = page.url.pathname;
 		try {
-			const users = await listUsersWithOrgs();
+			const users = await listAdminUsers();
 			user = users.find((candidate) => candidate.id === page.params.user_id) ?? null;
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : t('operations.users.request_failed'));
