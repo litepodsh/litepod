@@ -52,13 +52,24 @@
 
 	// Running work and server events aren't audit log rows, so that log's labels don't cover them.
 	const ACTIVITY_LABELS: Record<string, () => string> = {
-		'deployment.running': () => t('operations.users.activity_deploying'),
+		'deployment.building': () => t('operations.users.activity_building'),
+		'deployment.deploying': () => t('operations.users.activity_deploying'),
 		'scheduled_task.running': () => t('operations.users.activity_task_running'),
+		'system.update_applied': () => t('operations.users.activity_instance_update'),
 		'server.setup_started': () => t('operations.users.activity_server_setup'),
 		'server.repair_started': () => t('operations.users.activity_server_repair'),
 		'server.restarted': () => t('operations.users.activity_server_restart'),
 		'server.podman_restarted': () => t('operations.users.activity_podman_restart'),
 	};
+
+	const RUNNING_ACTIONS = new Set([
+		'deployment.building',
+		'deployment.deploying',
+		'scheduled_task.running',
+	]);
+	const hasRunningWork = $derived(
+		users.some((user) => user.recent_action && RUNNING_ACTIONS.has(user.recent_action)),
+	);
 
 	function activityLabel(action: string) {
 		return ACTIVITY_LABELS[action]?.() ?? formatAuditAction(action);
@@ -110,6 +121,9 @@
 						aria-hidden="true"></i>
 					{t('operations.users.online_count', { count: onlineCount })}
 				</p>
+				{#if hasRunningWork}
+					<p class="text-warning mt-1 text-sm">{t('operations.users.running_warning')}</p>
+				{/if}
 			{/if}
 		</div>
 		<Button variant="outline" onclick={() => refresh()} disabled={loading}

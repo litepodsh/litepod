@@ -33,7 +33,7 @@ pub struct UserWithOrgsDto {
     /// Did something in Litepod within the last few minutes, or has a deployment or scheduled
     /// task running.
     pub online: bool,
-    /// What they have running or just did, e.g. `deployment.running`, `deployment.triggered`.
+    /// What they have running or just did, e.g. `deployment.building`, `deployment.triggered`.
     pub recent_action: Option<String>,
     pub recent_action_target: Option<String>,
     pub last_login_at: Option<String>,

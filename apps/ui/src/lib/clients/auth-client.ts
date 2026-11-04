@@ -190,7 +190,7 @@ export type UserWithOrgs = {
 	is_sysadmin: boolean;
 	/** Did something in Litepod within the last few minutes, or has a deployment or scheduled task running. */
 	online: boolean;
-	/** What they have running or just did, e.g. `deployment.running`, `deployment.triggered`. */
+	/** What they have running or just did, e.g. `deployment.building`, `deployment.triggered`. */
 	recent_action: string | null;
 	recent_action_target: string | null;
 	last_login_at: string | null;

@@ -311,12 +311,14 @@ pub async fn post_apply_update_handler(
     // The manifest digest for the confirmed target, from the same snapshot the
     // request was validated against — no round-trip through the UI needed.
     let app_digest = snapshot.latest_digest.clone();
+    let update_target = format!("{target} ({})", channel.as_str());
+    crate::users::presence::on_audit(&user.user_id, "system.update_applied", Some(&update_target));
     let _ = crate::security::security_events::record(
         &state,
         None,
         &user,
         "system.update_applied",
-        Some(&format!("{target} ({})", channel.as_str())),
+        Some(&update_target),
     )
     .await;
     tokio::spawn(async move {

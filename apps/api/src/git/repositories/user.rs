@@ -259,7 +259,7 @@ pub async fn list_running_work(
 ) -> Result<std::collections::HashMap<String, (String, String)>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(
-        "SELECT r.created_by, 'deployment.running', a.name
+        "SELECT r.created_by, 'deployment.' || r.status, a.name
          FROM application_deployment_runs r
          JOIN applications a ON a.id = r.application_id
          WHERE a.maintenance_for IS NULL
@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(
             running["viewer"],
             (
-                "deployment.running".to_string(),
+                "deployment.building".to_string(),
                 "organization-a-app".to_string()
             )
         );
