@@ -197,6 +197,8 @@ export type UserWithOrgs = {
 	/** Remote servers and applications in the organizations this user created. */
 	remote_servers: number;
 	remote_servers_ready: number;
+	/** Agents with an open MCP OAuth grant right now. */
+	mcp_connections: number;
 	applications: number;
 	applications_running: number;
 	organizations: UserOrganizationMembership[];

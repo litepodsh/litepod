@@ -218,8 +218,13 @@
 											{action}
 										</p>
 									{/if}
-								{:else}
+								{:else if user.mcp_connections === 0}
 									<span class="text-muted-foreground text-xs">—</span>
+								{/if}
+								{#if user.mcp_connections > 0}
+									<p class="text-muted-foreground mt-0.5 text-xs whitespace-nowrap">
+										{t('operations.users.mcp_connected_count', { count: user.mcp_connections })}
+									</p>
 								{/if}
 							</td>
 							<td class="text-muted-foreground p-3 whitespace-nowrap">

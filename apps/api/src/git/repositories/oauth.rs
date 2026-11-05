@@ -207,6 +207,9 @@ pub struct McpSessionRow {
     pub created_at: String,
     pub expires_at: String,
     pub closed_at: Option<String>,
+    pub organization_name: String,
+    /// The latest request across the grant's rotated access tokens.
+    pub last_used_at: Option<String>,
 }
 
 /// Records one session per OAuth grant, keyed by `code_digest`: created on the
@@ -263,7 +266,10 @@ pub async fn list_sessions(
 ) -> Result<Vec<McpSessionRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(
-        "SELECT id, client_name, agent, created_at, expires_at, closed_at FROM mcp_oauth_sessions WHERE user_id = ?1 ORDER BY created_at DESC",
+        "SELECT s.id, s.client_name, s.agent, s.created_at, s.expires_at, s.closed_at, o.name, \
+         (SELECT MAX(p.last_used_at) FROM oauth_refresh_tokens r JOIN personal_access_tokens p ON p.id = r.access_token_id WHERE r.code_digest = s.code_digest) \
+         FROM mcp_oauth_sessions s JOIN organizations o ON o.id = s.organization_id \
+         WHERE s.user_id = ?1 ORDER BY s.created_at DESC",
     )
     .bind(user_id)
     .fetch_all(&conn)
@@ -278,8 +284,25 @@ pub async fn list_sessions(
             created_at: row.try_get(3).unwrap_or_default(),
             expires_at: row.try_get(4).unwrap_or_default(),
             closed_at: row.try_get(5).unwrap_or(None),
+            organization_name: row.try_get(6).unwrap_or_default(),
+            last_used_at: row.try_get(7).unwrap_or(None),
         })
         .collect())
+}
+
+/// How many grants are open right now, by user. A grant left to lapse is never
+/// marked closed, so its expiry counts too.
+pub async fn count_open_sessions(
+    state: &SharedState,
+) -> Result<std::collections::HashMap<String, i64>, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        "SELECT user_id, COUNT(*) FROM mcp_oauth_sessions WHERE closed_at IS NULL AND expires_at > strftime('%Y-%m-%d %H:%M:%S', 'now') GROUP BY user_id",
+    )
+    .fetch_all(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().collect())
 }
 
 /// The grant behind one session record, when the id is the user's.

@@ -42,7 +42,23 @@ pub struct UserWithOrgsDto {
     pub remote_servers_ready: i64,
     pub applications: i64,
     pub applications_running: i64,
+    /// Agents with an open MCP OAuth grant right now.
+    pub mcp_connections: i64,
     pub organizations: Vec<UserOrganizationDto>,
+}
+
+/// One agent a user approved over MCP OAuth, open or closed.
+#[derive(Serialize, ToSchema)]
+pub struct McpConnectionDto {
+    pub id: String,
+    pub client_name: String,
+    /// Detected agent: claude | chatgpt | hermes | other.
+    pub agent: String,
+    pub organization_name: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub closed_at: Option<String>,
+    pub last_used_at: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]

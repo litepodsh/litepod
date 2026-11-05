@@ -21,3 +21,27 @@ export async function setAdminUserDisabled(userId: string, disabled: boolean): P
 		body: JSON.stringify({ disabled }),
 	});
 }
+
+/** One agent a user approved over MCP OAuth. Times are UTC, without a zone suffix. */
+export type McpConnection = {
+	id: string;
+	client_name: string;
+	/** Detected agent: claude | chatgpt | hermes | other. */
+	agent: string;
+	organization_name: string;
+	created_at: string;
+	expires_at: string;
+	closed_at: string | null;
+	last_used_at: string | null;
+};
+
+export async function listUserMcpConnections(userId: string): Promise<McpConnection[]> {
+	const resp = await api<McpConnection[]>(`/api/v1/admin/users/${userId}/mcp-connections`);
+	return resp.data ?? [];
+}
+
+export async function revokeUserMcpConnection(userId: string, connectionId: string): Promise<void> {
+	await api<void>(`/api/v1/admin/users/${userId}/mcp-connections/${connectionId}`, {
+		method: 'DELETE',
+	});
+}

@@ -6,6 +6,7 @@
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import UserDisableDialog from '#lib/components/admin/user-disable-dialog.svelte';
 	import SecurityEventsTable from '#lib/components/admin/security-events-table.svelte';
+	import UserMcpConnections from '#lib/components/admin/user-mcp-connections.svelte';
 	import { listAdminUsers, type UserWithOrgs } from '#lib/clients/admin-users-client.js';
 	import { nameCurrentCrumb } from '#lib/state/page-header.svelte.js';
 	import { toast } from '#lib/utils/toast.js';
@@ -124,6 +125,12 @@
 					</table>
 				</div>
 			{/if}
+		</section>
+
+		<section class="space-y-2">
+			<h2 class="text-sm font-medium">{t('operations.users.mcp_title')}</h2>
+			<p class="text-muted-foreground text-sm">{t('operations.users.mcp_description')}</p>
+			<UserMcpConnections userId={user.id} />
 		</section>
 
 		<section class="space-y-2">
