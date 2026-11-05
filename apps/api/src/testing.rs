@@ -174,6 +174,33 @@ async fn test_state_configured(
     (state, path)
 }
 
+/// An open MCP connection: MCP on for the organization, and a token pinned to it.
+pub async fn seed_mcp_connection(
+    state: &SharedState,
+    organization_id: &str,
+    user_id: &str,
+    token_id: &str,
+) {
+    sqlx::query("UPDATE organizations SET mcp_enabled = 1 WHERE id = ?1")
+        .bind(organization_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    crate::git::repositories::personal_access_token::create(
+        state,
+        token_id,
+        user_id,
+        "MCP · test",
+        token_id,
+        "lp_test",
+        "[\"write\"]",
+        None,
+        Some(organization_id),
+    )
+    .await
+    .unwrap();
+}
+
 /// Inserts `project` / `environment` / `application` rows owned by
 /// `organization_id`, returning the ids. Ids are derived from the organization
 /// so a test reads unambiguously — `organization-b-app` under an

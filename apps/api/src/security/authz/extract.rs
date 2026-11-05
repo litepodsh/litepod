@@ -129,6 +129,38 @@ fn shared_local_read(parts: &Parts) -> bool {
             .any(|suffix| parts.uri.path().ends_with(suffix))
 }
 
+/// Membership, the organization's 2FA requirement and the permission set, capped
+/// to the token's scopes. Also what a one-time source download checks again, since
+/// that request brings no login of its own.
+pub async fn member_permissions(
+    state: &SharedState,
+    user: &AuthUser,
+    organization_id: &str,
+    scopes: Option<&[String]>,
+) -> Result<(i64, PermissionSet), AppError> {
+    // Not a member → 403 NotOrganizationMember, before anything else.
+    let role_id = organization_role(state, organization_id, user).await?;
+    // An organization that requires 2FA refuses a member who has none. After the
+    // membership check so a stranger learns nothing about the organization's
+    // settings; the SysAdmin is the break-glass and is exempt. Every
+    // organization route comes through here, so password, SSO, OAuth and token
+    // callers are all covered. Account routes are not organization-scoped,
+    // which is what keeps 2FA setup reachable for the refused member.
+    if !user.is_sysadmin
+        && crate::git::repositories::organization::requires_two_factor(state, organization_id)
+            .await
+            .map_err(AppError::DatabaseError)?
+        && !crate::git::repositories::account::is_totp_enabled(state, &user.user_id).await?
+    {
+        return Err(AppError::TwoFactorRequired);
+    }
+    let mut set = load(state, user, organization_id, role_id).await?;
+    if let Some(scopes) = scopes {
+        set.cap_to_token(scopes);
+    }
+    Ok((role_id, set))
+}
+
 /// Membership + permission set. Never checks a permission itself.
 async fn base(parts: &mut Parts, state: &SharedState) -> Result<OrgScope, AppError> {
     // `auth_middleware` puts this here. Absent means the route was wired outside
@@ -139,22 +171,11 @@ async fn base(parts: &mut Parts, state: &SharedState) -> Result<OrgScope, AppErr
         .cloned()
         .ok_or(AppError::InvalidCredentials)?;
     let organization_id = path_param(parts, "organization_id").await?;
-    // Not a member → 403 NotOrganizationMember, before anything else.
-    let role_id = organization_role(state, &organization_id, &user).await?;
-    // An organization that requires 2FA refuses a member who has none. After the
-    // membership check so a stranger learns nothing about the organization's
-    // settings; the SysAdmin is the break-glass and is exempt. Every
-    // organization route comes through here, so password, SSO, OAuth and token
-    // callers are all covered. Account routes are not organization-scoped,
-    // which is what keeps 2FA setup reachable for the refused member.
-    if !user.is_sysadmin
-        && crate::git::repositories::organization::requires_two_factor(state, &organization_id)
-            .await
-            .map_err(AppError::DatabaseError)?
-        && !crate::git::repositories::account::is_totp_enabled(state, &user.user_id).await?
-    {
-        return Err(AppError::TwoFactorRequired);
-    }
+    let scopes = parts
+        .extensions
+        .get::<TokenScopes>()
+        .map(|TokenScopes(scopes)| scopes.as_slice());
+    let (role_id, set) = member_permissions(state, &user, &organization_id, scopes).await?;
     // The `local` server is the control plane's own host on cloud, and on
     // self-hosted it is shared by every organization (`organization_id IS NULL`):
     // its console, exec, volume, Caddy and maintenance routes act on the whole
@@ -167,10 +188,6 @@ async fn base(parts: &mut Parts, state: &SharedState) -> Result<OrgScope, AppErr
         && (state.is_cloud || !shared_local_read(parts))
     {
         return Err(AppError::ResourceNotFound);
-    }
-    let mut set = load(state, &user, &organization_id, role_id).await?;
-    if let Some(TokenScopes(scopes)) = parts.extensions.get::<TokenScopes>() {
-        set.cap_to_token(scopes);
     }
     Ok(OrgScope {
         organization_id,

@@ -134,7 +134,7 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
     (
         "source_archive",
         "`source_archive` (the project ZIP an application built with `deploy_zip` runs from, for changing a project whose files \
-        you do not have; needs `application`. Returns a `download_url` that works once and for ten minutes: \
+        you do not have; needs `application`. Only over an MCP connection. Returns a `download_url` that works once, for ten minutes, and only while this connection stays open: \
         `curl -fsS -o project.zip <download_url>`, and read this again if it fails. Unpack it, make the change, and send it back \
         with `deploy_zip` under the same `name`, taking `container_port`, `railpack_project_path` and `build_method` from \
         `get source`. An application built from a repository has none: clone its `git_url` instead. A static site has none either: \
@@ -1197,17 +1197,25 @@ async fn get(
                     ));
                 }
             };
+            // The panel's assistant has no shell to `curl` with, and no connection to tie a link to.
+            let Some(access_token_id) = actor.token_id.as_deref() else {
+                return ToolOutcome::failure(
+                    "This link is only for an MCP connection. The person can download the ZIP from the application's General tab."
+                        .to_owned(),
+                );
+            };
             let download_url = match deployment::source_archive::create_download_link(
                 state,
                 &target.application_id,
+                access_token_id,
             )
             .await
             {
                 Ok(url) => url,
                 Err(error) => return ToolOutcome::failure(error.to_string()),
             };
-            // Whoever holds the link gets the source with no login, so handing
-            // one out is on the record even though this is a read.
+            // Whoever holds the link gets the source while the connection is open,
+            // so handing one out is on the record even though this is a read.
             let _ = crate::git::repositories::audit_log::record(
                 state,
                 organization_id,
@@ -1227,7 +1235,7 @@ async fn get(
                 "origin": resolved.origin,
                 "download_url": download_url,
                 "bytes": bytes,
-                "next": "Download it with `curl -fsS -o project.zip <download_url>`: the link works once, for ten minutes.",
+                "next": "Download it with `curl -fsS -o project.zip <download_url>`: the link works once, for ten minutes, while this connection stays open.",
             }))
         }
 

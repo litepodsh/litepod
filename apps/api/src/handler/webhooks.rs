@@ -734,8 +734,9 @@ pub async fn assistant_upload_handler(
 }
 
 /// Where an MCP agent `curl`s the source ZIP `get source_archive` offered. The
-/// token in the path is the credential and works once. A wrong, used or expired
-/// token all answer the same, so there is nothing to learn by guessing.
+/// token in the path works once, and only while the connection that asked for it
+/// may still read the application. Every refusal answers the same, so there is
+/// nothing to learn by guessing.
 pub async fn assistant_download_handler(
     State(state): State<SharedState>,
     Path(token): Path<String>,
@@ -776,9 +777,14 @@ mod tests {
         crate::deployment::source_archive::store(&state, &application_id, &archive)
             .await
             .unwrap();
-        let link = crate::deployment::source_archive::create_download_link(&state, &application_id)
-            .await
-            .unwrap();
+        crate::testing::seed_mcp_connection(&state, "organization-a", "editor", "connection").await;
+        let link = crate::deployment::source_archive::create_download_link(
+            &state,
+            &application_id,
+            "connection",
+        )
+        .await
+        .unwrap();
         let token = link.rsplit('/').next().unwrap().to_owned();
         let router = axum::Router::new()
             .route(

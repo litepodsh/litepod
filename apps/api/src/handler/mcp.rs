@@ -364,9 +364,12 @@ mod tests {
         )
         .await
         .unwrap();
+        crate::testing::seed_mcp_connection(&state, "organization-a", "editor", "connection").await;
+        let mut connected = crate::testing::auth_user("editor");
+        connected.token_id = Some("connection".to_owned());
         let router = Router::new()
             .route("/organizations/{organization_id}/mcp", post(mcp_handler))
-            .layer(Extension(crate::testing::auth_user("editor")))
+            .layer(Extension(connected))
             .with_state(state);
 
         let params = json!({
