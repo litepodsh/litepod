@@ -5,6 +5,7 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import DeploymentsIndicator from '#lib/components/deployments/deployments-indicator.svelte';
 	import * as Collapsible from '#lib/components/ui/collapsible/index.js';
+	import { sidebarSide } from '#lib/state/sidebar-side.svelte.js';
 	import * as Sidebar from '#lib/components/ui/sidebar/index.js';
 	import { useSidebar } from '#lib/components/ui/sidebar/index.js';
 	import { listProjects, type ProjectDto } from '#lib/clients/project-client.js';
@@ -98,7 +99,7 @@
 	}
 </script>
 
-<Sidebar.Root collapsible="icon">
+<Sidebar.Root collapsible="icon" side={sidebarSide.current}>
 	<Sidebar.Header class="h-(--app-header-height) shrink-0 justify-center border-b border-transparent py-0">
 		<Sidebar.Menu>
 			<Sidebar.MenuItem>

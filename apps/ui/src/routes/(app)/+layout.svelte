@@ -6,6 +6,7 @@
 	import { UpdateOverlay } from '#lib/components/update/index.js';
 	import OnboardingDock from '#lib/components/onboarding/onboarding-dock.svelte';
 	import AppSidebar from '#lib/components/shell/app-sidebar.svelte';
+	import { sidebarSide } from '#lib/state/sidebar-side.svelte.js';
 	import * as Sidebar from '#lib/components/ui/sidebar/index.js';
 	import { SIDEBAR_COOKIE_NAME } from '#lib/components/ui/sidebar/constants.js';
 	import ScopeHeader from '#lib/components/shell/scope-header.svelte';
@@ -65,7 +66,7 @@
 
 <CommandPalette />
 <UpdateOverlay />
-<Sidebar.Provider bind:open={sidebarOpen}>
+<Sidebar.Provider bind:open={sidebarOpen} class={sidebarSide.current === 'right' ? 'flex-row-reverse' : ''}>
 	<AppSidebar
 		bind:organizations
 		active={activeOrganization}
