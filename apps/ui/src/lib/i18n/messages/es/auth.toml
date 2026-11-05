@@ -15,6 +15,7 @@ sign_in = "Iniciar sesión"
 [login]
 back_to_sign_in = "Volver a iniciar sesión"
 code = "Código"
+continue_as = "Continuar como {email}"
 continue_terms = "Al continuar, aceptas nuestros"
 continue_with_sso = "Continuar con SSO"
 email = "Correo electrónico"

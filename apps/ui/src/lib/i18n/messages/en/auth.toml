@@ -15,6 +15,7 @@ sign_in = "Sign in"
 [login]
 back_to_sign_in = "Back to sign in"
 code = "Code"
+continue_as = "Continue as {email}"
 continue_terms = "By clicking continue, you agree to our"
 continue_with_sso = "Continue with SSO"
 email = "Email"

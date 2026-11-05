@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import LitepodMark from '#lib/components/custom/litepod-mark.svelte';
 	import { branding, brandName } from '#lib/ee/branding/branding.svelte.js';
 	import {
@@ -14,6 +14,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
+	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import { cn } from '#lib/utils.js';
 	import {
 		login,
@@ -85,6 +86,20 @@
 		}
 	});
 
+	// When the tab regains focus (user returns from their authenticator app) or becomes
+	// visible again, look for a freshly copied code.
+	onMount(() => {
+		window.addEventListener('focus', detectClipboardCode);
+		const onVisibility = () => {
+			if (document.visibilityState === 'visible') detectClipboardCode();
+		};
+		document.addEventListener('visibilitychange', onVisibility);
+		return () => {
+			window.removeEventListener('focus', detectClipboardCode);
+			document.removeEventListener('visibilitychange', onVisibility);
+		};
+	});
+
 	/** Where a successful login lands: the `next` path the 401 redirect sent, or home. */
 	function afterLogin() {
 		const next = page.url.searchParams.get('next');
@@ -126,6 +141,8 @@
 			if (isTotpChallenge(result)) {
 				totpChallenge = result.challenge_token;
 				error = '';
+				// The code may already be on the clipboard from the authenticator app.
+				detectClipboardCode();
 				return;
 			}
 			afterLogin();
@@ -141,13 +158,21 @@
 		}
 	}
 
-	async function handleTotpSubmit(e: SubmitEvent) {
+	function handleTotpSubmit(e: SubmitEvent) {
 		e.preventDefault();
-		if (!totpChallenge) return;
+		void submitTotp();
+	}
+
+	async function submitTotp() {
+		if (!totpChallenge || loading) return;
+		// Accept the six-digit TOTP or an eight-character recovery code; ignore
+		// anything else the user may have typed or pasted.
+		const code = totpCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+		if (!code) return;
 		error = '';
 		loading = true;
 		try {
-			await completeTotpLogin(totpChallenge, totpCode.trim());
+			await completeTotpLogin(totpChallenge, code);
 			afterLogin();
 		} catch (err) {
 			error = err instanceof Error ? err.message : t('auth.login.invalid_code');
@@ -159,10 +184,53 @@
 				password = '';
 				error = t('auth.login.too_long');
 			}
-			totpInput?.focus();
 		} finally {
 			loading = false;
+			// Re-focus only after the input is re-enabled so a failed code can be
+			// retyped immediately. On the 401 path the form unmounts and this no-ops.
+			await tick();
+			totpInput?.focus();
 		}
+	}
+
+	/** True when the field holds a complete code: six TOTP digits or eight recovery chars. */
+	function isCompleteCode(code: string) {
+		return /^\d{6}$/.test(code) || /^[A-Z0-9]{8}$/.test(code);
+	}
+
+	// Keep the code field to alphanumerics, uppercase, and at most eight characters.
+	// A complete TOTP (six digits) or recovery code (eight chars) submits itself.
+	$effect(() => {
+		const cleaned = totpCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+		if (cleaned !== totpCode) {
+			totpCode = cleaned;
+		} else if (isCompleteCode(cleaned)) {
+			void submitTotp();
+		}
+	});
+
+	function maskEmail(address: string) {
+		const [user, domain] = address.split('@');
+		if (!user || !domain) return address;
+		const visible = user.slice(0, 1);
+		return `${visible}${'•'.repeat(Math.max(0, user.length - visible.length))}@${domain}`;
+	}
+
+	// Auto-detect a code copied from an authenticator app (Proton Pass, 1Password…)
+	// when the page regains focus, then fill it and let the effect submit it. Clipboard
+	// read is permission-gated, so this is best-effort and no-ops where the browser refuses.
+	function detectClipboardCode() {
+		const clipboard = navigator.clipboard;
+		if (!totpChallenge || loading || totpCode || !clipboard) return;
+		clipboard
+			.readText()
+			.then((text) => {
+				const code = text.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+				if (totpChallenge && !loading && !totpCode && isCompleteCode(code)) totpCode = code;
+			})
+			.catch(() => {
+				// Fall back to manual entry.
+			});
 	}
 
 	/** Sends the browser to the identity provider that serves this address. */
@@ -219,11 +287,17 @@
 				<form onsubmit={handleTotpSubmit}>
 					<FieldGroup>
 						<div class="flex flex-col gap-1">
-							<h1 class="text-2xl font-semibold tracking-tight">
-								{t('auth.login.two_factor_authentication')}
-							</h1>
+							<div class="flex items-center gap-2">
+								<ShieldCheckIcon class="text-muted-foreground size-5 shrink-0" />
+								<h1 class="text-2xl font-semibold tracking-tight">
+									{t('auth.login.two_factor_authentication')}
+								</h1>
+							</div>
 							<p class="text-muted-foreground text-sm">
 								{t('auth.login.two_factor_description')}
+							</p>
+							<p class="text-muted-foreground mt-1 text-sm font-medium">
+								{t('auth.login.continue_as', { email: maskEmail(email) })}
 							</p>
 						</div>
 
@@ -232,12 +306,12 @@
 						{/if}
 
 						<Field>
-							<FieldLabel for="totp-{id}">{t('auth.login.code')}</FieldLabel>
+							<FieldLabel for="totp-{id}" class="sr-only">{t('auth.login.code')}</FieldLabel>
 							<!-- svelte-ignore a11y_autofocus -->
 							<Input
 								bind:ref={totpInput}
 								id="totp-{id}"
-								class="rounded-sm"
+								class="rounded-sm h-14 text-center font-mono text-2xl tracking-[0.3em] placeholder:tracking-normal placeholder:text-base"
 								name="totp"
 								inputmode="text"
 								autocomplete="one-time-code"
