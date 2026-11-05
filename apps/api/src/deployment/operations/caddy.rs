@@ -18,6 +18,7 @@ pub(crate) async fn caddy_route(
     state: &SharedState,
     id: &str,
     hostname: &str,
+    path: Option<&str>,
     container_name: &str,
     container_port: i64,
     https: bool,
@@ -33,12 +34,16 @@ pub(crate) async fn caddy_route(
             config,
             id,
             hostname,
+            path,
             container_name,
             container_port,
             https,
             payload.as_ref(),
             maintenance.as_ref(),
         )?;
+        if path.is_some() {
+            return Ok(());
+        }
         crate::deployment::certificates::apply(config, id, hostname, https, &certificate, None)
     })
     .await
@@ -70,12 +75,16 @@ pub(crate) async fn caddy_application_routes(
                 config,
                 &id,
                 &domain.host,
+                domain.path.as_deref(),
                 container,
                 *port,
                 domain.https,
                 auth.as_ref(),
                 maintenance.as_ref(),
             )?;
+            if domain.path.is_some() {
+                continue;
+            }
             crate::deployment::certificates::apply(
                 config,
                 &id,
@@ -134,6 +143,7 @@ pub(crate) async fn reconcile_domain_route(
         state,
         &route_id_from_domain(domain_id),
         &domain.host,
+        domain.path.as_deref(),
         &container_name,
         container_port,
         domain.https,
@@ -261,13 +271,15 @@ pub(crate) async fn recover_missing_caddy_routes(state: &SharedState) -> Result<
             )?;
         }
         for (route, auth, maintenance, certificate) in &apps {
-            if route_present(config, &route.route_id, &route.host, route.https)
-                && crate::deployment::certificates::matches_config(
+            // A path route owns no TLS: its root's entry checks and restores that.
+            if route_present(config, &route.route_id, &route.host, route.https && route.path.is_none())
+                && (route.path.is_some()
+                    || crate::deployment::certificates::matches_config(
                     config,
                     &route.route_id,
                     route.https,
                     certificate,
-                )
+                ))
             {
                 continue;
             }
@@ -283,12 +295,16 @@ pub(crate) async fn recover_missing_caddy_routes(state: &SharedState) -> Result<
                 config,
                 &route.route_id,
                 &route.host,
+                route.path.as_deref(),
                 container,
                 port,
                 route.https,
                 auth.as_ref(),
                 maintenance.as_ref(),
             )?;
+            if route.path.is_some() {
+                continue;
+            }
             crate::deployment::certificates::apply(
                 config,
                 &route.route_id,
@@ -360,6 +376,7 @@ pub(super) fn apply_app_domain_to_config(
     config: &mut serde_json::Value,
     id: &str,
     hostname: &str,
+    path: Option<&str>,
     container_name: &str,
     container_port: i64,
     https: bool,
@@ -398,7 +415,8 @@ pub(super) fn apply_app_domain_to_config(
     {
         errors.retain(|route| route.get("@id").and_then(serde_json::Value::as_str) != Some(errors_id.as_str()));
     }
-    if let Some(page) = maintenance.filter(|page| page.companion.is_some()) {
+    // shortcut: no companion-death fallback on path routes, add a path matcher to errors_route if users hit it
+    if let Some(page) = maintenance.filter(|page| page.companion.is_some() && path.is_none()) {
         let errors = server
             .entry("errors")
             .or_insert_with(|| serde_json::json!({ "routes": [] }))
@@ -430,6 +448,9 @@ pub(super) fn apply_app_domain_to_config(
         if let Some(payload) = basicauth {
             handles.push(basic_auth::authentication_handle(payload)?);
         }
+        if let Some(path) = path {
+            handles.push(serde_json::json!({ "handler": "rewrite", "strip_path_prefix": path }));
+        }
         handles.push(serde_json::json!({
             "handler": "reverse_proxy",
             "upstreams": [{ "dial": format!("{container_name}:{container_port}") }]
@@ -438,15 +459,24 @@ pub(super) fn apply_app_domain_to_config(
     // Caddy evaluates routes in order. The bootstrap Caddyfile installs
     // litepod's catch-all UI/API proxy first, so application host routes must be
     // prepended or they will never be reached.
+    let mut matcher = serde_json::json!({ "host": [hostname] });
+    if let Some(path) = path {
+        matcher["path"] = serde_json::json!([path, format!("{path}/*")]);
+    }
     routes.insert(
         0,
         serde_json::json!({
             "@id": id,
-            "match": [{ "host": [hostname] }],
+            "match": [matcher],
             "handle": handles,
             "terminal": true
         }),
     );
+    sort_path_routes_first(routes);
+    if path.is_some() {
+        // The host's root owns the listener, SNI, HTTPS skip list and TLS policy.
+        return Ok(());
+    }
 
     // Raw JSON posted to the admin API skips Caddyfile-to-JSON adaptation, so
     // the :443 listener and TLS connection policy have to be added by hand or
@@ -690,6 +720,19 @@ pub(super) fn prune_orphans_in_config(
     dropped
 }
 
+/// Longest path prefix first, so `/api/v2` wins over `/api` and both over the
+/// host's root. Stable: routes without a path keep their relative order.
+fn sort_path_routes_first(routes: &mut [serde_json::Value]) {
+    routes.sort_by_key(|route| {
+        std::cmp::Reverse(
+            route
+                .pointer("/match/0/path/0")
+                .and_then(serde_json::Value::as_str)
+                .map_or(0, str::len),
+        )
+    });
+}
+
 pub(super) fn apply_app_domain_removal_to_config(
     config: &mut serde_json::Value,
     id: &str,
@@ -719,6 +762,24 @@ pub(super) fn apply_app_domain_removal_to_config(
         .and_then(serde_json::Value::as_array_mut)
     {
         errors.retain(|route| route.get("@id").and_then(serde_json::Value::as_str) != Some(errors_id.as_str()));
+    }
+    // Another route (a path domain or its root) still serves this host: keep its TLS.
+    let host_still_routed = server
+        .get("routes")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|routes| {
+            routes.iter().any(|route| {
+                route["match"].as_array().is_some_and(|matchers| {
+                    matchers.iter().any(|m| {
+                        m["host"]
+                            .as_array()
+                            .is_some_and(|hosts| hosts.iter().any(|h| h == hostname))
+                    })
+                })
+            })
+        });
+    if host_still_routed {
+        return Ok(());
     }
     if let Some(conn_policies) = server
         .get_mut("tls_connection_policies")

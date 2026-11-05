@@ -41,6 +41,7 @@
 		composeRoute = null,
 		serverAddress = null,
 		existingHosts = [],
+		initialHost = '',
 		deleteWarning,
 		onDelete,
 		onSubmit,
@@ -59,6 +60,8 @@
 		serverAddress?: string | null;
 		/** Hosts the app already has, so the www twin is not offered twice. */
 		existingHosts?: string[];
+		/** Prefills the host of a new domain, e.g. "Add route" on an existing host. */
+		initialHost?: string;
 		/** Shown above Remove, e.g. variables left without a domain. */
 		deleteWarning?: string;
 		/** Present in edit mode to offer Remove. */
@@ -72,6 +75,7 @@
 	} = $props();
 
 	let host = $state('');
+	let path = $state('');
 	// `Input type="number"` binds a number, not a string, and an empty field
 	// binds undefined — so never assume this is a string.
 	let port = $state<string | number | undefined>('');
@@ -116,6 +120,21 @@
 
 	const normalizedHost = $derived(host.trim().toLowerCase());
 	const isLocal = $derived(['localhost', '127.0.0.1', '::1'].includes(normalizedHost));
+	// A path domain borrows HTTPS and the certificate from its host's root domain.
+	const hasPath = $derived(!isLocal && path.trim() !== '' && path.trim() !== '/');
+	// Mirrors the API's normalization, for the title and the preview only.
+	const normalizedPath = $derived(
+		hasPath ? `/${path.trim().replace(/^\/+|\/+$/g, '').toLowerCase()}` : '',
+	);
+
+	// People type or paste whole addresses: `https://example.com/api/` fills both fields.
+	function splitAddress(event: Event) {
+		const value = (event.currentTarget as HTMLInputElement).value.trim();
+		const match = /^(?:[a-z][a-z0-9+.-]*:\/\/)?([^/?#]+)(\/[^?#]*)?/i.exec(value);
+		if (!match || (match[0] === match[1] && !value.includes('://'))) return;
+		host = match[1];
+		if (match[2] && match[2] !== '/') path = match[2].replace(/\/+$/, '');
+	}
 	// Public domains always enter through Caddy. This is deliberately separate
 	// from `port`, which is the port Caddy dials inside the container network.
 	const publicPort = $derived(https ? 443 : 80);
@@ -153,7 +172,7 @@
 	);
 	// Each domain matches one exact host, so `www.` and the bare name need two rows.
 	const wwwVariant = $derived(
-		!domain && !isSslip && /^([a-z0-9-]+\.)+[a-z][a-z0-9-]+$/.test(normalizedHost)
+		!domain && !hasPath && !isSslip && /^([a-z0-9-]+\.)+[a-z][a-z0-9-]+$/.test(normalizedHost)
 			? normalizedHost.startsWith('www.')
 				? normalizedHost.slice(4)
 				: `www.${normalizedHost}`
@@ -222,7 +241,8 @@
 
 	$effect(() => {
 		if (open && !wasOpen) {
-			host = domain?.host ?? '';
+			host = domain?.host ?? initialHost;
+			path = domain?.path ?? '';
 			port = domain?.port?.toString() ?? '';
 			https = domain?.https ?? false;
 			primary = domain?.is_primary ?? false;
@@ -285,6 +305,8 @@
 		try {
 			await onSubmit({
 				host: trimmedHost,
+				// Empty clears the path on edit; the API normalizes it.
+				path: isLocal ? '' : path.trim(),
 				...shared,
 				// Only promote: the API keeps one primary per app, and un-marking it
 				// here would leave the app without one.
@@ -353,7 +375,7 @@
 				{/snippet}
 			</Dialog.Close>
 			<Dialog.Title class="truncate text-base leading-tight font-semibold tracking-tight">
-				{normalizedHost || t('projects.domain_form.host_placeholder')}
+				{normalizedHost || t('projects.domain_form.host_placeholder')}{normalizedPath}
 			</Dialog.Title>
 			<Dialog.Description
 				class="col-span-2 mt-0.5 flex flex-wrap gap-x-2.5 gap-y-1 font-mono text-xs text-muted-foreground">
@@ -372,14 +394,29 @@
 					<div class="grid gap-2">
 						<Label for="domain-host">{t('projects.domain_form.host')}</Label>
 						<div class="flex gap-2">
-							<Input
-								id="domain-host"
-								class="flex-1 font-mono"
-								bind:value={host}
-								maxlength={253}
-								autocomplete="off"
-								placeholder={t('projects.domain_form.host_placeholder')}
-								autofocus />
+							<!-- One address bar: host, then an optional route on the same line. -->
+							<div class="flex min-w-0 flex-1">
+								<Input
+									id="domain-host"
+									class={`min-w-0 flex-1 font-mono ${isLocal ? '' : 'rounded-e-none'}`}
+									bind:value={host}
+									oninput={splitAddress}
+									maxlength={253}
+									autocomplete="off"
+									placeholder={t('projects.domain_form.host_placeholder')}
+									autofocus={!initialHost} />
+								{#if !isLocal}
+									<Input
+										id="domain-path"
+										class="w-28 shrink-0 rounded-s-none border-s-0 font-mono sm:w-36"
+										bind:value={path}
+										maxlength={200}
+										autocomplete="off"
+										aria-label={t('projects.domain_form.path')}
+										placeholder={t('projects.domain_form.path_placeholder')}
+										autofocus={Boolean(initialHost)} />
+								{/if}
+							</div>
 							{#if onRandomSslipHost}<Button
 									type="button"
 									variant="outline"
@@ -393,7 +430,15 @@
 									></Button
 								>{/if}
 						</div>
-						<p class="text-xs text-muted-foreground">{t('projects.domain_form.description')}</p>
+						<p class="text-xs text-muted-foreground">
+						{hasPath
+							? t('projects.domain_form.path_preview', {
+									url: `${normalizedHost || t('projects.domain_form.host_placeholder')}${normalizedPath}/users`,
+								})
+							: isLocal
+								? t('projects.domain_form.description')
+								: `${t('projects.domain_form.description')} ${t('projects.domain_form.path_hint')}`}
+					</p>
 					</div>
 					{#if wwwVariant}
 						<div class="flex items-center justify-between gap-3">
@@ -573,23 +618,29 @@
 				{/if}
 
 				<section class="lp-groove-t grid gap-4 pt-4">
-					<div class="flex items-center justify-between gap-3">
-						<div>
-							<Label for="domain-https">HTTPS</Label>
-							<p class="mt-1 text-xs text-muted-foreground">
-								{isLocal
-									? t('projects.domain_form.https_unavailable_local')
-									: t('projects.domain_form.https_public_hint', { port: publicPort })}
-							</p>
+					{#if hasPath}
+						<p class="text-xs text-muted-foreground">
+							{t('projects.domain_form.path_https_inherited', { host: normalizedHost })}
+						</p>
+					{:else}
+						<div class="flex items-center justify-between gap-3">
+							<div>
+								<Label for="domain-https">HTTPS</Label>
+								<p class="mt-1 text-xs text-muted-foreground">
+									{isLocal
+										? t('projects.domain_form.https_unavailable_local')
+										: t('projects.domain_form.https_public_hint', { port: publicPort })}
+								</p>
+							</div>
+							<SoftSwitch id="domain-https" bind:checked={https} disabled={isLocal} />
 						</div>
-						<SoftSwitch id="domain-https" bind:checked={https} disabled={isLocal} />
-					</div>
-					{#if https}
-						<CertificateFields
-							bind:provider={certificateProvider}
-							bind:certificateId
-							certificateName={domain?.certificate_name ?? ''}
-							disabled={saving} />
+						{#if https}
+							<CertificateFields
+								bind:provider={certificateProvider}
+								bind:certificateId
+								certificateName={domain?.certificate_name ?? ''}
+								disabled={saving} />
+						{/if}
 					{/if}
 					<div class="flex items-center justify-between gap-3">
 						<div>

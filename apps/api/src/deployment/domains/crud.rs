@@ -90,7 +90,7 @@ async fn effective_domain_server(
 }
 
 pub(super) const SELECT_COLUMNS: &str =
-    "id, application_id, host, port, https, is_primary, created_at, updated_at, server_id";
+    "id, application_id, host, port, https, is_primary, created_at, updated_at, server_id, path";
 
 pub(super) fn row_to_dto(row: &sqlx::sqlite::SqliteRow) -> Result<DomainDto, AppError> {
     let read = |index: usize| -> Result<String, AppError> {
@@ -104,6 +104,9 @@ pub(super) fn row_to_dto(row: &sqlx::sqlite::SqliteRow) -> Result<DomainDto, App
     let host = read(2)?;
     let port = read_int(3)?;
     let https = read_int(4)? != 0;
+    let path: Option<String> = row
+        .try_get(9)
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(DomainDto {
         certificate_id: None,
         certificate_name: None,
@@ -111,7 +114,8 @@ pub(super) fn row_to_dto(row: &sqlx::sqlite::SqliteRow) -> Result<DomainDto, App
         has_custom_certificate: false,
         id: read(0)?,
         application_id: read(1)?,
-        url: domain_url(&host, port, https),
+        url: domain_url(&host, port, https) + path.as_deref().unwrap_or_default(),
+        path,
         is_local: is_local(&host),
         required_dns_target: None,
         ingress_mode: "central".into(),
@@ -401,14 +405,30 @@ async fn create_with_origin_locked(
     is_generated: bool,
 ) -> Result<DomainDto, AppError> {
     let host = request.host.trim().to_ascii_lowercase();
-    let https = request.https.unwrap_or(false);
+    let path = normalize_path(request.path.as_deref())?;
+    let mut https = request.https.unwrap_or(false);
     validate(state, &host, request.port, https)?;
     let server_id = resolve_domain_server(state, application_id, request.server_id.clone()).await?;
     let effective_server_id =
         effective_domain_server(state, application_id, server_id.clone()).await?;
     reject_reserved_host(state, &host).await?;
     validate_domain_for_application(state, &effective_server_id, &host).await?;
-    reject_conflicting_public_host(state, &effective_server_id, &host, request.port, None).await?;
+    reject_conflicting_public_host(
+        state,
+        &effective_server_id,
+        &host,
+        request.port,
+        path.as_deref(),
+        None,
+    )
+    .await?;
+    let no_certificate = Default::default();
+    let certificate_request = if path.is_some() {
+        https = path_domain_https(state, application_id, &effective_server_id, &host, None).await?;
+        &no_certificate
+    } else {
+        &request.certificate
+    };
 
     let conn = crate::git::repositories::db::get_conn(state).await;
     let existing = list(state, application_id).await?;
@@ -416,7 +436,7 @@ async fn create_with_origin_locked(
     let certificate = crate::deployment::certificates::prepare_for_state(
         state,
         &Default::default(),
-        &request.certificate,
+        certificate_request,
         &host,
         https,
     )
@@ -432,7 +452,7 @@ async fn create_with_origin_locked(
     let id = Uuid::now_v7().to_string();
     let timestamp = now_ms();
     sqlx::query(
-        "INSERT INTO application_domains (id, application_id, host, port, https, is_primary, created_at, updated_at, is_generated, server_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO application_domains (id, application_id, host, port, https, is_primary, created_at, updated_at, is_generated, server_id, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )
     .bind(id.clone())
     .bind(application_id)
@@ -444,6 +464,7 @@ async fn create_with_origin_locked(
     .bind(timestamp)
     .bind(is_generated as i64)
     .bind(server_id)
+    .bind(&path)
     .execute(&mut *tx)
     .await
     .map_err(|error| map_domain_write_error(error, &host, request.port))?;
@@ -492,7 +513,11 @@ pub async fn update(
         .map(|value| value.trim().to_ascii_lowercase())
         .unwrap_or(current.host.clone());
     let port = request.port.unwrap_or(current.port);
-    let https = request.https.unwrap_or(current.https);
+    let path = match request.path.as_deref() {
+        Some(raw) => normalize_path(Some(raw))?,
+        None => current.path.clone(),
+    };
+    let mut https = request.https.unwrap_or(current.https);
     validate(state, &host, port, https)?;
     // A pin omitted on update keeps the existing pin; an explicit one is validated.
     let server_id = match request.server_id.clone() {
@@ -503,14 +528,42 @@ pub async fn update(
         effective_domain_server(state, application_id, server_id.clone()).await?;
     reject_reserved_host(state, &host).await?;
     validate_domain_for_application(state, &effective_server_id, &host).await?;
-    reject_conflicting_public_host(state, &effective_server_id, &host, port, Some(domain_id))
+    reject_conflicting_public_host(
+        state,
+        &effective_server_id,
+        &host,
+        port,
+        path.as_deref(),
+        Some(domain_id),
+    )
+    .await?;
+    if current.path.is_none()
+        && (host != current.host || path.is_some() || server_id != current.server_id)
+    {
+        let before_server =
+            effective_domain_server(state, application_id, current.server_id.clone()).await?;
+        reject_orphaning_paths(state, &before_server, &current.host).await?;
+    }
+    let no_certificate = Default::default();
+    let certificate_request = if path.is_some() {
+        https = path_domain_https(
+            state,
+            application_id,
+            &effective_server_id,
+            &host,
+            Some(domain_id),
+        )
         .await?;
+        &no_certificate
+    } else {
+        &request.certificate
+    };
 
     let conn = crate::git::repositories::db::get_conn(state).await;
     let certificate = crate::deployment::certificates::prepare_for_state(
         state,
         &previous_certificate,
-        &request.certificate,
+        certificate_request,
         &host,
         https,
     )
@@ -526,7 +579,7 @@ pub async fn update(
     }
 
     sqlx::query(
-        "UPDATE application_domains SET host = ?1, port = ?2, https = ?3, is_primary = ?4, server_id = ?5, updated_at = ?6 WHERE id = ?7 AND application_id = ?8",
+        "UPDATE application_domains SET host = ?1, port = ?2, https = ?3, is_primary = ?4, server_id = ?5, updated_at = ?6, path = ?9 WHERE id = ?7 AND application_id = ?8",
     )
     .bind(host.clone())
     .bind(port)
@@ -536,9 +589,13 @@ pub async fn update(
     .bind(now_ms())
     .bind(domain_id)
     .bind(application_id)
+    .bind(&path)
     .execute(&mut *tx)
     .await
     .map_err(|error| map_domain_write_error(error, &host, port))?;
+    if path.is_none() {
+        set_path_domains_https(&mut tx, &host, https).await?;
+    }
     crate::deployment::certificates::save_on(&mut tx, &route_id(domain_id), &certificate).await?;
     tx.commit().await.map_err(map_write_error)?;
     let updated = get(state, application_id, domain_id).await?;
@@ -556,8 +613,11 @@ pub async fn update(
             .execute(&mut *tx)
             .await
             .map_err(map_write_error)?;
-        sqlx::query("UPDATE application_domains SET host=?, port=?, https=?, is_primary=?, updated_at=? WHERE id=?")
-            .bind(&current.host).bind(current.port).bind(current.https as i64).bind(current.is_primary as i64).bind(current.updated_at).bind(domain_id).execute(&mut *tx).await.map_err(map_write_error)?;
+        sqlx::query("UPDATE application_domains SET host=?, port=?, https=?, is_primary=?, updated_at=?, path=? WHERE id=?")
+            .bind(&current.host).bind(current.port).bind(current.https as i64).bind(current.is_primary as i64).bind(current.updated_at).bind(&current.path).bind(domain_id).execute(&mut *tx).await.map_err(map_write_error)?;
+        if current.path.is_none() {
+            set_path_domains_https(&mut tx, &current.host, current.https).await?;
+        }
         if let Some(primary) = existing.iter().find(|domain| domain.is_primary) {
             sqlx::query("UPDATE application_domains SET is_primary=1 WHERE id=?")
                 .bind(&primary.id)
@@ -576,6 +636,21 @@ pub async fn update(
         mark_stale_if_marker_route(state, application_id, domain_id).await?;
     }
     Ok(updated)
+}
+
+/// Path domains store their root's HTTPS so their `url` stays right without a join.
+async fn set_path_domains_https(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    host: &str,
+    https: bool,
+) -> Result<(), AppError> {
+    sqlx::query("UPDATE application_domains SET https = ?1 WHERE host = ?2 AND path IS NOT NULL")
+        .bind(https as i64)
+        .bind(host)
+        .execute(&mut **tx)
+        .await
+        .map_err(map_write_error)?;
+    Ok(())
 }
 
 /// A domain behind a route that an env marker reads (`{{url:8080}}`) changes
@@ -621,6 +696,11 @@ pub async fn delete(
     let _guard = DOMAIN_WRITE_LOCK.lock().await;
     let _certificates = crate::deployment::certificates::INVENTORY_LOCK.lock().await;
     let removed = get(state, application_id, domain_id).await?;
+    if removed.path.is_none() {
+        let server_id =
+            effective_domain_server(state, application_id, removed.server_id.clone()).await?;
+        reject_orphaning_paths(state, &server_id, &removed.host).await?;
+    }
     // Read before the delete: the proxy route row goes away with the domain.
     let read_by_marker = marker_route_of(state, application_id, domain_id).await?;
     let conn = crate::git::repositories::db::get_conn(state).await;
@@ -793,6 +873,7 @@ pub async fn generate_with(
         state,
         application_id,
         CreateDomainRequest {
+            path: None,
             certificate: Default::default(),
             host,
             port,

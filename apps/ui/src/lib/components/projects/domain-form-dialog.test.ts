@@ -156,3 +156,42 @@ it('disables the twin when the app already has it', async () => {
 	});
 	expect(await screen.findByText('This app already has that host.')).toBeTruthy();
 });
+
+it('sends the path and hides HTTPS and the www twin for a path domain', async () => {
+	const onSubmit = vi.fn().mockResolvedValue(undefined);
+	render(DomainFormDialog, { open: true, onSubmit });
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'example.com' },
+	});
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Path' }), {
+		target: { value: '/api' },
+	});
+	await fireEvent.input(screen.getByLabelText('Internal port (Caddy target)'), {
+		target: { value: '8080' },
+	});
+	expect(screen.queryByLabelText('HTTPS')).toBeNull();
+	expect(screen.queryByLabelText('Also add www.example.com')).toBeNull();
+	await fireEvent.submit(screen.getByRole('textbox', { name: 'Host' }).closest('form')!);
+	await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+	expect(onSubmit.mock.calls[0][0]).toMatchObject({ host: 'example.com', path: '/api', port: 8080 });
+});
+
+it('hides the path field for local hosts', async () => {
+	render(DomainFormDialog, { open: true, onSubmit: vi.fn() });
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'localhost' },
+	});
+	expect(screen.queryByRole('textbox', { name: 'Path' })).toBeNull();
+});
+
+it('splits a pasted address into host and route', async () => {
+	render(DomainFormDialog, { open: true, onSubmit: vi.fn() });
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'https://Example.com/API/' },
+	});
+	expect((screen.getByRole('textbox', { name: 'Host' }) as HTMLInputElement).value).toBe(
+		'Example.com',
+	);
+	expect((screen.getByRole('textbox', { name: 'Path' }) as HTMLInputElement).value).toBe('/API');
+	expect(screen.getByText('example.com/api/users reaches the app as /users.')).toBeTruthy();
+});

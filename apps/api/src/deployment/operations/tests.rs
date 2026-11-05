@@ -227,6 +227,7 @@ fn application_domain_route_precedes_litepod_catch_all() {
         &mut config,
         "litepod-route-domain-1",
         "litepod-123.216.250.119.183.sslip.io",
+        None,
         "static-app",
         80,
         false,
@@ -275,6 +276,7 @@ fn maintenance_replaces_the_proxy_and_the_auth_challenge_but_keeps_tls() {
         &mut config,
         "litepod-route-domain-1",
         "test.litepod.sh",
+        None,
         "static-app",
         80,
         true,
@@ -303,6 +305,7 @@ fn maintenance_replaces_the_proxy_and_the_auth_challenge_but_keeps_tls() {
         &mut config,
         "litepod-route-domain-1",
         "test.litepod.sh",
+        None,
         "static-app",
         80,
         true,
@@ -332,7 +335,7 @@ fn a_live_companion_is_proxied_with_a_forced_503_and_a_per_host_fallback() {
         companion: Some("maintenance-page:80".into()),
     };
     apply_app_domain_to_config(
-        &mut config, "litepod-route-domain-1", "app.test", "app", 80, false, None, Some(&page),
+        &mut config, "litepod-route-domain-1", "app.test", None, "app", 80, false, None, Some(&page),
     )
     .unwrap();
 
@@ -356,14 +359,14 @@ fn a_live_companion_is_proxied_with_a_forced_503_and_a_per_host_fallback() {
 
     // Rebuilding the same route is idempotent: still one fallback.
     apply_app_domain_to_config(
-        &mut config, "litepod-route-domain-1", "app.test", "app", 80, false, None, Some(&page),
+        &mut config, "litepod-route-domain-1", "app.test", None, "app", 80, false, None, Some(&page),
     )
     .unwrap();
     assert_eq!(config["apps"]["http"]["servers"]["srv0"]["errors"]["routes"].as_array().unwrap().len(), 1);
 
     // Back to the application: the proxy returns and the fallback is gone.
     apply_app_domain_to_config(
-        &mut config, "litepod-route-domain-1", "app.test", "app", 80, false, None, None,
+        &mut config, "litepod-route-domain-1", "app.test", None, "app", 80, false, None, None,
     )
     .unwrap();
     let server = &config["apps"]["http"]["servers"]["srv0"];
@@ -386,7 +389,7 @@ fn the_fallback_goes_with_its_route_on_delete_and_on_prune() {
             }}}}
         });
         apply_app_domain_to_config(
-            &mut config, "litepod-route-domain-1", "app.test", "app", 80, false, None, Some(&page),
+            &mut config, "litepod-route-domain-1", "app.test", None, "app", 80, false, None, Some(&page),
         )
         .unwrap();
         config
@@ -429,6 +432,7 @@ fn https_application_domain_enables_tls_before_the_catch_all() {
         &mut config,
         "litepod-route-domain-1",
         "test.litepod.sh",
+        None,
         "static-app",
         80,
         true,
@@ -455,6 +459,102 @@ fn https_application_domain_enables_tls_before_the_catch_all() {
         config["apps"]["tls"]["automation"]["policies"][0]["subjects"][0],
         "test.litepod.sh"
     );
+}
+
+fn path_config() -> serde_json::Value {
+    serde_json::json!({
+        "apps": { "http": { "servers": { "srv0": {
+            "listen": [":80"], "routes": [{ "@id": "litepod-default" }]
+        }}}}
+    })
+}
+
+fn push(config: &mut serde_json::Value, id: &str, path: Option<&str>) {
+    apply_app_domain_to_config(config, id, "a.example.com", path, "app", 80, true, None, None)
+        .unwrap();
+}
+
+fn route_ids(config: &serde_json::Value) -> Vec<String> {
+    config["apps"]["http"]["servers"]["srv0"]["routes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|route| route["@id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn a_path_route_matches_host_and_prefix_and_strips_it() {
+    let mut config = path_config();
+    push(&mut config, "litepod-route-root", None);
+    push(&mut config, "litepod-route-api", Some("/api"));
+    let server = &config["apps"]["http"]["servers"]["srv0"];
+    let api = &server["routes"][0];
+    assert_eq!(api["@id"], "litepod-route-api");
+    assert_eq!(api["match"][0]["host"], serde_json::json!(["a.example.com"]));
+    assert_eq!(api["match"][0]["path"], serde_json::json!(["/api", "/api/*"]));
+    assert_eq!(
+        api["handle"][0],
+        serde_json::json!({ "handler": "rewrite", "strip_path_prefix": "/api" })
+    );
+    assert_eq!(api["handle"][1]["handler"], "reverse_proxy");
+    // Only the root added host-level TLS.
+    assert_eq!(server["tls_connection_policies"].as_array().unwrap().len(), 1);
+    let policies = config["apps"]["tls"]["automation"]["policies"].as_array().unwrap();
+    assert_eq!(policies.len(), 1);
+    assert_eq!(policies[0]["@id"], "litepod-route-root-tls");
+}
+
+#[test]
+fn path_routes_stay_ahead_of_the_root_after_a_repush() {
+    let mut config = path_config();
+    push(&mut config, "litepod-route-root", None);
+    push(&mut config, "litepod-route-api", Some("/api"));
+    push(&mut config, "litepod-route-v2", Some("/api/v2"));
+    push(&mut config, "litepod-route-root", None);
+    assert_eq!(
+        route_ids(&config),
+        ["litepod-route-v2", "litepod-route-api", "litepod-route-root", "litepod-default"]
+    );
+}
+
+#[test]
+fn removing_a_path_route_keeps_the_hosts_tls() {
+    let mut config = path_config();
+    push(&mut config, "litepod-route-root", None);
+    push(&mut config, "litepod-route-api", Some("/api"));
+    apply_app_domain_removal_to_config(&mut config, "litepod-route-api", "a.example.com").unwrap();
+    assert_eq!(route_ids(&config), ["litepod-route-root", "litepod-default"]);
+    let server = &config["apps"]["http"]["servers"]["srv0"];
+    assert!(server["listen"].as_array().unwrap().iter().any(|l| l == ":443"));
+    assert_eq!(server["tls_connection_policies"][0]["match"]["sni"][0], "a.example.com");
+    assert_eq!(
+        config["apps"]["tls"]["automation"]["policies"][0]["@id"],
+        "litepod-route-root-tls"
+    );
+
+    // Once the root goes too, its TLS goes with it.
+    apply_app_domain_removal_to_config(&mut config, "litepod-route-root", "a.example.com").unwrap();
+    let server = &config["apps"]["http"]["servers"]["srv0"];
+    assert!(server["tls_connection_policies"].as_array().unwrap().is_empty());
+    assert!(config["apps"]["tls"]["automation"]["policies"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn basic_auth_runs_before_the_prefix_strip() {
+    let mut config = path_config();
+    let auth = crate::deployment::basic_auth::BasicAuthPayload {
+        realm: "Restricted".into(),
+        accounts: vec![("admin".into(), "$2a$12$hash".into())],
+    };
+    apply_app_domain_to_config(
+        &mut config, "litepod-route-api", "a.example.com", Some("/api"), "app", 80, true, Some(&auth), None,
+    )
+    .unwrap();
+    let handles = &config["apps"]["http"]["servers"]["srv0"]["routes"][0]["handle"];
+    assert_eq!(handles[0]["handler"], "authentication");
+    assert_eq!(handles[1]["handler"], "rewrite");
+    assert_eq!(handles[2]["handler"], "reverse_proxy");
 }
 
 mod enqueue_dispatch {

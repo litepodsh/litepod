@@ -331,6 +331,7 @@ mod tests {
 
     fn domain(id: &str, host: &str, https: bool, is_primary: bool, created_at: i64) -> DomainDto {
         DomainDto {
+            path: None,
             server_id: None,
             certificate_id: None,
             certificate_name: None,

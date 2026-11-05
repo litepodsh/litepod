@@ -546,6 +546,7 @@ pub(super) async fn apply_add_domain(
         state,
         &stored.application_id,
         crate::dtos::deployment::CreateDomainRequest {
+            path: None,
             certificate: Default::default(),
             host,
             port,
@@ -590,6 +591,7 @@ pub(super) async fn apply_update_domain(
         &stored.application_id,
         &domain_id,
         crate::dtos::deployment::UpdateDomainRequest {
+            path: None,
             certificate: Default::default(),
             host: arguments.host,
             port: arguments.port,
@@ -1059,6 +1061,7 @@ async fn ensure_primary_domain(
                 application_id,
                 &domain.id,
                 crate::dtos::deployment::UpdateDomainRequest {
+                    path: None,
                     certificate: Default::default(),
                     host: None,
                     port: Some(port),
@@ -1074,6 +1077,7 @@ async fn ensure_primary_domain(
                 state,
                 application_id,
                 crate::dtos::deployment::CreateDomainRequest {
+                    path: None,
                     certificate: Default::default(),
                     host: host.to_owned(),
                     port,
@@ -1219,6 +1223,7 @@ pub(super) async fn apply_from_template(
                         state,
                         &application_id,
                         crate::dtos::deployment::CreateDomainRequest {
+                            path: None,
                             certificate: Default::default(),
                             host: host.clone(),
                             port,
@@ -1438,6 +1443,7 @@ pub(super) async fn apply_deploy_compose(
                         state,
                         &application.id,
                         crate::dtos::deployment::CreateDomainRequest {
+                            path: None,
                             certificate: Default::default(),
                             host: host.clone(),
                             port,

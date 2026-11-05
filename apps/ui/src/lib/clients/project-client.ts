@@ -39,6 +39,8 @@ export type ArtifactDto = {
 };
 export type DomainInput = CertificateInput & {
 	host: string;
+	/** `/api` style prefix; empty is the host's root. */
+	path?: string | null;
 	port: number;
 	https: boolean;
 	is_primary?: boolean;
@@ -49,6 +51,7 @@ export type DomainDto = {
 	id: string;
 	application_id: string;
 	host: string;
+	path: string | null;
 	port: number;
 	https: boolean;
 	certificate_provider?: CertificateProvider;

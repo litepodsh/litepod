@@ -265,6 +265,8 @@ pub struct DomainDto {
     pub application_id: String,
     pub host: String,
     pub port: i64,
+    /// Path prefix such as `/api`, routed and stripped by Caddy. `None` is the host's root.
+    pub path: Option<String>,
     pub https: bool,
     pub is_primary: bool,
     /// Fully resolved address, e.g. `http://localhost:10000`.
@@ -314,6 +316,7 @@ pub struct ExpectedRouteDto {
     pub application_name: String,
     pub domain_id: String,
     pub host: String,
+    pub path: Option<String>,
     pub https: bool,
     /// `container:port` Caddy has to dial, or `None` when the domain is not
     /// routable yet (deployment not running, or Compose domain with no service).
@@ -435,6 +438,9 @@ pub struct CreateDomainRequest {
     pub port: i64,
     pub https: Option<bool>,
     pub is_primary: Option<bool>,
+    /// `/api` style prefix; empty or `/` means the host's root (on update: clears it).
+    #[serde(default)]
+    pub path: Option<String>,
     #[serde(default)]
     pub server_id: Option<String>,
 }
@@ -447,6 +453,9 @@ pub struct UpdateDomainRequest {
     pub port: Option<i64>,
     pub https: Option<bool>,
     pub is_primary: Option<bool>,
+    /// `/api` style prefix; empty or `/` means the host's root (on update: clears it).
+    #[serde(default)]
+    pub path: Option<String>,
     #[serde(default)]
     pub server_id: Option<String>,
 }
