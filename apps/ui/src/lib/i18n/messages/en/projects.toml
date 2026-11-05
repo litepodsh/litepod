@@ -738,6 +738,9 @@ value = "Value"
 wildcard_hint = "The wildcard only makes subdomains resolve here. Add every hostname you want Litepod to route in the Domains section."
 
 [domain_form]
+also_add = "Also add {host}"
+also_add_exists = "This app already has that host."
+also_add_hint = "Saves a second domain with the same settings, so both addresses answer."
 caddy_route_hint = "Caddy · HTTP/HTTPS routes this domain to the selected internal service. Routing a service for the first time needs a redeploy so its container joins the proxy network."
 caddy_target_required = "Select a Compose service and internal port for Caddy"
 caddy_target_service = "Caddy target service"

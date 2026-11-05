@@ -40,6 +40,7 @@
 		composeServices = [],
 		composeRoute = null,
 		serverAddress = null,
+		existingHosts = [],
 		deleteWarning,
 		onDelete,
 		onSubmit,
@@ -56,6 +57,8 @@
 		composeRoute?: { service: string; container_port: number } | null;
 		/** Public address of the serving server, shown as the DNS record value for a new host. */
 		serverAddress?: string | null;
+		/** Hosts the app already has, so the www twin is not offered twice. */
+		existingHosts?: string[];
 		/** Shown above Remove, e.g. variables left without a domain. */
 		deleteWarning?: string;
 		/** Present in edit mode to offer Remove. */
@@ -79,6 +82,7 @@
 	let service = $state<string | null>(null);
 	let containerPort = $state<string | number | undefined>('');
 	let serverId = $state('');
+	let alsoVariant = $state(false);
 	let serviceItems = $derived<SearchableDropdownItem[]>(
 		composeServices.map((item) => ({
 			value: item.name,
@@ -147,6 +151,15 @@
 			!isSslip &&
 			/^([a-z0-9-]+\.)+[a-z][a-z0-9-]+$/.test(normalizedHost),
 	);
+	// Each domain matches one exact host, so `www.` and the bare name need two rows.
+	const wwwVariant = $derived(
+		!domain && !isSslip && /^([a-z0-9-]+\.)+[a-z][a-z0-9-]+$/.test(normalizedHost)
+			? normalizedHost.startsWith('www.')
+				? normalizedHost.slice(4)
+				: `www.${normalizedHost}`
+			: '',
+	);
+	const wwwVariantExists = $derived(existingHosts.includes(wwwVariant));
 	const dnsTarget = $derived(
 		domain?.required_dns_target ?? serverAddress ?? dnsCheck.result?.expected_addresses[0] ?? '',
 	);
@@ -218,6 +231,7 @@
 			service = composeRoute?.service ?? null;
 			containerPort = composeRoute?.container_port?.toString() ?? '';
 			serverId = domain?.server_id ?? (pinServers.length === 1 ? pinServers[0].id : '');
+			alsoVariant = false;
 		}
 		wasOpen = open;
 	});
@@ -258,21 +272,28 @@
 			return;
 		}
 
+		const shared = {
+			port: effectivePort,
+			https,
+			certificate_provider: https ? certificateProvider : 'automatic',
+			...(https && certificateProvider === 'custom' ? { certificate_id: certificateId } : {}),
+			...(pinServers.length ? { server_id: serverId } : {}),
+			service: service ?? undefined,
+			container_port: selectedPort ?? undefined,
+		};
 		saving = true;
 		try {
 			await onSubmit({
 				host: trimmedHost,
-				port: effectivePort,
-				https,
-				certificate_provider: https ? certificateProvider : 'automatic',
-				...(https && certificateProvider === 'custom' ? { certificate_id: certificateId } : {}),
-				...(pinServers.length ? { server_id: serverId } : {}),
+				...shared,
 				// Only promote: the API keeps one primary per app, and un-marking it
 				// here would leave the app without one.
 				...(primary && !domain?.is_primary ? { is_primary: true } : {}),
-				service: service ?? undefined,
-				container_port: selectedPort ?? undefined,
 			});
+			// The first host is saved; a failed twin is toasted by the caller and
+			// must not keep the dialog open, or a retry would re-add the first one.
+			if (alsoVariant && wwwVariant && !wwwVariantExists)
+				await onSubmit({ host: wwwVariant, ...shared }).catch(() => {});
 			open = false;
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : t('projects.domain_form.failed_save'));
@@ -374,6 +395,23 @@
 						</div>
 						<p class="text-xs text-muted-foreground">{t('projects.domain_form.description')}</p>
 					</div>
+					{#if wwwVariant}
+						<div class="flex items-center justify-between gap-3">
+							<div class="min-w-0">
+								<Label for="domain-www-variant"
+									>{t('projects.domain_form.also_add', { host: wwwVariant })}</Label>
+								<p class="mt-1 text-xs text-muted-foreground">
+									{wwwVariantExists
+										? t('projects.domain_form.also_add_exists')
+										: t('projects.domain_form.also_add_hint')}
+								</p>
+							</div>
+							<SoftSwitch
+								id="domain-www-variant"
+								bind:checked={alsoVariant}
+								disabled={wwwVariantExists || saving} />
+						</div>
+					{/if}
 					{#if normalizedHost && !isLocal && (dnsTarget || isSslip || canCheckDns)}
 						{@const result = dnsCheck.result}
 						<div class="lp-well grid gap-2 rounded-[10px] bg-muted p-3 text-xs">

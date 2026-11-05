@@ -738,6 +738,9 @@ value = "Valor"
 wildcard_hint = "El comodín solo hace que los subdominios resuelvan aquí. Agrega en la sección Dominios cada nombre de host que quieras que Litepod dirija."
 
 [domain_form]
+also_add = "Agregar también {host}"
+also_add_exists = "Esta app ya tiene ese host."
+also_add_hint = "Guarda un segundo dominio con la misma configuración, para que respondan ambas direcciones."
 caddy_route_hint = "Caddy · HTTP/HTTPS dirige este dominio al servicio interno seleccionado. Dirigir un servicio por primera vez necesita un nuevo despliegue para que su contenedor se una a la red del proxy."
 caddy_target_required = "Selecciona un servicio Compose y un puerto interno para Caddy"
 caddy_target_service = "Servicio de destino de Caddy"

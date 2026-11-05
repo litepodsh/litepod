@@ -127,3 +127,32 @@ it('reports a failed DNS lookup instead of a status', async () => {
 	expect(await screen.findByText('Could not check DNS', {}, { timeout: 2000 })).toBeTruthy();
 	expect(screen.getByText('boom')).toBeTruthy();
 });
+
+it('also adds the www twin with the same settings when asked', async () => {
+	const onSubmit = vi.fn().mockResolvedValue(undefined);
+	render(DomainFormDialog, { open: true, onSubmit });
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'Example.com' },
+	});
+	await fireEvent.input(screen.getByLabelText('Internal port (Caddy target)'), {
+		target: { value: '8080' },
+	});
+	await fireEvent.click(await screen.findByLabelText('Also add www.example.com'));
+	await fireEvent.submit(screen.getByRole('textbox', { name: 'Host' }).closest('form')!);
+	await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+	expect(onSubmit.mock.calls[0][0]).toMatchObject({ host: 'example.com', port: 8080 });
+	expect(onSubmit.mock.calls[1][0]).toMatchObject({ host: 'www.example.com', port: 8080 });
+	expect(onSubmit.mock.calls[1][0]).not.toHaveProperty('is_primary');
+});
+
+it('disables the twin when the app already has it', async () => {
+	render(DomainFormDialog, {
+		open: true,
+		existingHosts: ['example.com'],
+		onSubmit: vi.fn(),
+	});
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'www.example.com' },
+	});
+	expect(await screen.findByText('This app already has that host.')).toBeTruthy();
+});

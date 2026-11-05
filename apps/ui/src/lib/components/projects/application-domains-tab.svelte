@@ -417,6 +417,7 @@
 	onCheckDns={onValidateHostDns}
 	{composeServices}
 	serverAddress={server?.public_address ?? null}
+	existingHosts={domains.map((domain) => domain.host)}
 	composeRoute={editing
 		? (composeRoutes.find((route) => route.domain_id === editing?.id) ?? null)
 		: null}
