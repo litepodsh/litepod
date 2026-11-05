@@ -1071,6 +1071,39 @@ pub async fn maintenance_create_swap_handler(
     Ok(ok(maintenance_dto(setup::create_swap(&server).await?)))
 }
 
+pub async fn security_audit_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    // The extractor covers `organization_id`.
+    Path((_, server_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let server = maintenance_server(&state, &org.organization_id, &server_id).await?;
+    Ok(ok(crate::servers::security::audit(&server).await?))
+}
+
+pub async fn security_apply_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    // The extractor covers `organization_id`.
+    Path((_, server_id)): Path<(String, String)>,
+    Json(request): Json<crate::servers::security::ApplySecurityRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    let server = maintenance_server(&state, &organization_id, &server_id).await?;
+    let result = crate::servers::security::apply(&server, request.action).await?;
+    if result.success {
+        record_connection_event(
+            &state,
+            &organization_id,
+            &org.user,
+            &server,
+            "server.hardened",
+        )
+        .await;
+    }
+    Ok(ok(maintenance_dto(result)))
+}
+
 /// Proves the server can actually pull an image and run a container, which a health check only
 /// implies. The server's state is deliberately left alone: a registry the host cannot reach is
 /// not a reason to stop deploying to it.

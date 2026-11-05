@@ -404,6 +404,8 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/restart-podman", post(servers::maintenance_restart_podman_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/check-disk", post(servers::maintenance_check_disk_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/create-swap", post(servers::maintenance_create_swap_handler))
+        .route("/api/v1/organizations/{organization_id}/servers/{server_id}/security/audit", post(servers::security_audit_handler))
+        .route("/api/v1/organizations/{organization_id}/servers/{server_id}/security/apply", post(servers::security_apply_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/update-helper", post(servers::maintenance_update_helper_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/test-deploy", post(servers::test_deploy_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/setup", post(servers::setup_handler))

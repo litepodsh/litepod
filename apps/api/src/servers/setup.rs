@@ -78,7 +78,7 @@ const ROOTFUL_PODMAN_SOCKET_DROPIN: &str =
 /// the same path, so this survives reboots without touching podman's packaging.
 const ROOTFUL_PODMAN_DIR_TMPFILES: &str = "/etc/tmpfiles.d/10-litepod-podman-dir.conf";
 
-fn target(server: &ServerRecord) -> Result<SshTarget, AppError> {
+pub(crate) fn target(server: &ServerRecord) -> Result<SshTarget, AppError> {
     SshTarget::parse(
         server
             .ssh_host
@@ -94,7 +94,7 @@ fn target(server: &ServerRecord) -> Result<SshTarget, AppError> {
     )
 }
 
-fn credentials(server: &ServerRecord) -> Result<(&str, &str, Option<&str>), AppError> {
+pub(crate) fn credentials(server: &ServerRecord) -> Result<(&str, &str, Option<&str>), AppError> {
     Ok((
         server.private_key_encrypted.as_deref().ok_or_else(|| {
             AppError::InternalError("Remote server SSH credential is unavailable".into())
@@ -394,7 +394,7 @@ pub async fn caddy_helper(server: &ServerRecord, args: &[OsString]) -> Result<St
 /// paths and no step ever gets a remote shell to redirect into one, so the content is staged
 /// below the SSH user's home and moved into place by a privileged `install`, which also creates
 /// the parent directory.
-async fn install_root_file(
+pub(crate) async fn install_root_file(
     server: &ServerRecord,
     contents: &str,
     staging_name: &str,
@@ -509,7 +509,7 @@ fn fail2ban_sshd_conf(port: u16) -> String {
     )
 }
 
-async fn configure_fail2ban(server: &ServerRecord) -> Result<(), AppError> {
+pub(crate) async fn configure_fail2ban(server: &ServerRecord) -> Result<(), AppError> {
     let port = server
         .ssh_port
         .ok_or_else(|| AppError::InternalError("Remote server has no SSH port".into()))?;
@@ -850,7 +850,7 @@ pub struct MaintenanceOutcome {
 const MAINTENANCE_OUTPUT_LIMIT: usize = 16_000;
 const MAINTENANCE_TIMEOUT: Duration = Duration::from_secs(900);
 
-fn maintenance_command(prefix: &[&str], args: &[&str]) -> Vec<OsString> {
+pub(crate) fn maintenance_command(prefix: &[&str], args: &[&str]) -> Vec<OsString> {
     prefix
         .iter()
         .chain(args.iter())
@@ -858,7 +858,7 @@ fn maintenance_command(prefix: &[&str], args: &[&str]) -> Vec<OsString> {
         .collect()
 }
 
-fn maintenance_outcome(
+pub(crate) fn maintenance_outcome(
     action: &str,
     started: std::time::Instant,
     run: SshRun,
@@ -890,7 +890,7 @@ fn clamp_output_limit(value: &str, limit: usize) -> String {
     format!("{kept}\n... output truncated")
 }
 
-async fn run_maintenance_command(
+pub(crate) async fn run_maintenance_command(
     server: &ServerRecord,
     command: Vec<OsString>,
 ) -> Result<SshRun, AppError> {

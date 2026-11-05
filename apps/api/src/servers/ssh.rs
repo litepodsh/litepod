@@ -670,12 +670,63 @@ impl SshExecutor {
         command: &[OsString],
         budget: Duration,
     ) -> Result<SshRun, AppError> {
+        Self::run_command(
+            target,
+            encrypted_private_key,
+            expected_fingerprint,
+            known_hosts_line,
+            command,
+            budget,
+            false,
+        )
+        .await
+    }
+
+    /// Like [`Self::run_allow_failure`] over a brand-new login instead of the shared master,
+    /// for proving the server still accepts new SSH logins after its sshd config changed.
+    pub async fn run_fresh_login(
+        target: &SshTarget,
+        encrypted_private_key: &str,
+        expected_fingerprint: &str,
+        known_hosts_line: Option<&str>,
+        command: &[OsString],
+        budget: Duration,
+    ) -> Result<SshRun, AppError> {
+        Self::run_command(
+            target,
+            encrypted_private_key,
+            expected_fingerprint,
+            known_hosts_line,
+            command,
+            budget,
+            true,
+        )
+        .await
+    }
+
+    async fn run_command(
+        target: &SshTarget,
+        encrypted_private_key: &str,
+        expected_fingerprint: &str,
+        known_hosts_line: Option<&str>,
+        command: &[OsString],
+        budget: Duration,
+        fresh_login: bool,
+    ) -> Result<SshRun, AppError> {
         validate_remote_argv(command)?;
         ensure_ssh_control_dir()?;
         let identity = Self::decrypt_key(encrypted_private_key)?;
         let known_hosts =
             Self::trusted_known_hosts(target, expected_fingerprint, known_hosts_line).await?;
-        let argv = build_ssh_argv(target, identity.path(), known_hosts.path(), command);
+        let mut argv = build_ssh_argv(target, identity.path(), known_hosts.path(), command);
+        if fresh_login {
+            // A multiplexed master opened before the change would succeed even if sshd now
+            // refuses logins. ControlPath=none must precede build_ssh_argv's own (first wins).
+            argv.splice(
+                1..1,
+                [OsString::from("-o"), OsString::from("ControlPath=none")],
+            );
+        }
         // Without kill_on_drop, a timeout here abandons the future but leaves the local
         // ssh client running - the channel never closes, so the remote command it's
         // driving (e.g. `podman compose up`) never dies either, and just keeps holding
