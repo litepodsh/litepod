@@ -4,6 +4,7 @@
 	import ChartLineIcon from '@lucide/svelte/icons/chart-line';
 	import BoxesIcon from '@lucide/svelte/icons/boxes';
 	import PlusIcon from '@lucide/svelte/icons/plus';
+	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import ContainerIcon from '@lucide/svelte/icons/container';
 	import EllipsisVerticalIcon from '@lucide/svelte/icons/ellipsis-vertical';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
@@ -41,6 +42,7 @@
 		onShowKey,
 		onHealthcheck,
 		onMaintenance,
+		onSecurity,
 		onTestDeploy,
 		onRepair,
 		onRename,
@@ -62,6 +64,7 @@
 		onShowKey: (server: Server) => void;
 		onHealthcheck: (server: Server) => void;
 		onMaintenance: (server: Server) => void;
+		onSecurity?: (server: Server) => void;
 		onTestDeploy: (server: Server) => void;
 		onRepair: (server: Server) => void;
 		onRename: (server: Server) => void;
@@ -371,6 +374,12 @@
 							<WrenchIcon class="size-4" />
 							{t('organizations.servers.maintenance')}
 						</DropdownMenu.Item>
+						{#if onSecurity}
+							<DropdownMenu.Item onSelect={() => onSecurity(server)}>
+								<ShieldCheckIcon class="size-4" />
+								{t('servers.security.menu')}
+							</DropdownMenu.Item>
+						{/if}
 						<DropdownMenu.Item onSelect={() => onShowKey(server)}>
 							<KeyRoundIcon class="size-4" />
 							{t('organizations.servers.show_public_key')}

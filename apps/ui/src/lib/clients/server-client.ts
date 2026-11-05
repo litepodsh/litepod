@@ -283,6 +283,41 @@ export function createServerSwap(
 ): Promise<ServerMaintenanceResult> {
 	return runMaintenance(organizationId, id, 'create-swap');
 }
+export type ServerSecurity = {
+	password_login: boolean | null;
+	root_login: string | null;
+	ssh_level: 'recommended' | 'strict' | null;
+	firewall: 'ufw' | 'firewalld' | null;
+	firewall_active: boolean;
+	fail2ban: 'active' | 'inactive' | 'missing';
+	banned_ips: number | null;
+	auto_updates: boolean | null;
+	security_updates: number | null;
+	reboot_required: boolean;
+	public_ports: number[];
+	ssh_settings: { recommended: string; strict: string } | null;
+};
+export type SecurityAction = 'ssh_recommended' | 'ssh_strict' | 'fail2ban' | 'auto_updates';
+export async function auditServerSecurity(
+	organizationId: string,
+	id: string,
+): Promise<ServerSecurity> {
+	return (
+		await api<ServerSecurity>(path(organizationId, id, '/security/audit'), { method: 'POST' })
+	).data!;
+}
+export async function applyServerSecurity(
+	organizationId: string,
+	id: string,
+	action: SecurityAction,
+): Promise<ServerMaintenanceResult> {
+	return (
+		await api<ServerMaintenanceResult>(path(organizationId, id, '/security/apply'), {
+			method: 'POST',
+			body: JSON.stringify({ action }),
+		})
+	).data!;
+}
 export function updateServerHelper(
 	organizationId: string,
 	id: string,

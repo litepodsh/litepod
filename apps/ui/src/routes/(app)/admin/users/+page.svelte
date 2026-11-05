@@ -59,6 +59,7 @@
 		'server.setup_started': () => t('operations.users.activity_server_setup'),
 		'server.repair_started': () => t('operations.users.activity_server_repair'),
 		'server.restarted': () => t('operations.users.activity_server_restart'),
+		'server.hardened': () => t('operations.users.activity_server_hardened'),
 		'server.podman_restarted': () => t('operations.users.activity_podman_restart'),
 	};
 
