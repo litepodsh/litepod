@@ -105,6 +105,9 @@
 	let host = $state('');
 	let port = $state('22');
 	let user = $state('litepod');
+	// Matches the API's preflight error (passwordless_sudo_hint in api/src/servers/setup.rs).
+	const needsSudo = $derived(stepError.includes('passwordless sudo'));
+	const sshUser = $derived(server?.ssh_user ?? (user.trim() || 'litepod'));
 	let ingress = $state<RemoteIngress>('private_relay');
 	let podmanMode = $state<PodmanMode>('rootless');
 	let publicAddress = $state('');
@@ -427,7 +430,19 @@
 			</ol>
 
 			<div class="min-h-0 overflow-y-auto px-6 py-5">
-				{#if stepError}
+				{#if stepError && needsSudo}
+					<div class="mb-4 space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+						<p class="text-destructive">
+							{t('servers.connect.sudo_missing', { user: sshUser })}
+						</p>
+						<p class="text-xs text-muted-foreground">{t('servers.connect.sudo_fix')}</p>
+						{@render remoteCommand(
+							`echo '${sshUser} ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/litepod && sudo chmod 440 /etc/sudoers.d/litepod`,
+						)}
+						<p class="text-xs text-muted-foreground">{t('servers.connect.sudo_verify')}</p>
+						{@render remoteCommand('sudo -k && sudo -n true && echo ok')}
+					</div>
+				{:else if stepError}
 					<p
 						class="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
 						{stepError}

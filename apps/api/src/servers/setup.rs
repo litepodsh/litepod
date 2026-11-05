@@ -729,10 +729,17 @@ pub async fn preflight(server: &ServerRecord) -> Result<(ServerFacts, ServerStat
     let ssh_user = server.ssh_user.as_deref().unwrap_or_default();
     let mut probe = PodmanMode::privilege_prefix(ssh_user).to_vec();
     probe.push("true");
-    command(server, &probe).await.map_err(|_| {
-        AppError::ValidationError("The SSH user needs passwordless sudo for Setup or Repair".into())
-    })?;
+    command(server, &probe)
+        .await
+        .map_err(|_| AppError::ValidationError(passwordless_sudo_hint(ssh_user)))?;
     Ok(result)
+}
+
+/// The UI matches "passwordless sudo" to show its translated fix; keep that phrase.
+fn passwordless_sudo_hint(ssh_user: &str) -> String {
+    format!(
+        "The SSH user {ssh_user} needs passwordless sudo for Setup or Repair. On the server, run: echo '{ssh_user} ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/litepod && sudo chmod 440 /etc/sudoers.d/litepod"
+    )
 }
 
 /// Read-only runtime health check. It verifies the pinned SSH key path and that Podman answers
@@ -1558,6 +1565,13 @@ mod tests {
         assert!(!swap_recommended(&facts(16 * gib + 1, Some(0))));
         assert!(!swap_recommended(&facts(4 * gib, Some(gib))));
         assert!(!swap_recommended(&facts(4 * gib, None)));
+    }
+
+    #[test]
+    fn sudo_hint_names_the_user_and_keeps_the_ui_marker() {
+        let hint = super::passwordless_sudo_hint("sgc");
+        assert!(hint.contains("passwordless sudo"));
+        assert!(hint.contains("echo 'sgc ALL=(ALL) NOPASSWD:ALL'"));
     }
 
     #[test]
