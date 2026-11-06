@@ -298,6 +298,20 @@ async fn the_control_plane_host_cannot_be_claimed_as_an_application_domain() {
 }
 
 #[tokio::test]
+async fn dev_seeds_a_localhost_domain_when_the_panel_is_on_localhost() {
+    let (state, path) = test_state(true).await;
+    sqlx::query(
+        "INSERT INTO server_domain_settings (id, domain, email, https, updated_at) VALUES (1, 'localhost:6001', 'a@b.test', 0, 1)",
+    )
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let generated = generate(&state, "application-1").await.unwrap();
+    assert_eq!(generated.host, "localhost");
+    cleanup(path);
+}
+
+#[tokio::test]
 async fn group_targeted_application_requires_a_domain_pin() {
     let (state, path) = test_state(false).await;
     let conn = &state.db;

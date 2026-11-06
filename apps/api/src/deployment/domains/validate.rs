@@ -146,6 +146,11 @@ pub fn validate_domain_for_ingress(ingress_mode: IngressMode, host: &str) -> Res
 /// so a tenant cannot claim whichever one is not currently active.
 pub(super) async fn reject_reserved_host(state: &SharedState, host: &str) -> Result<(), AppError> {
     let host = host.trim().to_ascii_lowercase();
+    // A local domain is a published port, never routed through the panel's Caddy,
+    // so it cannot share the panel's origin (dev runs the panel on localhost too).
+    if is_local(&host) {
+        return Ok(());
+    }
     let bases = [
         crate::handler::settings::public_base_url(state).await,
         state.public_url.clone(),

@@ -6,7 +6,7 @@
 	import { Input } from '#lib/components/ui/input/index.js';
 	import * as InputGroup from '#lib/components/ui/input-group/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
-	import * as Select from '#lib/components/ui/select/index.js';
+	import ServerPicker from '#lib/components/servers/server-picker.svelte';
 	import SoftSwitch from '#lib/components/custom/soft-switch.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import DeleteConfirmControl from '#lib/components/custom/delete-confirm-control.svelte';
@@ -677,17 +677,13 @@
 					{#if pinServers.length}
 						<div class="grid gap-2">
 							<Label for="domain-pin">{t('projects.domain_form.pin')}</Label>
-							<Select.Root type="single" bind:value={serverId}>
-								<Select.Trigger id="domain-pin" class="w-full">
-									{pinServers.find((server) => server.id === serverId)?.name ??
-										t('projects.application_form.choose_server')}
-								</Select.Trigger>
-								<Select.Content>
-									{#each pinServers as server (server.id)}
-										<Select.Item value={server.id}>{server.name}</Select.Item>
-									{/each}
-								</Select.Content>
-							</Select.Root>
+							<ServerPicker
+								servers={pinServers}
+								bind:value={serverId}
+								placeholder={t('projects.application_form.choose_server')}
+								searchPlaceholder={t('organizations.common.search_servers')}
+								emptyText={t('organizations.common.no_servers_found')}
+								triggerClass="w-full" />
 							<p class="text-xs text-muted-foreground">{t('projects.domain_form.pin_hint')}</p>
 						</div>
 					{/if}
