@@ -113,7 +113,7 @@ fn candidate_private_network_does_not_share_service_dns_with_serving_project() {
 
 #[test]
 fn candidate_ports_are_ephemeral_and_preserve_multiple_ports_per_service() {
-    let services = vec![ComposeService { name: "web".into() }];
+    let services = vec![service("web")];
     let content = generate_remote_standalone_override(
         "app-release-123456abcdef",
         &services,
@@ -138,12 +138,7 @@ fn candidate_ports_are_ephemeral_and_preserve_multiple_ports_per_service() {
 
 #[test]
 fn runtime_resources_override_caps_every_service() {
-    let services = vec![
-        ComposeService { name: "web".into() },
-        ComposeService {
-            name: "worker".into(),
-        },
-    ];
+    let services = vec![service("web"), service("worker")];
     let limits = super::super::ResourceLimits {
         cpu_quota_us: 150_000,
         memory_bytes: 2 * 1024 * 1024 * 1024,
@@ -273,7 +268,58 @@ fn remove_warning_explicitly_mentions_managed_volumes() {
 }
 
 fn service(name: &str) -> ComposeService {
-    ComposeService { name: name.into() }
+    ComposeService {
+        name: name.into(),
+        host_network: false,
+    }
+}
+
+#[test]
+fn host_networked_service_is_not_attached_to_the_proxy_network() {
+    let services = compose_services(
+        "services:\n  homeassistant:\n    image: ghcr.io/home-assistant/home-assistant:stable\n    network_mode: host\n    expose: [\"8123\"]\n",
+    )
+    .unwrap();
+    assert!(services[0].host_network);
+
+    let yaml = generate_standalone_override(
+        "proyecto-prod-ha-a3f91c",
+        "podman",
+        &services,
+        &["homeassistant".into()],
+    );
+    let value: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+    // Compose rejects `networks` next to `network_mode`; Caddy dials the host
+    // gateway instead (see `deployment::domains::caddy_target`).
+    assert!(value["services"]["homeassistant"]["networks"].is_null());
+    assert_eq!(
+        value["services"]["homeassistant"]["container_name"].as_str(),
+        Some("proyecto-prod-ha-a3f91c-homeassistant")
+    );
+}
+
+#[test]
+fn remote_override_never_publishes_ports_for_a_host_networked_service() {
+    let services = compose_services(
+        "services:\n  homeassistant:\n    image: ghcr.io/home-assistant/home-assistant:stable\n    network_mode: host\n",
+    )
+    .unwrap();
+    let yaml = generate_remote_standalone_override(
+        "proyecto-prod-ha-a3f91c",
+        &services,
+        &[("homeassistant", 0, 8123)],
+    )
+    .unwrap();
+    let value: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+    assert!(value["services"]["homeassistant"]["ports"].is_null());
+}
+
+#[test]
+fn host_network_is_detected_per_service() {
+    let compose = "services:\n  web:\n    image: nginx\n  ha:\n    image: homeassistant\n    network_mode: \"host\"\n";
+    assert!(service_uses_host_network(compose, "ha"));
+    assert!(!service_uses_host_network(compose, "web"));
+    assert!(!service_uses_host_network(compose, "missing"));
 }
 
 #[test]

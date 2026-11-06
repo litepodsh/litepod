@@ -866,6 +866,23 @@ pub(super) async fn deploy_started(
 
     history::step(state, "start").await;
     let _cleanup = rollout.cleanup_on_drop(&runtime);
+    // A host-networked service lives in the host's netns, so a remote server has
+    // no container address to relay through and no local Caddy to route it. Fail
+    // before deploying rather than leaving the domain silently 502-ing.
+    if runtime.is_remote() {
+        let routed = crate::deployment::compose::proxy_routes::list(state, application_id)
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Some(route) = routed
+            .iter()
+            .find(|route| service_uses_host_network(&content, &route.service))
+        {
+            return Err(AppError::ValidationError(format!(
+                "Service '{}' uses network_mode: host, which cannot be reached through a remote server's ingress. Deploy it on the local server, or remove its domain.",
+                route.service
+            )));
+        }
+    }
     let candidate = async {
         compose_cmd(
             state,
@@ -882,11 +899,14 @@ pub(super) async fn deploy_started(
         let targets = routes
             .into_iter()
             .map(|route| {
-                (
-                    route.domain_id,
-                    format!("{}-{}", rollout.name, route.service),
-                    route.container_port as i64,
-                )
+                // A host-networked service (LAN discovery) is not on
+                // `litepod_proxy`; Caddy dials it through the host gateway.
+                let upstream = if service_uses_host_network(&content, &route.service) {
+                    host_network_dial_host()
+                } else {
+                    format!("{}-{}", rollout.name, route.service)
+                };
+                (route.domain_id, upstream, route.container_port as i64)
             })
             .collect::<Vec<_>>();
         let containers = compose_services(&content)?

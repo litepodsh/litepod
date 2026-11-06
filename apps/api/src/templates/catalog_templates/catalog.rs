@@ -25,9 +25,11 @@ use crate::{
 const DEFAULT_CATALOG_ORIGIN: &str = "https://templates.litepod.sh";
 const CATALOG_PATH: &str = "/api/v1/templates";
 const MAX_BYTES: usize = 1024 * 1024;
-/// Tells the catalog this litepod resolves `{{url}}` env markers; without it the
-/// catalog hides templates that use them.
-const CATALOG_FEATURES: &str = "domain-markers";
+/// Tells the catalog what this litepod can handle; the catalog hides templates
+/// it would break on. `domain-markers` are `{{url}}` env markers, `host-network`
+/// is a Compose service in the host netns (`network_mode: host`) whose Caddy
+/// upstream is the host gateway. Older litepods get neither.
+const CATALOG_FEATURES: &str = "domain-markers,host-network";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CatalogPort {
@@ -679,7 +681,7 @@ mod tests {
         query.append_to(&mut url).unwrap();
         assert_eq!(
             url.query(),
-            Some("features=domain-markers&q=mail+test&category=email&limit=24")
+            Some("features=domain-markers%2Chost-network&q=mail+test&category=email&limit=24")
         );
     }
 

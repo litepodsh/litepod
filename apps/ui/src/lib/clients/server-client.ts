@@ -108,7 +108,7 @@ export type ServerPort = {
 	host_port: string;
 	container_port: string;
 	protocol: string;
-	source: 'compose' | 'port-override' | 'managed-endpoint';
+	source: 'compose' | 'port-override' | 'managed-endpoint' | 'host-network';
 };
 /** A container that exits non-zero still comes back as a result, so the output can be shown. */
 export type ServerTestDeploy = {

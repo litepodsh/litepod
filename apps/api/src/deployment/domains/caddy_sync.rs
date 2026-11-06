@@ -298,10 +298,30 @@ pub(crate) async fn caddy_target(
     let runtime_name = super::super::rollout::active_runtime_name(state, application_id)
         .await
         .map_err(AppError::InternalError)?;
-    Ok(Some((
-        format!("{runtime_name}-{}", route.service),
-        route.container_port as i64,
-    )))
+    // A host-networked service has no container DNS name on `litepod_proxy`;
+    // Caddy reaches it through the host gateway on the port it binds itself.
+    let upstream = if compose_service_is_host_network(state, application_id, &route.service).await {
+        crate::deployment::compose_standalone::host_network_dial_host()
+    } else {
+        format!("{runtime_name}-{}", route.service)
+    };
+    Ok(Some((upstream, route.container_port as i64)))
+}
+
+/// Whether the Compose service a domain routes to runs in the host's network
+/// namespace. Unknown Compose files (unreadable, hand-edited into something
+/// unparsable) fall back to the regular container-name upstream.
+async fn compose_service_is_host_network(
+    state: &SharedState,
+    application_id: &str,
+    service: &str,
+) -> bool {
+    let store =
+        super::super::compose::store::ComposeFileStore::new(&state.data_dir, application_id);
+    let Ok(content) = store.read_content().await else {
+        return false;
+    };
+    crate::deployment::compose_standalone::service_uses_host_network(&content, service)
 }
 
 /// Whether the application deploys as a Compose stack (catalog or pasted).
