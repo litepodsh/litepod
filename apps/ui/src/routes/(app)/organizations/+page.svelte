@@ -79,7 +79,7 @@
 							class="lp-inset grid size-9 shrink-0 place-items-center overflow-hidden rounded-[9px] border {organization.icon_bg
 								? ''
 								: 'bg-muted'}">
-							<OrganizationIcon icon={organization.icon} bg={organization.icon_bg} class="size-4" />
+							<OrganizationIcon icon={organization.icon} bg={organization.icon_bg} class="size-7" />
 						</span>
 						<span class="min-w-0 flex-1">
 							<span class="block truncate text-[14.5px] font-semibold tracking-tight"
