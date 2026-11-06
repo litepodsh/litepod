@@ -1,6 +1,7 @@
-//! Anonymous install counter. Sends `{instance_id, version, is_cloud}` to the Litepod status
-//! service once a day so the project can tell how many self-hosted instances exist.
-//! Nothing else leaves the server: no domains, emails, app names or IPs.
+//! Anonymous install counter. Sends
+//! `{instance_id, version, is_cloud, podman_mode, arch, os_family}` to the Litepod status
+//! service once a day so the project can tell how many self-hosted instances exist and how
+//! they run. Nothing else leaves the server: no domains, emails, app names or IPs.
 //!
 //! On by default; the sysadmin can turn it off in System > Telemetry, or an operator
 //! can force it off with `LITEPOD_TELEMETRY=off`.
@@ -57,6 +58,37 @@ async fn stored_enabled(pool: &sqlx::SqlitePool) -> Result<bool, sqlx::Error> {
         .map(|enabled| enabled != 0)
 }
 
+/// How Podman runs for this install, read from the endpoint the API was started with.
+/// Rootless sockets live under `/run/user/<uid>`; rootful uses the system socket. `None`
+/// for an endpoint we do not recognise, so the status service shows "unknown" instead of
+/// guessing.
+pub(super) fn podman_mode(endpoint: &str) -> Option<&'static str> {
+    let endpoint = endpoint.trim();
+    if endpoint.contains("/run/user/") {
+        Some("rootless")
+    } else if endpoint.ends_with("/run/podman/podman.sock") {
+        Some("rootful")
+    } else {
+        None
+    }
+}
+
+/// Host distro family, written into `.env` by the installer. The API runs in a container,
+/// so its own `/etc/os-release` describes the image, not the machine. Only known families
+/// are sent; anything else is omitted.
+fn os_family(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "debian" => Some("debian"),
+        "fedora" => Some("fedora"),
+        "arch" => Some("arch"),
+        _ => None,
+    }
+}
+
+fn host_os_family() -> Option<&'static str> {
+    os_family(&std::env::var("LITEPOD_HOST_OS_FAMILY").ok()?)
+}
+
 /// `toggle` is `Some("enabled" | "disabled")` when the sysadmin flips the setting, so the
 /// status service can tell a manual opt-out apart from an instance that just stopped pinging.
 async fn ping(state: &SharedState, toggle: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
@@ -64,7 +96,18 @@ async fn ping(state: &SharedState, toggle: Option<&str>) -> Result<(), Box<dyn s
     let base =
         std::env::var("LITEPOD_TELEMETRY_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
     let url = format!("{}{ALIVE_PATH}", base.trim_end_matches('/'));
-    let mut body = serde_json::json!({ "instance_id": id, "version": state.version, "is_cloud": state.is_cloud });
+    let mut body = serde_json::json!({
+        "instance_id": id,
+        "version": state.version,
+        "is_cloud": state.is_cloud,
+        "arch": std::env::consts::ARCH,
+    });
+    if let Some(mode) = podman_mode(&state.podman_socket) {
+        body["podman_mode"] = mode.into();
+    }
+    if let Some(family) = host_os_family() {
+        body["os_family"] = family.into();
+    }
     if let Some(toggle) = toggle {
         body["telemetry"] = toggle.into();
     }
@@ -112,4 +155,40 @@ pub fn spawn(state: SharedState) {
             tokio::time::sleep(INTERVAL).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{os_family, podman_mode};
+
+    #[test]
+    fn rootless_socket_reports_rootless() {
+        assert_eq!(
+            podman_mode("unix:///run/user/1000/podman/podman.sock"),
+            Some("rootless")
+        );
+    }
+
+    #[test]
+    fn rootful_socket_reports_rootful() {
+        assert_eq!(
+            podman_mode("unix:///run/podman/podman.sock"),
+            Some("rootful")
+        );
+    }
+
+    #[test]
+    fn unknown_endpoint_reports_nothing() {
+        assert_eq!(podman_mode("tcp://podman.example:8080"), None);
+        assert_eq!(podman_mode(""), None);
+    }
+
+    #[test]
+    fn os_family_accepts_only_known_families() {
+        assert_eq!(os_family("debian"), Some("debian"));
+        assert_eq!(os_family(" Fedora\n"), Some("fedora"));
+        assert_eq!(os_family("arch"), Some("arch"));
+        assert_eq!(os_family("ubuntu"), None);
+        assert_eq!(os_family(""), None);
+    }
 }

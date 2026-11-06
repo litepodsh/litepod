@@ -458,7 +458,7 @@ description = "Litepod envía un ping anónimo una vez al día para que el proye
 instance_id = "ID de instancia"
 env_locked = "La telemetría está desactivada por la variable de entorno LITEPOD_TELEMETRY en este servidor."
 title = "Telemetría"
-what_is_sent = "Solo se envía un ID de instancia aleatorio y la versión de Litepod. Ni dominios, ni correos, ni nombres de apps, ni direcciones IP."
+what_is_sent = "Solo se envía un ID de instancia aleatorio, la versión de Litepod, si Podman corre en modo rootless o rootful, la arquitectura de CPU y la familia de distro del host. Ni dominios, ni correos, ni nombres de apps, ni direcciones IP."
 
 [telemetry.errors]
 save = "No se pudo guardar la configuración de telemetría"

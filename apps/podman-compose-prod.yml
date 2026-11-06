@@ -43,6 +43,9 @@ services:
       CADDY_ADMIN_URL: http://litepod-caddy:2019
       DRAGONFLY_URL: redis://:${DFLY_PASSWORD:?Set DFLY_PASSWORD in apps/.env}@litepod-dragonfly:6379
       PODMAN_SOCKET: ${LITEPOD_PODMAN_SOCKET:?Set by scripts/install.sh}
+      # Host distro family for the anonymous ping; the container's own os-release describes
+      # the image. Optional so older .env files keep working.
+      LITEPOD_HOST_OS_FAMILY: ${LITEPOD_HOST_OS_FAMILY:-}
       LITEPOD_DATA_DIR: /var/lib/litepod
       LITEPOD_DATA_VOLUME: litepod_data
       LITEPOD_PODMAN_NETWORK: litepod-network

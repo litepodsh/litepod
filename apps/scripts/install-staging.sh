@@ -201,6 +201,14 @@ sed -i '/^LITEPOD_PODMAN_SOCKET=/d; /^LITEPOD_PODMAN_SOCKET_PATH=/d' "${env_file
 printf 'LITEPOD_PODMAN_SOCKET=%s\nLITEPOD_PODMAN_SOCKET_PATH=%s\n' \
 	"${podman_socket}" "${podman_socket_path}" >> "${env_file}"
 
+# The API container cannot see the host's /etc/os-release, so record the family here for
+# the anonymous ping.
+host_os_family="$(distro_family 2>/dev/null || true)"
+sed -i '/^LITEPOD_HOST_OS_FAMILY=/d' "${env_file}"
+if [[ -n "${host_os_family}" ]]; then
+	printf 'LITEPOD_HOST_OS_FAMILY=%s\n' "${host_os_family}" >> "${env_file}"
+fi
+
 configure_local_console_ssh() {
 	local family console_user console_home ssh_dir authorized_file key_dir public_key host_key fingerprint
 	console_user="${podman_user:-${LITEPOD_HOST_USER:-${SUDO_USER:-}}}"
