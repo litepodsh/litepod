@@ -34,6 +34,7 @@ pub async fn create_organization(
         .as_deref()
         .filter(|s| !s.is_empty())
         .unwrap_or("shield");
+    crate::icons::check_value(icon, &format!("/api/v1/organizations/{id}/icon/"))?;
     let icon_bg = req.icon_bg.as_deref().unwrap_or("");
     let plan = req
         .plan
@@ -127,6 +128,15 @@ pub async fn update_organization(
         .await
         .ok_or(AppError::OrganizationNotFound)?;
 
+    // An older value stays editable around: the form sends it back on every save.
+    if let Some(icon) = req.icon.as_deref()
+        && icon != existing.icon
+    {
+        crate::icons::check_value(
+            icon,
+            &format!("/api/v1/organizations/{organization_id}/icon/"),
+        )?;
+    }
     let name = req.name.as_deref().map(str::trim);
     if name.is_some_and(str::is_empty) {
         return Err(AppError::ValidationError(
