@@ -12,7 +12,7 @@ use crate::servers::{repository::ServerRecord, setup};
 pub const HELPER_PATH: &str = "/usr/local/lib/litepod/serverctl";
 
 /// The version the script in this build reports. Keep in step with `helper_version=` in it.
-pub const HELPER_VERSION: u32 = 1;
+pub const HELPER_VERSION: u32 = 2;
 
 pub struct HelperRelease {
     pub version: u32,
@@ -22,15 +22,23 @@ pub struct HelperRelease {
     pub script_sha256: &'static str,
 }
 
-pub const CHANGELOG: &[HelperRelease] = &[HelperRelease {
-    version: 1,
-    summary: "Versioned helper with basic authentication",
-    changes: &[
-        "Reports its own version (`serverctl version`)",
-        "Applies basic authentication to domains (`basic-auth-check`)",
-    ],
-    script_sha256: "80482650597e907796ceb2528462baaf74991437eab2f986924431894a843f1b",
-}];
+pub const CHANGELOG: &[HelperRelease] = &[
+    HelperRelease {
+        version: 1,
+        summary: "Versioned helper with basic authentication",
+        changes: &[
+            "Reports its own version (`serverctl version`)",
+            "Applies basic authentication to domains (`basic-auth-check`)",
+        ],
+        script_sha256: "80482650597e907796ceb2528462baaf74991437eab2f986924431894a843f1b",
+    },
+    HelperRelease {
+        version: 2,
+        summary: "Maintenance mode on public-edge servers",
+        changes: &["Serves a 503 maintenance page in place of the app (`maintenance-check`)"],
+        script_sha256: "28cade95a3e28d65aa0e8f48e26a1bf3209aae828bd3a7576aca7b05bd6a480d",
+    },
+];
 
 /// Releases a server at `installed` is missing, oldest first.
 pub fn releases_after(installed: u32) -> impl Iterator<Item = &'static HelperRelease> {

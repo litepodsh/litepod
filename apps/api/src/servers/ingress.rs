@@ -475,6 +475,9 @@ pub async fn sync_server_routes(
     let basic_auth_supported = setup::caddy_helper(server, &[OsString::from("basic-auth-check")])
         .await
         .is_ok();
+    let maintenance_supported = setup::caddy_helper(server, &[OsString::from("maintenance-check")])
+        .await
+        .is_ok();
     let mut lines = Vec::new();
     for target in &targets {
         let domain = domains::get_by_id(state, &target.domain_id).await?;
@@ -521,7 +524,21 @@ pub async fn sync_server_routes(
             };
             // The auth token is appended only when set, so a helper that predates
             // basic auth still parses every unprotected line.
-            let auth_field = auth.map(|token| format!(" {token}")).unwrap_or_default();
+            // The maintenance page is the eighth field, so auth is "-" when absent.
+            let maintenance = crate::deployment::maintenance::load_payload_for_domain(state, &domain.id)
+                .await?
+                .map(|payload| crate::deployment::maintenance::edge_token(&payload));
+            if maintenance.is_some() && !maintenance_supported {
+                return Err(AppError::ValidationError(
+                    "Maintenance mode needs a newer server script. Open Servers and choose Update script"
+                        .into(),
+                ));
+            }
+            let auth_field = match (auth, maintenance) {
+                (auth, Some(page)) => format!(" {} {page}", auth.unwrap_or_else(|| "-".into())),
+                (Some(token), None) => format!(" {token}"),
+                (None, None) => String::new(),
+            };
             lines.push(format!(
                 "{} {} {} {} {} {}{}\n",
                 domain.id,

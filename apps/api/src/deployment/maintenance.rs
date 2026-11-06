@@ -251,21 +251,33 @@ async fn write_site_id(
     Ok(())
 }
 
-/// Public-edge domains are routed by the server's own Caddy, which this does
-/// not drive yet.
+/// Public-edge domains are routed by the server's own Caddy, which can only
+/// serve the inline page: an uploaded site lives on this API, out of its reach.
 async fn ensure_supported(
     state: &SharedState,
+    application_id: &str,
     domains_of_app: &[crate::dtos::deployment::DomainDto],
 ) -> Result<(), AppError> {
+    // shortcut: inline page only on public-edge servers, proxy the site through the edge if needed.
+    if fetch(state, application_id).await?.is_none_or(|row| row.site_id.is_none()) {
+        return Ok(());
+    }
     for domain in domains_of_app.iter().filter(|domain| !domain.is_local) {
         if crate::servers::ingress::domain_is_public_edge(state, domain).await? {
             return Err(AppError::ValidationError(
-                "Maintenance mode is not available yet for applications on a public-edge server"
+                "An uploaded maintenance site is not available for applications on a public-edge server; remove it to use the inline page"
                     .into(),
             ));
         }
     }
     Ok(())
+}
+
+/// Base64 of the page, the single whitespace-free manifest token the edge
+/// helper decodes into a 503 response.
+pub(crate) fn edge_token(payload: &MaintenancePayload) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(escape_placeholders(&payload.html))
 }
 
 /// Rebuilds every route of the application from the database. Used when the page
@@ -306,7 +318,7 @@ pub async fn update(
 
     let domains_of_app = domains::list(state, application_id).await?;
     if enabled {
-        ensure_supported(state, &domains_of_app).await?;
+        ensure_supported(state, application_id, &domains_of_app).await?;
     }
     if previous.is_some() && enabled == before.enabled && page == before.page {
         return dto(state, application_id, previous).await;
@@ -374,7 +386,7 @@ pub async fn upload_site(
     let current = fetch(state, application_id).await?.unwrap_or_default();
     let domains_of_app = domains::list(state, application_id).await?;
     if current.enabled {
-        ensure_supported(state, &domains_of_app).await?;
+        ensure_supported(state, application_id, &domains_of_app).await?;
     }
 
     let dir = site_dir(state, application_id);

@@ -40,6 +40,7 @@ import WrenchIcon from '@lucide/svelte/icons/wrench';
 import BrainIcon from '@lucide/svelte/icons/brain';
 import BriefcaseIcon from '@lucide/svelte/icons/briefcase';
 import type { Component } from 'svelte';
+import { isDisplayableImageUrl } from './application-card-icon';
 
 export const ORGANIZATION_ICON_MAP: Record<string, Component> = {
 	shield: ShieldIcon,
@@ -94,9 +95,6 @@ export function resolveOrganizationIcon(iconName: string): Component {
 	return ORGANIZATION_ICON_MAP[iconName] || ShieldIcon;
 }
 
-const IMAGE_URL_RE = /^(https?:\/\/|\/|data:image\/)/i;
-const IMAGE_EXT_RE = /\.(svg|png|jpe?g|webp|gif|avif)(\?.*)?$/i;
-
 export function isOrganizationIconUrl(icon: string): boolean {
-	return IMAGE_URL_RE.test(icon) && (icon.startsWith('data:image/') || IMAGE_EXT_RE.test(icon));
+	return isDisplayableImageUrl(icon);
 }
