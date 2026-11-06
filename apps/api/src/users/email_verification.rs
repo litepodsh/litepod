@@ -118,7 +118,12 @@ fn normalize_code(raw: &str) -> Result<String, AppError> {
 /// Delivers one transactional email through Resend. Shared by every flow that
 /// mails a user (verification codes, the already-registered notice, password
 /// reset), so they all fail the same way when `RESEND_API_KEY` is unset.
-pub(crate) async fn deliver(email: &str, subject: &str, html: String) -> Result<(), ()> {
+pub(crate) async fn deliver(
+    email: &str,
+    subject: &str,
+    html: String,
+    text: Option<String>,
+) -> Result<(), ()> {
     let key = std::env::var("RESEND_API_KEY")
         .ok()
         .filter(|key| !key.trim().is_empty())
@@ -131,6 +136,7 @@ pub(crate) async fn deliver(email: &str, subject: &str, html: String) -> Result<
             "to": [email],
             "subject": subject,
             "html": html,
+            "text": text,
         }))
         .send()
         .await
@@ -145,7 +151,11 @@ fn code_email_html(code: &str) -> String {
 
 async fn send(state: &SharedState, email: &str, code: &str) -> Result<(), ()> {
     let _ = state;
-    deliver(email, "Your litepod verification code", code_email_html(code)).await
+    // The plain-text part leads with "code" + the value so phone mail apps can offer it as autofill.
+    let text = format!(
+        "Your Litepod verification code is {code}\n\nEnter it on the verification page to confirm your email. It expires in 2 hours.\n\nDidn't ask for this code? Ignore this email and no account will be created. Never share this code with anyone."
+    );
+    deliver(email, "Your litepod verification code", code_email_html(code), Some(text)).await
 }
 
 /// Sent instead of an `AlreadyExists` error when someone tries to register an
@@ -158,7 +168,7 @@ async fn send_already_registered_notice(email: &str) -> Result<(), ()> {
          and use the password reset link on the sign-in page if you've forgotten your password.</p>\
          <p>If it wasn't you, you can safely ignore this message.</p>"
         .to_string();
-    deliver(email, "Someone tried to sign up with your email", html).await
+    deliver(email, "Someone tried to sign up with your email", html, None).await
 }
 
 async fn issue(state: &SharedState, state_value: &VerificationState) -> Result<String, AppError> {

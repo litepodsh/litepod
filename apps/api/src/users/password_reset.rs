@@ -109,7 +109,7 @@ pub async fn request(
     // A delivery failure must not change the answer, or the response time and
     // shape start distinguishing real addresses again.
     let _ =
-        crate::users::email_verification::deliver(email, "Reset your litepod password", html).await;
+        crate::users::email_verification::deliver(email, "Reset your litepod password", html, None).await;
     Ok(())
 }
 
