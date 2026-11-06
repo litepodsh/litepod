@@ -84,13 +84,17 @@ pub async fn save_artifact(
                 let mut entry = archive
                     .by_index(i)
                     .map_err(|_| AppError::ValidationError("Invalid ZIP entry".into()))?;
-                let output = root.join(safe_zip_path(entry.name())?);
+                let name = entry
+                    .name()
+                    .map_err(|_| AppError::ValidationError("Invalid ZIP entry name".into()))?
+                    .into_owned();
+                let output = root.join(safe_zip_path(&name)?);
                 if entry.is_dir() {
                     std::fs::create_dir_all(&output)
                         .map_err(|e| AppError::InternalError(e.to_string()))?;
                     continue;
                 }
-                if entry.name() == "index.html" {
+                if name == "index.html" {
                     index_found = true;
                 }
                 if let Some(parent) = output.parent() {

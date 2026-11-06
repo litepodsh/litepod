@@ -376,7 +376,7 @@ fn inspect_with<'a>(
     for index in 0..zip.len() {
         let entry = zip.by_index(index).map_err(|error| error.to_string())?;
         declared = declared.saturating_add(entry.size());
-        let path = clean_path(entry.name())?;
+        let path = clean_path(&entry.name().map_err(|error| error.to_string())?)?;
         if entry.is_file() && !path.as_os_str().is_empty() {
             files += 1;
         }
