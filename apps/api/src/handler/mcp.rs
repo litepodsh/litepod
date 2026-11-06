@@ -436,6 +436,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_outsider_cannot_reach_the_organization() {
+        let (router, path) = router("outsider", true).await;
+        let (status, _) = send(&router, "organization-a", call(1, "tools/list", json!({}))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        crate::testing::cleanup_database(&path);
+    }
+
+    /// `editor` is Editor in both organizations: what organization-b has must
+    /// still be out of reach through organization-a's MCP.
+    #[tokio::test]
+    async fn a_new_application_lands_on_a_group_of_this_organization_only() {
+        let (state, path) = crate::testing::test_state().await;
+        for organization in ["organization-a", "organization-b"] {
+            crate::testing::seed_application(&state, organization).await;
+            sqlx::query(
+                "INSERT INTO server_groups (id, organization_id, name, description, created_at, updated_at) VALUES (?1 || '-group', ?1, 'web-' || ?1, '', 1, 1)",
+            )
+            .bind(organization)
+            .execute(&state.db)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO server_group_members (group_id, server_id, created_at) VALUES (?1 || '-group', ?1 || '-server', 1)",
+            )
+            .bind(organization)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        }
+        sqlx::query("UPDATE organizations SET mcp_enabled = 1 WHERE id = 'organization-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        let router = Router::new()
+            .route("/organizations/{organization_id}/mcp", post(mcp_handler))
+            .layer(Extension(crate::testing::auth_user("editor")))
+            .with_state(state.clone());
+        let create = |placement: Value| {
+            let mut arguments = json!({
+                "action": "create_application",
+                "project": "organization-a-project",
+                "name": "grouped",
+                "reason": "test",
+            });
+            arguments
+                .as_object_mut()
+                .unwrap()
+                .extend(placement.as_object().unwrap().clone());
+            call(
+                7,
+                "tools/call",
+                json!({ "name": "exec", "arguments": arguments }),
+            )
+        };
+        let placed = || async {
+            sqlx::query_as::<_, (Option<String>, Option<String>)>(
+                "SELECT server_id, server_group_id FROM applications WHERE name = 'grouped'",
+            )
+            .fetch_optional(&state.db)
+            .await
+            .unwrap()
+        };
+
+        for foreign in [
+            json!({ "server_group": "web-organization-b" }),
+            json!({ "server_group": "organization-b-group" }),
+            json!({ "server": "organization-b-server" }),
+        ] {
+            let (_, reply) = send(&router, "organization-a", create(foreign.clone())).await;
+            assert_eq!(reply["result"]["isError"], true, "{foreign}: {reply}");
+            assert_eq!(placed().await, None, "{foreign}");
+        }
+
+        let (_, reply) = send(
+            &router,
+            "organization-a",
+            create(json!({ "server_group": "WEB-organization-a" })),
+        )
+        .await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        assert_eq!(
+            placed().await,
+            Some((None, Some("organization-a-group".to_string())))
+        );
+
+        let (_, reply) = send(&router, "organization-a", call(8, "tools/call", json!({
+            "name": "get",
+            "arguments": { "resource": "applications", "project": "organization-a-project", "environment": "all" },
+        })))
+        .await;
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("\"server_group\":\"web-organization-a\""),
+            "{text}"
+        );
+        assert!(!text.contains("organization-b"), "{text}");
+
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
     async fn a_static_site_without_its_upload_still_waits() {
         let (router, path) = router("editor", true).await;
         let params = json!({

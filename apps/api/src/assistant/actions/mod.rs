@@ -13,6 +13,7 @@
 //! arguments through the real service call.
 
 mod apply;
+mod authorize;
 mod lifecycle;
 mod propose;
 mod types;

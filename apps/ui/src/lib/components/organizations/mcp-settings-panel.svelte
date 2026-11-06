@@ -9,6 +9,7 @@
 	import SoftSwitch from '#lib/components/custom/soft-switch.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import MonacoCodeBlock from '#lib/components/assistant/monaco-code-block.svelte';
+	import McpIcon from '#lib/components/icons/mcp-icon.svelte';
 	import { API_URL } from '#lib/clients/base-client.js';
 	import { updateOrganization, type OrganizationDto } from '#lib/clients/organization-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -70,7 +71,10 @@
 	<div
 		class="lp-raised bg-card flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
 		<div class="max-w-[70ch]">
-			<Label for="mcp-enabled">{t('organizations.mcp.title')}</Label>
+			<div class="flex items-center gap-2">
+				<McpIcon class="size-5 shrink-0" />
+				<Label for="mcp-enabled">{t('organizations.mcp.title')}</Label>
+			</div>
 			<p class="text-muted-foreground mt-1 text-sm">{t('organizations.mcp.description')}</p>
 		</div>
 		<SoftSwitch
@@ -108,7 +112,9 @@
 			</div>
 			<p class="text-muted-foreground text-sm">{t('organizations.mcp.chatgpt_hint')}</p>
 			<div class="mt-2">
-				<p class="text-sm font-medium text-muted-foreground">{t('organizations.mcp.without_oauth')}</p>
+				<p class="text-sm font-medium text-muted-foreground">
+					{t('organizations.mcp.without_oauth')}
+				</p>
 			</div>
 			<div class="min-w-0">
 				<p class="text-sm font-medium">{t('organizations.mcp.desktop')}</p>

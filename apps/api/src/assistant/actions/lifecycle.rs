@@ -315,6 +315,31 @@ pub async fn confirm(
         .await;
         return Err(AppError::ValidationError(message.into()));
     }
+    // The action checks its own permissions, as the person applying it, on the
+    // project or environment it touches: no route in front of it is trusted.
+    let refused = match super::authorize::missing_permission(state, actor, &stored).await {
+        Ok(None) => None,
+        Ok(Some(permission)) => Some((
+            format!(
+                "You do not have `{}` here, so this change was not made",
+                permission.as_str()
+            ),
+            AppError::InsufficientPermissions,
+        )),
+        Err(error) => Some((error.to_string(), error)),
+    };
+    if let Some((message, error)) = refused {
+        settle(state, actor, action_id, "failed", Some(&message)).await?;
+        audit(
+            state,
+            actor,
+            &stored.audited(),
+            "assistant.action_failed",
+            Some(&message),
+        )
+        .await;
+        return Err(error);
+    }
     // Each write tool applies itself; everything around it - the gate, the
     // audit line, the note back to the model - is the same either way.
     let applied = match stored.tool.as_str() {

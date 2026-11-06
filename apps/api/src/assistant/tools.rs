@@ -147,7 +147,9 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
     ),
     (
         "servers",
-        "`servers` (the ready servers a new application can be placed on)",
+        "`servers` (the ready servers a new application can be placed on, with each one's address, OS and \
+        whether it is `local`, the host Litepod itself runs on, and the `default` one a new application goes to; plus the server groups and their members. \
+        `applications` says where each one runs: one `server`, or a `server_group` that fans out to all its servers)",
     ),
     (
         "git_providers",
@@ -259,8 +261,9 @@ const ACTION_HELP: &[(&str, &str)] = &[
     (
         "create_application",
         "`create_application` (needs `project` and `name`; pass the whole `compose` file and the \
-        container `port` it publishes to create a Compose application, and `environment` and \
-        `server` when the project has more than one of either; optionally an icon)",
+        container `port` it publishes to create a Compose application, and `environment` when the \
+        project has more than one, and `server` only to override the default, or `server_group` to run it on every server of a group; \
+        optionally an icon)",
     ),
     (
         "update_project",
@@ -494,7 +497,8 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
                         "auto_deploy": { "type": "boolean", "description": "Redeploy on every push to the branch." },
                         "watch_paths": { "type": "string", "description": "Comma-separated path prefixes; a push only deploys if it touched one." },
                         "environment": { "type": "string", "description": "Environment name or id. Defaults to the project's production environment." },
-                        "server": { "type": "string", "description": "Server name or id from `get servers`. Defaults to the only ready one." },
+                        "server": { "type": "string", "description": "Server name or id from `get servers`. Optional: without it the application goes to the server `get servers` marks `default`." },
+                        "server_group": { "type": "string", "description": "Instead of `server`: a server group name or id from `get servers`, to run one replica on each of its servers. For `create_application`, `deploy_compose`, `deploy_static_site`, `deploy_zip` and `deploy_repository`, without `host`; templates go on one server." },
                         "domain": { "type": "string", "description": "A host, or a domain id from `get domains`." },
                         "template": { "type": "string", "description": "A template id from `get templates`." },
                         "values": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Variable values the user wrote, by name, for `create_from_template`." },
@@ -602,6 +606,8 @@ struct ApplicationEntry {
     /// How the application came to exist. The assistant needs it to know
     /// whether a compose file is the user's to change or a template's.
     origin: String,
+    /// One server, or a group that fans out to every member.
+    placement: serde_json::Value,
 }
 
 /// Plain words for `template_kind` / `catalog_template_id`, which mean nothing
@@ -644,6 +650,17 @@ async fn catalog(
                             app.template_kind.as_deref(),
                             app.catalog_template_id.as_deref(),
                         ),
+                        placement: match (&app.server, &app.server_group) {
+                            (_, Some(group)) => json!({
+                                "server_group": group.name,
+                                "servers": group.member_count,
+                            }),
+                            (Some(server), None) => json!({
+                                "server": server.name,
+                                "local": server.kind == "local",
+                            }),
+                            (None, None) => serde_json::Value::Null,
+                        },
                         id: app.id,
                         name: app.name,
                     },
@@ -1239,23 +1256,10 @@ async fn get(
             }))
         }
 
-        "servers" => {
-            match crate::servers::repository::list_ready_for_organization(state, organization_id)
-                .await
-            {
-                Ok(servers) => ToolOutcome::data(json!({
-                    "servers": servers
-                        .into_iter()
-                        .map(|server| json!({
-                            "id": server.id,
-                            "name": server.name,
-                            "kind": server.kind,
-                        }))
-                        .collect::<Vec<_>>()
-                })),
-                Err(error) => ToolOutcome::failure(error.to_string()),
-            }
-        }
+        "servers" => match servers_and_groups(state, organization_id).await {
+            Ok(found) => ToolOutcome::data(found),
+            Err(error) => ToolOutcome::failure(error.to_string()),
+        },
 
         "templates" => {
             templates(
@@ -1875,16 +1879,11 @@ async fn project_action(
         {
             return Some(ToolOutcome::miss(miss.message, miss.candidates));
         }
-        let server_id = match resolve_server(
-            state,
-            organization_id,
-            string_of(arguments, "server").as_deref(),
-        )
-        .await
-        {
-            Ok(server_id) => server_id,
-            Err(miss) => return Some(ToolOutcome::miss(miss.message, miss.candidates)),
-        };
+        let (server_id, server_group_id) =
+            match resolve_placement(state, organization_id, arguments).await {
+                Ok(placement) => placement,
+                Err(miss) => return Some(ToolOutcome::miss(miss.message, miss.candidates)),
+            };
 
         return Some(
             match actions::propose_create_application(
@@ -1896,6 +1895,7 @@ async fn project_action(
                     name: string_of(arguments, "name").unwrap_or_default(),
                     description: string_of(arguments, "description"),
                     server_id,
+                    server_group_id,
                     compose: string_of(arguments, "compose"),
                     port: arguments.get("port").and_then(|value| value.as_i64()),
                     icon_url: icon.value.clone(),
@@ -1986,7 +1986,7 @@ async fn project_or_new(
     state: &SharedState,
     organization_id: &str,
     arguments: &serde_json::Value,
-) -> Result<(ActionTarget, String, String), Box<ToolOutcome>> {
+) -> Result<(ActionTarget, String, String, Option<String>), Box<ToolOutcome>> {
     let Some(project) = string_of(arguments, "project") else {
         return Err(Box::new(ToolOutcome::failure(
             "`project` is required: an existing project or a new name",
@@ -2010,14 +2010,11 @@ async fn project_or_new(
         Err(miss) => return Err(Box::new(ToolOutcome::miss(miss.message, miss.candidates))),
     };
     target.project_name = project.clone();
-    let server_id = resolve_server(
-        state,
-        organization_id,
-        string_of(arguments, "server").as_deref(),
-    )
-    .await
-    .map_err(|miss| Box::new(ToolOutcome::miss(miss.message, miss.candidates)))?;
-    Ok((target, project, server_id))
+    let (server_id, server_group_id) =
+        resolve_placement(state, organization_id, arguments)
+            .await
+            .map_err(|miss| Box::new(ToolOutcome::miss(miss.message, miss.candidates)))?;
+    Ok((target, project, server_id, server_group_id))
 }
 
 async fn from_template(
@@ -2031,11 +2028,16 @@ async fn from_template(
     let Some(template) = string_of(arguments, "template") else {
         return ToolOutcome::failure("`template` is required; read `get templates`");
     };
-    let (target, project, server_id) = match project_or_new(state, organization_id, arguments).await
-    {
-        Ok(found) => found,
-        Err(outcome) => return *outcome,
-    };
+    if string_of(arguments, "server_group").is_some() {
+        return ToolOutcome::failure(
+            "A template goes on one `server`, not a `server_group`: pick one from `get servers`.",
+        );
+    }
+    let (target, project, server_id, _) =
+        match project_or_new(state, organization_id, arguments).await {
+            Ok(found) => found,
+            Err(outcome) => return *outcome,
+        };
     let values = arguments
         .get("values")
         .and_then(|values| values.as_object())
@@ -2096,11 +2098,11 @@ async fn compose_app(
     let Some(compose) = string_of(arguments, "compose") else {
         return ToolOutcome::failure("`compose` is required: the whole compose file");
     };
-    let (target, project, server_id) = match project_or_new(state, organization_id, arguments).await
-    {
-        Ok(found) => found,
-        Err(outcome) => return *outcome,
-    };
+    let (target, project, server_id, server_group_id) =
+        match project_or_new(state, organization_id, arguments).await {
+            Ok(found) => found,
+            Err(outcome) => return *outcome,
+        };
 
     match actions::propose_deploy_compose(
         state,
@@ -2111,6 +2113,7 @@ async fn compose_app(
             project_name: project,
             name: string_of(arguments, "name").unwrap_or_default(),
             server_id,
+            server_group_id,
             compose,
             env: string_of(arguments, "env").unwrap_or_default(),
             port: arguments.get("port").and_then(|value| value.as_i64()),
@@ -2269,11 +2272,11 @@ async fn static_site(
         Ok(inline) => inline,
         Err(error) => return ToolOutcome::failure(error.to_string()),
     };
-    let (target, project, server_id) = match project_or_new(state, organization_id, arguments).await
-    {
-        Ok(found) => found,
-        Err(outcome) => return *outcome,
-    };
+    let (target, project, server_id, server_group_id) =
+        match project_or_new(state, organization_id, arguments).await {
+            Ok(found) => found,
+            Err(outcome) => return *outcome,
+        };
 
     match actions::propose_static_site(
         state,
@@ -2284,6 +2287,7 @@ async fn static_site(
             project_name: project,
             name: string_of(arguments, "name").unwrap_or_default(),
             server_id,
+            server_group_id,
             host: string_of(arguments, "host"),
             https: arguments.get("https").and_then(|value| value.as_bool()),
             upload_token_hash: String::new(),
@@ -2346,11 +2350,11 @@ async fn source_app(
     } else {
         None
     };
-    let (target, project, server_id) = match project_or_new(state, organization_id, arguments).await
-    {
-        Ok(found) => found,
-        Err(outcome) => return *outcome,
-    };
+    let (target, project, server_id, server_group_id) =
+        match project_or_new(state, organization_id, arguments).await {
+            Ok(found) => found,
+            Err(outcome) => return *outcome,
+        };
 
     let tool = if zip {
         actions::DEPLOY_ZIP
@@ -2367,6 +2371,7 @@ async fn source_app(
             project_name: project,
             name: string_of(arguments, "name").unwrap_or_default(),
             server_id,
+            server_group_id,
             build_method: string_of(arguments, "build_method").unwrap_or_default(),
             project_path: string_of(arguments, "railpack_project_path"),
             dockerfile_path: string_of(arguments, "dockerfile_path"),
@@ -2516,9 +2521,105 @@ async fn fill_environment(
     }
 }
 
-/// The server a new application is placed on. With one ready server there is
-/// nothing to ask; with several, picking one for the user is picking where
-/// their workload runs.
+/// The ready servers with what an agent needs to choose one (address, OS,
+/// whether it is the control plane's own host), plus the server groups and
+/// their members. Cloud never lists `local`: it is not the tenant's host.
+async fn servers_and_groups(
+    state: &SharedState,
+    organization_id: &str,
+) -> Result<serde_json::Value, crate::dtos::response::AppError> {
+    let ready =
+        crate::servers::repository::list_ready_for_organization(state, organization_id).await?;
+    let default_id = default_server(&ready).map(|server| server.id.as_str());
+    let servers: Vec<_> = ready
+        .iter()
+        .map(|server| {
+            let (os, distribution, address) = crate::dtos::server::replica_marks(server);
+            json!({
+                "id": server.id,
+                "name": server.name,
+                "local": server.kind == "local",
+                "default": Some(server.id.as_str()) == default_id,
+                "address": address,
+                "os": os,
+                "distribution": distribution,
+            })
+        })
+        .collect();
+    let mut groups = Vec::new();
+    for group in crate::servers::groups::list(state, organization_id).await? {
+        let members = crate::servers::groups::list_members(state, &group.id).await?;
+        groups.push(json!({
+            "id": group.id,
+            "name": group.name,
+            "description": group.description,
+            "servers": members.iter().map(|server| server.name.as_str()).collect::<Vec<_>>(),
+        }));
+    }
+    Ok(json!({ "servers": servers, "server_groups": groups }))
+}
+
+/// Where a new application runs: `(server_id, None)`, or `("", Some(group_id))`
+/// for a `server_group` of this organization, which fans out to every member.
+/// Only this organization's groups are looked at, and `create_application`
+/// checks ownership again when it applies. A group's domains are pinned per
+/// server, so a group placement takes no `host`.
+async fn resolve_placement(
+    state: &SharedState,
+    organization_id: &str,
+    arguments: &serde_json::Value,
+) -> Result<(String, Option<String>), Miss> {
+    let named = |key: &str| string_of(arguments, key).filter(|value| !value.trim().is_empty());
+    let Some(wanted) = named("server_group") else {
+        let server_id = resolve_server(state, organization_id, named("server").as_deref()).await?;
+        return Ok((server_id, None));
+    };
+    let refuse = |message: &str| Miss {
+        message: message.into(),
+        candidates: Vec::new(),
+    };
+    if named("server").is_some() {
+        return Err(refuse("Pass `server` or `server_group`, not both."));
+    }
+    if named("host").is_some() {
+        return Err(refuse(
+            "A server group application takes no `host` here: its domains are pinned to one server \
+             each, which the user adds in Litepod after it deploys.",
+        ));
+    }
+    let failed = |error: crate::dtos::response::AppError| refuse(&error.to_string());
+    let groups = crate::servers::groups::list(state, organization_id)
+        .await
+        .map_err(failed)?;
+    let wanted = wanted.trim();
+    let Some(group) = groups
+        .iter()
+        .find(|group| group.name.eq_ignore_ascii_case(wanted) || group.id == wanted)
+    else {
+        return Err(Miss {
+            message: format!("No server group called `{wanted}` in this organization."),
+            candidates: groups
+                .iter()
+                .map(|group| group.name.clone())
+                .take(MAX_CANDIDATES)
+                .collect(),
+        });
+    };
+    if crate::servers::groups::count_members(state, &group.id)
+        .await
+        .map_err(failed)?
+        == 0
+    {
+        return Err(refuse(&format!(
+            "The server group `{}` has no servers yet.",
+            group.name
+        )));
+    }
+    Ok((String::new(), Some(group.id.clone())))
+}
+
+/// The server a new application is placed on: the one named, else
+/// `default_server`, never a question.
 async fn resolve_server(
     state: &SharedState,
     organization_id: &str,
@@ -2548,16 +2649,25 @@ async fn resolve_server(
                 message: format!("No ready server called `{wanted}`."),
                 candidates: names(),
             }),
-        None if servers.len() == 1 => Ok(servers[0].id.clone()),
-        None if servers.is_empty() => Err(Miss {
-            message: "This organization has no ready server to place an application on.".into(),
-            candidates: Vec::new(),
-        }),
-        None => Err(Miss {
-            message: "Which server should it run on?".into(),
-            candidates: names(),
-        }),
+        None => default_server(&servers)
+            .map(|server| server.id.clone())
+            .ok_or_else(|| Miss {
+                message: "This organization has no ready server to place an application on.".into(),
+                candidates: Vec::new(),
+            }),
     }
+}
+
+/// Where a new application goes when nobody names a server, the same pick the
+/// UI's form preselects: the control plane's own host (`local`, self-hosted
+/// only), else the first ready server by name.
+fn default_server(
+    servers: &[crate::servers::repository::ServerRecord],
+) -> Option<&crate::servers::repository::ServerRecord> {
+    servers
+        .iter()
+        .find(|server| server.kind == "local")
+        .or(servers.first())
 }
 
 /// Each project's environments, so "which environments does `test` have" is
@@ -2697,6 +2807,7 @@ async fn applications_in(
                 "status": status,
                 "error": error,
                 "origin": app.origin,
+                "placement": app.placement,
             })
         })
         .collect();
@@ -3495,6 +3606,85 @@ mod tests {
             "a secret marker is not a value"
         );
         assert!(variables[2]["hint"].is_null());
+    }
+
+    #[tokio::test]
+    async fn a_new_application_goes_to_the_default_server_unless_named() {
+        for is_cloud in [false, true] {
+            let (state, path) = crate::testing::test_state_for(is_cloud).await;
+            crate::servers::repository::ensure_local(&state)
+                .await
+                .unwrap();
+            for id in ["edge-a", "edge-b"] {
+                sqlx::query(
+                    "INSERT INTO servers (id, kind, name, organization_id, ingress_mode, state, ssh_host, ssh_port, ssh_user, created_at, updated_at) VALUES (?1, 'ssh', ?1, 'organization-a', 'public_edge', 'ready', '198.51.100.1', 22, 'litepod', 1, 1)",
+                )
+                .bind(id)
+                .execute(&state.db)
+                .await
+                .unwrap();
+            }
+
+            // Never a question: local on self-hosted, the first remote on cloud.
+            let chosen = resolve_server(&state, "organization-a", None).await;
+            let expected = if is_cloud { "edge-a" } else { "local" };
+            assert_eq!(chosen.ok().as_deref(), Some(expected));
+            let named = resolve_server(&state, "organization-a", Some("EDGE-B")).await;
+            assert_eq!(named.ok().as_deref(), Some("edge-b"));
+
+            let listed = servers_and_groups(&state, "organization-a").await.unwrap();
+            let names: Vec<&str> = listed["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|server| server["name"].as_str().unwrap())
+                .collect();
+            assert_eq!(names.contains(&"Local server"), !is_cloud, "{listed}");
+            assert_eq!(listed["servers"][0]["default"], true, "{listed}");
+            assert_eq!(listed["servers"][1]["default"], false, "{listed}");
+            assert_eq!(
+                listed["servers"][0]["address"],
+                if is_cloud {
+                    json!("198.51.100.1")
+                } else {
+                    json!(null)
+                }
+            );
+
+            crate::testing::cleanup_database(&path);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_group_placement_is_refused_when_it_cannot_work() {
+        let (state, path) = crate::testing::test_state().await;
+        sqlx::query(
+            "INSERT INTO server_groups (id, organization_id, name, description, created_at, updated_at) VALUES ('empty', 'organization-a', 'empty', '', 1, 1)",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        for (arguments, says) in [
+            (
+                json!({ "server_group": "empty", "server": "x" }),
+                "not both",
+            ),
+            (
+                json!({ "server_group": "empty", "host": "a.example.com" }),
+                "no `host`",
+            ),
+            (json!({ "server_group": "empty" }), "no servers yet"),
+            (json!({ "server_group": "missing" }), "No server group"),
+        ] {
+            let refused = resolve_placement(&state, "organization-a", &arguments).await;
+            let Err(miss) = refused else {
+                panic!("{arguments} was placed")
+            };
+            assert!(miss.message.contains(says), "{arguments}: {}", miss.message);
+        }
+
+        crate::testing::cleanup_database(&path);
     }
 
     #[test]

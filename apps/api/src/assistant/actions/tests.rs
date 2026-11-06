@@ -2320,3 +2320,107 @@ async fn an_icon_url_is_downloaded_and_kept() {
     cleanup_database(&path);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// No route runs here: `confirm` is called directly, so whatever it refuses,
+/// the action refused on its own.
+#[tokio::test]
+async fn an_action_checks_its_own_permissions_as_the_person_applying_it() {
+    let (state, path) = test_state().await;
+    let target = target(&state, "organization-a").await;
+    let chat = conversation(&state, "organization-a").await;
+    sqlx::query(
+        "INSERT INTO projects (id, organization_id, name, created_at, updated_at) VALUES ('other', 'organization-a', 'other', 0, 0)",
+    )
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let try_as = |actor: crate::security::middleware::auth::AuthUser| {
+        let (state, chat, target) = (state.clone(), chat.clone(), target.clone());
+        async move {
+            let action =
+                propose_environment_variable(&state, &chat, &actor, &target, arguments("K", "v"))
+                    .await
+                    .unwrap();
+            let result = confirm(&state, "organization-a", &actor, &action.id).await;
+            let written = deployment::environment(&state, &target.application_id, "runtime", false)
+                .await
+                .unwrap();
+            deployment::save_environment(&state, &target.application_id, "runtime", "")
+                .await
+                .unwrap();
+            (result.is_ok(), !written.is_empty())
+        }
+    };
+
+    // A viewer of the whole organization.
+    assert_eq!(try_as(auth_user("viewer")).await, (false, false));
+
+    // A member who is Editor of another project only, then of this one too.
+    crate::testing::set_base_role(&state, "organization-a", "viewer", 4).await;
+    crate::testing::assign(&state, "organization-a", "viewer", 2, "project", "other").await;
+    assert_eq!(try_as(auth_user("viewer")).await, (false, false));
+    crate::testing::assign(
+        &state,
+        "organization-a",
+        "viewer",
+        2,
+        "project",
+        &target.project_id,
+    )
+    .await;
+    assert_eq!(try_as(auth_user("viewer")).await, (true, true));
+
+    // An Editor whose token only reads, was revoked, or is another organization's MCP token.
+    crate::git::repositories::personal_access_token::create(
+        &state,
+        "read-only",
+        "editor",
+        "ci",
+        "lp_read",
+        "lp_r",
+        r#"["app.read"]"#,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    crate::git::repositories::personal_access_token::create(
+        &state,
+        "revoked",
+        "editor",
+        "old",
+        "lp_old",
+        "lp_o",
+        r#"["write"]"#,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    crate::git::repositories::personal_access_token::revoke(&state, "revoked")
+        .await
+        .unwrap();
+    crate::git::repositories::personal_access_token::create(
+        &state,
+        "pinned-b",
+        "editor",
+        "mcp",
+        "lp_mcp",
+        "lp_m",
+        r#"["write"]"#,
+        None,
+        Some("organization-b"),
+    )
+    .await
+    .unwrap();
+    for token in ["read-only", "revoked", "pinned-b"] {
+        let mut actor = auth_user("editor");
+        actor.token_id = Some(token.into());
+        assert_eq!(try_as(actor).await, (false, false), "{token}");
+    }
+
+    // The same Editor in a browser session.
+    assert_eq!(try_as(auth_user("editor")).await, (true, true));
+
+    cleanup_database(&path);
+}
