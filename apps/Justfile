@@ -260,14 +260,20 @@ podx-lint *ARGS:
     esac
     echo "ok: ${DOCKERHUB_USER}/${DOCKERHUB_REPO} @ ${VERSION} (${channel}) for ${BUILD_ARCH:-amd64}"
 
-# Make sure a release bump runs against the latest origin/main before it
-# rewrites any version file. On main it fetches and fast-forwards; when that
-# is not possible (dirty tree, diverged history, no network) it stops and
-# asks for a manual `git pull` on main instead of bumping a stale tree.
-# Off main it only prints a note: the bump lands through a PR to main.
+# Stop a release bump before it rewrites any version file, so the bump commit
+# never picks up unrelated pending work. Pending tracked changes or a branch
+# behind origin/main make it exit and tell you to pull (or commit/stash) first.
+# Off main it skips the origin/main check: the bump lands through a PR to main.
 _ensure-up-to-date:
     #!/usr/bin/env bash
     set -euo pipefail
+    if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+        echo >&2
+        echo "you have pending changes. Commit or stash them, then pull and retry:" >&2
+        echo "  git status" >&2
+        echo "  git pull --ff-only" >&2
+        exit 1
+    fi
     branch="$(git rev-parse --abbrev-ref HEAD)"
     if [[ "${branch}" != main ]]; then
         echo "note: bumping on ${branch}; the bump reaches main through a PR"
@@ -284,16 +290,10 @@ _ensure-up-to-date:
         echo "main is up to date with origin/main"
         exit 0
     fi
-    echo "main is ${behind} commit(s) behind origin/main; fast-forwarding"
-    if ! git pull --ff-only origin main; then
-        echo >&2
-        echo "could not fast-forward main automatically. Fix it and retry:" >&2
-        echo "  git status   # commit or stash local changes" >&2
-        echo "  git pull --ff-only origin main" >&2
-        echo "  # diverged history: git rebase origin/main" >&2
-        exit 1
-    fi
-    echo "main is now at $(git rev-parse --short HEAD)"
+    echo >&2
+    echo "main is ${behind} commit(s) behind origin/main. Pull first, then retry:" >&2
+    echo "  git pull --ff-only origin main" >&2
+    exit 1
 
 # Bump stable image tags everywhere Litepod ships them.
 #   just bump litepod v0.1.72
