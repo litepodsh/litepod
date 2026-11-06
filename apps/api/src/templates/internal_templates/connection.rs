@@ -1,6 +1,6 @@
 use crate::{dtos::response::AppError, state::state::SharedState};
 
-use super::{dragonflydb, keydb, mariadb, mongodb, postgres, sqlserver};
+use super::{clickhouse, dragonflydb, keydb, mariadb, mongodb, postgres, sqlserver};
 
 /// The in-network connection string of an internal database resource, whatever
 /// its kind. It carries the generated password, so it is for server-side use
@@ -49,6 +49,11 @@ pub async fn private_connection_string(
         }
         "sqlserver" => {
             sqlserver::resource_detail(args.0, args.1, args.2, args.3, args.4, args.5)
+                .await?
+                .private_connection_string
+        }
+        "clickhouse" => {
+            clickhouse::resource_detail(args.0, args.1, args.2, args.3, args.4, args.5)
                 .await?
                 .private_connection_string
         }

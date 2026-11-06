@@ -28,13 +28,14 @@ use crate::{
 
 /// `template_kind` values that own a resource network. These are the internal
 /// database templates in `crate::templates::internal_templates`.
-pub const RESOURCE_TEMPLATE_KINDS: [&str; 6] = [
+pub const RESOURCE_TEMPLATE_KINDS: [&str; 7] = [
     "postgres",
     "mariadb",
     "keydb",
     "dragonflydb",
     "sqlserver",
     "mongodb",
+    "clickhouse",
 ];
 
 /// The physical Podman network a database resource owns.

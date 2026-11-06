@@ -86,6 +86,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
 	'keydb.created': 'Created a KeyDB database',
 	'mongodb.created': 'Created a MongoDB database',
 	'mongodb.password_rotated': 'Rotated a MongoDB root password',
+	'clickhouse.created': 'Created a ClickHouse database',
+	'clickhouse.password_rotated': 'Rotated a ClickHouse password',
 	'network.attached': 'Attached a resource to a network',
 	'network.detached': 'Detached a resource from a network',
 	'github_app.manifest_started': 'Started GitHub App setup',

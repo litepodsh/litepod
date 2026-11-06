@@ -5,6 +5,7 @@
 	import KeyDbIcon from '#lib/components/icons/keydb-icon.svelte';
 	import SqlServerIcon from '#lib/components/icons/sqlserver-icon.svelte';
 	import MongoDbIcon from '#lib/components/icons/mongodb-icon.svelte';
+	import ClickHouseIcon from '#lib/components/icons/clickhouse-icon.svelte';
 	import BoxesIcon from '@lucide/svelte/icons/boxes';
 	import { displayApplicationIconUrl } from '#lib/utils/application-card-icon.js';
 	import { isNamedIcon } from '#lib/utils/organization-icons.js';
@@ -56,6 +57,8 @@
 	<SqlServerIcon class={iconClass} />
 {:else if templateKind === 'mongodb'}
 	<MongoDbIcon class={iconClass} />
+{:else if templateKind === 'clickhouse'}
+	<ClickHouseIcon class={iconClass} />
 {:else}
 	<BoxesIcon class={iconClass} />
 {/if}

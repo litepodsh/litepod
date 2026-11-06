@@ -833,6 +833,23 @@ pub fn create_router(state: SharedState) -> Router {
             post(templates::rotate_sqlserver_password_handler),
         )
         .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/templates/clickhouse/preview",
+            post(templates::preview_clickhouse_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/templates/clickhouse",
+            post(templates::create_clickhouse_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/templates/clickhouse/resource",
+            get(templates::get_clickhouse_resource_handler)
+                .patch(templates::update_clickhouse_resource_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/templates/clickhouse/resource/rotate-password",
+            post(templates::rotate_clickhouse_password_handler),
+        )
+        .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}",
             get(projects::get_application_handler)
                 .patch(projects::update_application_handler)

@@ -844,6 +844,73 @@ export type SqlServerTemplateConfigUpdate = {
 
 export type SqlServerPasswordRotationRequest = { password?: string };
 
+export type ClickHouseTemplateInput = {
+	application_name: string;
+	description?: string;
+	server_id: string;
+	docker_image?: string;
+	database_name?: string;
+	database_user?: string;
+	password?: string;
+	volume_name?: string;
+	public_host_port?: number | null;
+	runtime_cpu_cores?: number | null;
+	runtime_memory_mib?: number | null;
+	template_instance_id?: string;
+};
+
+export type ClickHouseTemplatePreview = {
+	template_instance_id: string;
+	resolved_password: string;
+	database_name: string;
+	database_user: string;
+	docker_image: string;
+	private_alias: string;
+	private_connection_string: string;
+	public_connection_string: string | null;
+	compose: string;
+	port_mappings: PortMapping[];
+	variables: TemplateVariableDto[];
+	volumes: TemplateVolumeDto[];
+};
+
+export type ClickHouseTemplateCreated = {
+	application: ApplicationDto;
+	preview: ClickHouseTemplatePreview;
+};
+
+export type ClickHouseResourceDetail = {
+	application: ApplicationDto;
+	docker_image: string;
+	database_name: string;
+	database_user: string;
+	volume: TemplateVolumeDto;
+	private_alias: string;
+	internal_port: number;
+	public_host_port: number | null;
+	deployment_status: DeploymentDto['status'];
+	config_stale: boolean;
+	password: string | null;
+	private_connection_string: string | null;
+	public_connection_string: string | null;
+	compose: string;
+	variables: TemplateVariableDto[];
+	runtime_cpu_cores: number | null;
+	runtime_memory_mib: number | null;
+};
+
+export type ClickHouseTemplateConfigUpdate = {
+	docker_image: string;
+	public_host_port: number | null;
+	runtime_cpu_cores: number | null;
+	runtime_memory_mib: number | null;
+	database_name?: string;
+	database_user?: string;
+	password?: string;
+};
+
+export type ClickHousePasswordRotationRequest = { password?: string };
+
 export type MongoDbTemplateInput = {
 	application_name: string;
 	description?: string;
@@ -1152,7 +1219,7 @@ function templateResourcePath(
 	projectId: string,
 	environmentId: string,
 	applicationId: string,
-	kind: 'mariadb' | 'dragonflydb' | 'keydb' | 'sqlserver' | 'mongodb',
+	kind: 'mariadb' | 'dragonflydb' | 'keydb' | 'sqlserver' | 'mongodb' | 'clickhouse',
 	suffix = '',
 ): string {
 	const base = `${applicationPath(organizationId, projectId, environmentId, applicationId)}/templates/${kind}/resource`;
@@ -1444,6 +1511,79 @@ export async function rotateSqlServerPassword(
 			environmentId,
 			applicationId,
 			'sqlserver',
+			'rotate-password',
+		),
+		{ method: 'POST', body: JSON.stringify(input) },
+	);
+	return response.data!;
+}
+
+export async function previewClickHouseTemplate(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	input: ClickHouseTemplateInput,
+): Promise<ClickHouseTemplatePreview> {
+	const response = await api<ClickHouseTemplatePreview>(
+		templatePath(organizationId, projectId, environmentId, 'clickhouse/preview'),
+		{ method: 'POST', body: JSON.stringify(input) },
+	);
+	return response.data!;
+}
+
+export async function createClickHouseTemplate(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	input: ClickHouseTemplateInput,
+): Promise<ClickHouseTemplateCreated> {
+	const response = await api<ClickHouseTemplateCreated>(
+		templatePath(organizationId, projectId, environmentId, 'clickhouse'),
+		{ method: 'POST', body: JSON.stringify(input) },
+	);
+	return response.data!;
+}
+
+export async function getClickHouseResource(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): Promise<ClickHouseResourceDetail> {
+	const response = await api<ClickHouseResourceDetail>(
+		templateResourcePath(organizationId, projectId, environmentId, applicationId, 'clickhouse'),
+	);
+	return response.data!;
+}
+
+export async function updateClickHouseResource(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	input: ClickHouseTemplateConfigUpdate,
+): Promise<ClickHouseResourceDetail> {
+	const response = await api<ClickHouseResourceDetail>(
+		templateResourcePath(organizationId, projectId, environmentId, applicationId, 'clickhouse'),
+		{ method: 'PATCH', body: JSON.stringify(input) },
+	);
+	return response.data!;
+}
+
+export async function rotateClickHousePassword(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	input: ClickHousePasswordRotationRequest,
+): Promise<ClickHouseResourceDetail> {
+	const response = await api<ClickHouseResourceDetail>(
+		templateResourcePath(
+			organizationId,
+			projectId,
+			environmentId,
+			applicationId,
+			'clickhouse',
 			'rotate-password',
 		),
 		{ method: 'POST', body: JSON.stringify(input) },

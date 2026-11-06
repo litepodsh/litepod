@@ -1,3 +1,4 @@
+pub mod clickhouse;
 pub mod connection;
 pub mod dragonflydb;
 pub mod helpers;

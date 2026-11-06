@@ -500,6 +500,82 @@ pub struct SqlServerPasswordRotationRequest {
     pub password: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ClickHouseTemplateInput {
+    pub application_name: String,
+    pub description: Option<String>,
+    pub server_id: String,
+    pub docker_image: Option<String>,
+    pub database_name: Option<String>,
+    pub database_user: Option<String>,
+    pub password: Option<String>,
+    pub volume_name: Option<String>,
+    pub public_host_port: Option<u16>,
+    pub runtime_cpu_cores: Option<f64>,
+    pub runtime_memory_mib: Option<i64>,
+    pub template_instance_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ClickHouseTemplatePreviewDto {
+    pub template_instance_id: String,
+    pub resolved_password: String,
+    pub database_name: String,
+    pub database_user: String,
+    pub docker_image: String,
+    pub private_alias: String,
+    pub private_connection_string: String,
+    pub public_connection_string: Option<String>,
+    pub compose: String,
+    pub port_mappings: Vec<PortMapping>,
+    pub variables: Vec<TemplateVariableDto>,
+    pub volumes: Vec<TemplateVolumeDto>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ClickHouseTemplateCreatedDto {
+    pub application: ApplicationDto,
+    pub preview: ClickHouseTemplatePreviewDto,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ClickHouseResourceDetailDto {
+    pub application: ApplicationDto,
+    pub docker_image: String,
+    pub database_name: String,
+    pub database_user: String,
+    pub volume: TemplateVolumeDto,
+    pub private_alias: String,
+    pub internal_port: u16,
+    pub public_host_port: Option<u16>,
+    pub deployment_status: String,
+    /// Saved configuration no longer matches the running containers.
+    pub config_stale: bool,
+    pub password: Option<String>,
+    pub private_connection_string: Option<String>,
+    pub public_connection_string: Option<String>,
+    pub compose: String,
+    pub variables: Vec<TemplateVariableDto>,
+    pub runtime_cpu_cores: Option<f64>,
+    pub runtime_memory_mib: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ClickHouseTemplateConfigUpdate {
+    pub docker_image: String,
+    pub public_host_port: Option<u16>,
+    pub runtime_cpu_cores: Option<f64>,
+    pub runtime_memory_mib: Option<i64>,
+    pub database_name: Option<String>,
+    pub database_user: Option<String>,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ClickHousePasswordRotationRequest {
+    pub password: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{DragonflyDbTemplateConfigUpdate, KeyDbTemplateConfigUpdate};

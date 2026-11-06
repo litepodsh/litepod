@@ -11,18 +11,22 @@ use crate::{
     dtos::{
         response::{AppError, created, ok},
         template::{
-            DragonflyDbPasswordRotationRequest, DragonflyDbTemplateConfigUpdate,
-            DragonflyDbTemplateInput, KeyDbPasswordRotationRequest, KeyDbTemplateConfigUpdate,
-            KeyDbTemplateInput, MariaDbPasswordRotationRequest, MariaDbTemplateConfigUpdate,
-            MariaDbTemplateInput, MongoDbPasswordRotationRequest, MongoDbTemplateConfigUpdate,
-            MongoDbTemplateInput, PostgresPasswordRotationRequest, PostgresTemplateConfigUpdate,
-            PostgresTemplateInput, SqlServerPasswordRotationRequest, SqlServerTemplateConfigUpdate,
+            ClickHousePasswordRotationRequest, ClickHouseTemplateConfigUpdate,
+            ClickHouseTemplateInput, DragonflyDbPasswordRotationRequest,
+            DragonflyDbTemplateConfigUpdate, DragonflyDbTemplateInput,
+            KeyDbPasswordRotationRequest, KeyDbTemplateConfigUpdate, KeyDbTemplateInput,
+            MariaDbPasswordRotationRequest, MariaDbTemplateConfigUpdate, MariaDbTemplateInput,
+            MongoDbPasswordRotationRequest, MongoDbTemplateConfigUpdate, MongoDbTemplateInput,
+            PostgresPasswordRotationRequest, PostgresTemplateConfigUpdate, PostgresTemplateInput,
+            SqlServerPasswordRotationRequest, SqlServerTemplateConfigUpdate,
             SqlServerTemplateInput,
         },
     },
     git::repositories::project,
     state::state::SharedState,
-    templates::internal_templates::{dragonflydb, keydb, mariadb, mongodb, postgres, sqlserver},
+    templates::internal_templates::{
+        clickhouse, dragonflydb, keydb, mariadb, mongodb, postgres, sqlserver,
+    },
 };
 
 type TemplatePath = (String, String, String);
@@ -897,6 +901,157 @@ pub async fn rotate_sqlserver_password_handler(
         input,
     )
     .await?))
+}
+
+pub async fn preview_clickhouse_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::AppCreate>,
+    // The extractor covers `organization_id`.
+    Path((_, project_id, environment_id)): Path<TemplatePath>,
+    Json(mut input): Json<ClickHouseTemplateInput>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    let (project_name, environment_name) =
+        context(&state, &organization_id, &project_id, &environment_id).await?;
+    let instance_id = input
+        .template_instance_id
+        .clone()
+        .unwrap_or_else(|| Uuid::now_v7().to_string());
+    let runtime_name = deployment::deployment_identity(
+        &project_name,
+        &environment_name,
+        &input.application_name,
+        &instance_id,
+        &state.public_ip,
+    )
+    .0;
+    input.template_instance_id = Some(instance_id);
+    let used_ports = ComposeFileStore::list_host_ports(&state)
+        .await
+        .map_err(AppError::InternalError)?;
+    let reserved_ports = state
+        .reserved_ports
+        .iter()
+        .filter_map(|port| u16::try_from(*port).ok())
+        .collect();
+    Ok(ok(clickhouse::preview(
+        input,
+        &format!("{runtime_name}-clickhouse"),
+        &public_host(&state),
+        &reserved_ports,
+        &used_ports,
+    )?))
+}
+
+pub async fn create_clickhouse_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::AppCreate>,
+    // The extractor covers `organization_id`.
+    Path((_, project_id, environment_id)): Path<TemplatePath>,
+    Json(input): Json<ClickHouseTemplateInput>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    let (project_name, environment_name) =
+        context(&state, &organization_id, &project_id, &environment_id).await?;
+    let dto = clickhouse::create(
+        &state,
+        &organization_id,
+        &project_id,
+        &environment_id,
+        &project_name,
+        &environment_name,
+        &public_host(&state),
+        input,
+    )
+    .await?;
+    let _ = crate::git::repositories::audit_log::record(
+        &state,
+        &organization_id,
+        &org.user,
+        "clickhouse.created",
+        Some("application"),
+        Some(&dto.application.id),
+        Some(&dto.application.name),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    Ok(created(dto))
+}
+
+pub async fn get_clickhouse_resource_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::AppRead>,
+    // The extractor covers `organization_id`.
+    Path((_, project_id, environment_id, application_id)): Path<TemplateResourcePath>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    Ok(ok(clickhouse::resource_detail(
+        &state,
+        &organization_id,
+        &project_id,
+        &environment_id,
+        &application_id,
+        &public_host(&state),
+    )
+    .await?))
+}
+
+pub async fn update_clickhouse_resource_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::AppUpdate>,
+    // The extractor covers `organization_id`.
+    Path((_, project_id, environment_id, application_id)): Path<TemplateResourcePath>,
+    Json(input): Json<ClickHouseTemplateConfigUpdate>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    Ok(ok(clickhouse::update_resource(
+        &state,
+        &organization_id,
+        &project_id,
+        &environment_id,
+        &application_id,
+        &public_host(&state),
+        input,
+    )
+    .await?))
+}
+
+pub async fn rotate_clickhouse_password_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::AppEnvUpdate>,
+    // The extractor covers `organization_id`.
+    Path((_, project_id, environment_id, application_id)): Path<TemplateResourcePath>,
+    Json(input): Json<ClickHousePasswordRotationRequest>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    let result = clickhouse::rotate_password(
+        &state,
+        &organization_id,
+        &project_id,
+        &environment_id,
+        &application_id,
+        &public_host(&state),
+        input.password,
+    )
+    .await?;
+    let _ = crate::git::repositories::audit_log::record(
+        &state,
+        &organization_id,
+        &org.user,
+        "clickhouse.password_rotated",
+        Some("application"),
+        Some(&application_id),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    Ok(ok(result))
 }
 
 #[cfg(test)]
