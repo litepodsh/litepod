@@ -775,8 +775,8 @@ pub(super) async fn apply_restart(
 }
 
 /// Same service call the application's Maintenance card uses, so the route is
-/// rebuilt, a failed route restores the old state, and an application on a
-/// public-edge server is refused with the same message.
+/// rebuilt, a failed route restores the old state, and a public-edge server
+/// gets the same inline page.
 pub(super) async fn apply_maintenance(
     state: &SharedState,
     stored: &StoredAction,

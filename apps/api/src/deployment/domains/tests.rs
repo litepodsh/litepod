@@ -2063,7 +2063,7 @@ async fn maintenance_follows_the_domain_not_the_application_next_door() {
 }
 
 #[tokio::test]
-async fn maintenance_is_refused_for_a_public_edge_application_until_it_is_supported() {
+async fn an_uploaded_maintenance_site_is_refused_for_a_public_edge_application() {
     use crate::deployment::maintenance;
 
     let (state, path) = test_state(false).await;
@@ -2078,6 +2078,10 @@ async fn maintenance_is_refused_for_a_public_edge_application_until_it_is_suppor
         .await
         .unwrap();
     sqlx::query("INSERT INTO application_domains (id, application_id, host, port, https, is_primary, created_at, updated_at) VALUES ('domain-edge','application-edge','edge.example.com',80,1,1,1,1)")
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO application_maintenance (application_id, enabled, site_id, updated_at) VALUES ('application-edge',0,'site-1',1)")
         .execute(&state.db)
         .await
         .unwrap();
