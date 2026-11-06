@@ -8,6 +8,8 @@
 
 use std::time::Duration;
 
+use podman_api::Podman;
+
 use crate::state::state::SharedState;
 
 const DEFAULT_BASE_URL: &str = "https://status.litepod.sh";
@@ -73,20 +75,35 @@ pub(super) fn podman_mode(endpoint: &str) -> Option<&'static str> {
     }
 }
 
-/// Host distro family, written into `.env` by the installer. The API runs in a container,
-/// so its own `/etc/os-release` describes the image, not the machine. Only known families
-/// are sent; anything else is omitted.
-fn os_family(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "debian" => Some("debian"),
-        "fedora" => Some("fedora"),
-        "arch" => Some("arch"),
-        _ => None,
-    }
+/// Normalises an os-release distribution id (`ID=` or Podman's host distribution) into a
+/// short token like `ubuntu`, `fedora` or `arch`. Keeps it inert: ASCII, lowercase and no
+/// free text.
+fn os_token(value: &str) -> Option<String> {
+    let value = value.trim().to_ascii_lowercase();
+    let valid = (1..=32).contains(&value.len())
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    valid.then_some(value)
 }
 
-fn host_os_family() -> Option<&'static str> {
-    os_family(&std::env::var("LITEPOD_HOST_OS_FAMILY").ok()?)
+/// Host distribution. Podman knows the real machine even when the API runs in a container,
+/// so ask it first. If that fails, fall back to the local `/etc/os-release` and finally to
+/// the compiler's OS name, so a ping always carries something readable.
+async fn host_os(state: &SharedState) -> String {
+    if let Ok(podman) = Podman::new(&state.podman_socket)
+        && let Ok(info) = podman.info().await
+        && let Some(value) = info
+            .host
+            .and_then(|host| host.distribution)
+            .and_then(|distribution| distribution.distribution)
+        && let Some(token) = os_token(&value)
+    {
+        return token;
+    }
+    crate::handler::runtime::host_distribution()
+        .and_then(|value| os_token(&value))
+        .unwrap_or_else(|| std::env::consts::OS.to_string())
 }
 
 /// `toggle` is `Some("enabled" | "disabled")` when the sysadmin flips the setting, so the
@@ -105,9 +122,7 @@ async fn ping(state: &SharedState, toggle: Option<&str>) -> Result<(), Box<dyn s
     if let Some(mode) = podman_mode(&state.podman_socket) {
         body["podman_mode"] = mode.into();
     }
-    if let Some(family) = host_os_family() {
-        body["os_family"] = family.into();
-    }
+    body["os_family"] = host_os(state).await.into();
     if let Some(toggle) = toggle {
         body["telemetry"] = toggle.into();
     }
@@ -159,7 +174,7 @@ pub fn spawn(state: SharedState) {
 
 #[cfg(test)]
 mod tests {
-    use super::{os_family, podman_mode};
+    use super::{os_token, podman_mode};
 
     #[test]
     fn rootless_socket_reports_rootless() {
@@ -184,11 +199,11 @@ mod tests {
     }
 
     #[test]
-    fn os_family_accepts_only_known_families() {
-        assert_eq!(os_family("debian"), Some("debian"));
-        assert_eq!(os_family(" Fedora\n"), Some("fedora"));
-        assert_eq!(os_family("arch"), Some("arch"));
-        assert_eq!(os_family("ubuntu"), None);
-        assert_eq!(os_family(""), None);
+    fn os_token_normalises_safe_distribution_ids() {
+        assert_eq!(os_token(" Ubuntu\n").as_deref(), Some("ubuntu"));
+        assert_eq!(os_token("fedora").as_deref(), Some("fedora"));
+        assert_eq!(os_token("arch").as_deref(), Some("arch"));
+        assert_eq!(os_token("Ubuntu 24.04 LTS"), None);
+        assert_eq!(os_token(""), None);
     }
 }

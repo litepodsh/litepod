@@ -458,7 +458,7 @@ description = "Litepod sends an anonymous ping once a day so the project can cou
 instance_id = "Instance ID"
 env_locked = "Telemetry is turned off by the LITEPOD_TELEMETRY environment variable on this server."
 title = "Telemetry"
-what_is_sent = "Only a random instance ID, the Litepod version, whether Podman runs rootless or rootful, the CPU architecture and the host distro family are sent. No domains, emails, app names or IP addresses."
+what_is_sent = "Only anonymous, aggregated install data is sent. No domains, emails, app names or IP addresses."
 
 [telemetry.errors]
 save = "Could not save telemetry settings"
