@@ -127,7 +127,7 @@ pub(crate) async fn deliver(email: &str, subject: &str, html: String) -> Result<
         .post("https://api.resend.com/emails")
         .bearer_auth(key)
         .json(&serde_json::json!({
-            "from": "No Reply <noreply@litepod.sh>",
+            "from": "litepod <hello@litepod.sh>",
             "to": [email],
             "subject": subject,
             "html": html,
