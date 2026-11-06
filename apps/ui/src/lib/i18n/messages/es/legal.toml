@@ -65,6 +65,13 @@ use_data_2 = "Para enviarte correos relacionados con la cuenta y la facturación
 use_data_3 = "Para brindarte asistencia cuando la solicites."
 use_data_4 = "Para mantener el Servicio confiable y seguro, y mejorarlo."
 
+[self_hosted]
+acceptable_use_description = "Esta Política de uso aceptable describe las reglas de litepod Cloud, el servicio operado por Litepod Studio. Esta es una instancia autohospedada de litepod, por lo que Litepod Studio no la opera ni hace cumplir estas reglas. El operador de esta instancia es responsable de establecer y hacer cumplir sus propias reglas de uso aceptable. Sigues siendo responsable de cumplir la ley que te aplique a ti y a tus usuarios."
+privacy_description = "Esta Política de privacidad describe cómo Litepod Studio trata los datos personales en litepod Cloud. Esta es una instancia autohospedada de litepod, por lo que Litepod Studio no la opera y no recopila ni trata los datos personales que se guardan en ella. El operador de esta instancia es responsable de cómo recopila, usa y protege los datos personales, y de proporcionar el aviso de privacidad que exija la ley."
+refund_description = "Los reembolsos no se aplican a las instancias autohospedadas de litepod. Litepod Studio no cobra por ellas, así que no hay nada que Litepod Studio deba reembolsar. Cualquier relación de pago o facturación que tengas es con el operador de esta instancia o con tus propios proveedores de infraestructura, no con Litepod Studio."
+terms_description = "Estos Términos de servicio se aplican a litepod Cloud, el servicio operado por Litepod Studio. Esta es una instancia autohospedada de litepod, por lo que Litepod Studio no la opera y no es parte de tu uso de la misma. El operador de esta instancia es responsable de los términos y condiciones que se le apliquen a ella y a los servicios que preste. Nada en esta página crea un acuerdo entre tú y Litepod Studio."
+title = "Sobre esta instancia"
+
 [terms]
 acceptance = "1. Aceptación de los términos"
 acceptance_description = "Al crear una cuenta o usar litepod de cualquier otra forma (el \"Servicio\"), aceptas estos Términos de servicio. Si no estás de acuerdo, no uses el Servicio."
@@ -114,10 +121,3 @@ use = "7. Uso aceptable"
 use_description = "Debes cumplir nuestra Política de uso aceptable, que forma parte de estos términos. En resumen: nada de contenido ilegal, infractor o malicioso, nada de ataques a otras personas o al Servicio, y nada de evadir límites de uso o controles de seguridad. Podemos suspender o cerrar las cuentas que la incumplan."
 what_is = "2. Qué es litepod"
 what_is_description = "litepod es una plataforma para desplegar y gestionar aplicaciones en tu propia infraestructura o en una instancia alojada. Te permite conectar un repositorio Git u otra fuente, compilarlo y ejecutarlo como un despliegue basado en contenedores."
-
-[self_hosted]
-title = "Sobre esta instancia"
-terms_description = "Estos Términos de servicio se aplican a litepod Cloud, el servicio operado por Litepod Studio. Esta es una instancia autohospedada de litepod, por lo que Litepod Studio no la opera y no es parte de tu uso de la misma. El operador de esta instancia es responsable de los términos y condiciones que se le apliquen a ella y a los servicios que preste. Nada en esta página crea un acuerdo entre tú y Litepod Studio."
-privacy_description = "Esta Política de privacidad describe cómo Litepod Studio trata los datos personales en litepod Cloud. Esta es una instancia autohospedada de litepod, por lo que Litepod Studio no la opera y no recopila ni trata los datos personales que se guardan en ella. El operador de esta instancia es responsable de cómo recopila, usa y protege los datos personales, y de proporcionar el aviso de privacidad que exija la ley."
-refund_description = "Los reembolsos no se aplican a las instancias autohospedadas de litepod. Litepod Studio no cobra por ellas, así que no hay nada que Litepod Studio deba reembolsar. Cualquier relación de pago o facturación que tengas es con el operador de esta instancia o con tus propios proveedores de infraestructura, no con Litepod Studio."
-acceptable_use_description = "Esta Política de uso aceptable describe las reglas de litepod Cloud, el servicio operado por Litepod Studio. Esta es una instancia autohospedada de litepod, por lo que Litepod Studio no la opera ni hace cumplir estas reglas. El operador de esta instancia es responsable de establecer y hacer cumplir sus propias reglas de uso aceptable. Sigues siendo responsable de cumplir la ley que te aplique a ti y a tus usuarios."

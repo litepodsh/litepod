@@ -64,11 +64,11 @@ system = "System"
 workspace = "Workspace"
 
 [sidebar]
-collapse = "Collapse"
-expand = "Expand"
 all_projects = "All projects"
 appearance_options = "Sidebar appearance options"
+collapse = "Collapse"
 contents = "Sidebar contents"
+expand = "Expand"
 fix = "Fix sidebar"
 keep_floating = "Keep floating"
 move_left = "Move sidebar left"

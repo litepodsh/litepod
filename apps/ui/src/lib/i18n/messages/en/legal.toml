@@ -65,6 +65,13 @@ use_data_2 = "To send you account and billing-related emails."
 use_data_3 = "To provide support when you ask for it."
 use_data_4 = "To keep the Service reliable and secure, and to improve it."
 
+[self_hosted]
+acceptable_use_description = "This Acceptable Use Policy describes the rules for litepod Cloud, the service operated by Litepod Studio. This is a self-hosted litepod instance, so Litepod Studio does not operate it or enforce these rules. The operator of this instance is responsible for setting and enforcing its own acceptable-use rules. You remain responsible for complying with the law that applies to you and your users."
+privacy_description = "This Privacy Policy describes how Litepod Studio handles personal data for litepod Cloud. This is a self-hosted litepod instance, so Litepod Studio does not operate it and does not collect or process the personal data stored in it. The operator of this instance is responsible for how it collects, uses and protects personal data, and for providing any privacy notice the law requires."
+refund_description = "Refunds do not apply to self-hosted litepod instances. Litepod Studio does not charge for them, so there is nothing for Litepod Studio to refund. Any payment or billing relationship you have is with the operator of this instance or with your own infrastructure providers, not with Litepod Studio."
+terms_description = "These Terms of Service apply to litepod Cloud, the service operated by Litepod Studio. This is a self-hosted litepod instance, so Litepod Studio does not operate it and is not a party to your use of it. The operator of this instance is responsible for the terms and conditions that apply to it and to any services it provides. Nothing on this page creates an agreement between you and Litepod Studio."
+title = "About this instance"
+
 [terms]
 acceptance = "1. Acceptance of terms"
 acceptance_description = "By creating an account or otherwise using litepod (\"the Service\"), you agree to these Terms of Service. If you do not agree, do not use the Service."
@@ -114,10 +121,3 @@ use = "7. Acceptable use"
 use_description = "You must follow our Acceptable Use Policy, which is part of these terms. In short: no unlawful, infringing or malicious content, no attacks on other people or on the Service, and no circumventing usage limits or security controls. We may suspend or terminate accounts that violate it."
 what_is = "2. What litepod is"
 what_is_description = "litepod is a platform for deploying and managing applications on your own infrastructure or on a hosted instance. It lets you connect a Git repository or other source, build it, and run it as a container-based deployment."
-
-[self_hosted]
-title = "About this instance"
-terms_description = "These Terms of Service apply to litepod Cloud, the service operated by Litepod Studio. This is a self-hosted litepod instance, so Litepod Studio does not operate it and is not a party to your use of it. The operator of this instance is responsible for the terms and conditions that apply to it and to any services it provides. Nothing on this page creates an agreement between you and Litepod Studio."
-privacy_description = "This Privacy Policy describes how Litepod Studio handles personal data for litepod Cloud. This is a self-hosted litepod instance, so Litepod Studio does not operate it and does not collect or process the personal data stored in it. The operator of this instance is responsible for how it collects, uses and protects personal data, and for providing any privacy notice the law requires."
-refund_description = "Refunds do not apply to self-hosted litepod instances. Litepod Studio does not charge for them, so there is nothing for Litepod Studio to refund. Any payment or billing relationship you have is with the operator of this instance or with your own infrastructure providers, not with Litepod Studio."
-acceptable_use_description = "This Acceptable Use Policy describes the rules for litepod Cloud, the service operated by Litepod Studio. This is a self-hosted litepod instance, so Litepod Studio does not operate it or enforce these rules. The operator of this instance is responsible for setting and enforcing its own acceptable-use rules. You remain responsible for complying with the law that applies to you and your users."
