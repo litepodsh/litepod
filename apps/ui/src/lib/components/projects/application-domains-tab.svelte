@@ -12,6 +12,8 @@
 	import LockIcon from '@lucide/svelte/icons/lock';
 	import LockOpenIcon from '@lucide/svelte/icons/lock-open';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
+	import PlusIcon from '@lucide/svelte/icons/plus';
+	import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
 	import DomainDnsHelpDialog from './domain-dns-help-dialog.svelte';
 	import DomainFormDialog from './domain-form-dialog.svelte';
 	import type {
@@ -83,6 +85,20 @@
 	let formOpen = $state(false);
 	let dnsHelpOpen = $state(false);
 	let editing = $state<DomainDto | null>(null);
+	let initialHost = $state('');
+
+	/** Each host's routes sit right under it, shortest first; a route whose host lives elsewhere goes last. */
+	const ordered = $derived.by(() => {
+		const placed = domains
+			.filter((domain) => !domain.path)
+			.flatMap((root) => [
+				root,
+				...domains
+					.filter((domain) => domain.path && domain.host === root.host)
+					.sort((a, b) => a.path!.localeCompare(b.path!)),
+			]);
+		return [...placed, ...domains.filter((domain) => !placed.includes(domain))];
+	});
 	type DnsCheckState = {
 		loading: boolean;
 		result?: DomainDnsValidationResult;
@@ -119,8 +135,9 @@
 		return siblings.length > 1 ? [] : markerVariables(domainId);
 	}
 
-	function add() {
+	function add(host = '') {
 		editing = null;
+		initialHost = host;
 		formOpen = true;
 	}
 	function edit(domain: DomainDto) {
@@ -240,7 +257,7 @@
 				)}</Button>
 			<Button variant="outline" disabled={busy} onclick={() => void onGenerate()}
 				>{t('projects.dialogs_common.random_sslip')}</Button>
-			<Button disabled={busy} onclick={add}>{t('projects.dialogs_common.add_domain')}</Button>
+			<Button disabled={busy} onclick={() => add()}>{t('projects.dialogs_common.add_domain')}</Button>
 		</div>
 	</div>
 
@@ -282,7 +299,7 @@
 				<span>{t('projects.application_domains.col_certificate')}</span>
 				<span></span>
 			</div>
-			{#each domains as domain, index (domain.id)}
+			{#each ordered as domain, index (domain.id)}
 				{@const composeRoute = composeRoutes.find((candidate) => candidate.domain_id === domain.id)}
 				{@const dnsCheck = dnsChecks[domain.id]}
 				<!-- The pencil's ::after covers the row, so the whole row edits;
@@ -291,11 +308,16 @@
 					class={`relative grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 px-4 py-3 transition-colors hover:bg-muted/40 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_2rem] sm:items-center sm:gap-4 ${index ? 'lp-groove-t' : ''}`}>
 					<div class="col-start-1 row-start-1 min-w-0 sm:col-start-auto sm:row-start-auto">
 						<div class="flex min-w-0 flex-wrap items-center gap-2">
+							{#if domain.path}<CornerDownRightIcon
+									class="size-3.5 shrink-0 text-muted-foreground"
+									aria-hidden="true" />{/if}
 							<a
 								class={`relative z-10 break-all font-medium underline-offset-4 hover:underline ${domain.host.endsWith('.sslip.io') ? 'font-mono text-[13px]' : ''}`}
 								href={domain.url}
 								target="_blank"
-								rel="noreferrer">{domain.host}</a>
+								rel="noreferrer"
+								>{#if domain.path}<span class="font-normal text-muted-foreground">{domain.host}</span
+									><span class="font-mono">{domain.path}</span>{:else}{domain.host}{/if}</a>
 							{#if domain.is_primary}<span
 									class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
 									>{t('projects.dialogs_common.primary')}</span
@@ -337,6 +359,14 @@
 											: 'size-3'} />
 									{dns.label}
 								</button>
+							{/if}
+							{#if !domain.path && !domain.is_local && domain.ingress_mode === 'central'}
+								<button
+									type="button"
+									disabled={busy}
+									onclick={() => add(domain.host)}
+									class="relative z-10 flex cursor-pointer items-center gap-1 rounded-full border border-dashed px-2 py-0.5 font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+									><PlusIcon class="size-3" />{t('projects.application_domains.add_route')}</button>
 							{/if}
 						</div>
 						{#if markerVariables(domain.id).length > 0}
@@ -417,6 +447,8 @@
 	onCheckDns={onValidateHostDns}
 	{composeServices}
 	serverAddress={server?.public_address ?? null}
+	existingHosts={domains.filter((domain) => !domain.path).map((domain) => domain.host)}
+	{initialHost}
 	composeRoute={editing
 		? (composeRoutes.find((route) => route.domain_id === editing?.id) ?? null)
 		: null}

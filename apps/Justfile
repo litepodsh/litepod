@@ -260,6 +260,41 @@ podx-lint *ARGS:
     esac
     echo "ok: ${DOCKERHUB_USER}/${DOCKERHUB_REPO} @ ${VERSION} (${channel}) for ${BUILD_ARCH:-amd64}"
 
+# Make sure a release bump runs against the latest origin/main before it
+# rewrites any version file. On main it fetches and fast-forwards; when that
+# is not possible (dirty tree, diverged history, no network) it stops and
+# asks for a manual `git pull` on main instead of bumping a stale tree.
+# Off main it only prints a note: the bump lands through a PR to main.
+_ensure-up-to-date:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    if [[ "${branch}" != main ]]; then
+        echo "note: bumping on ${branch}; the bump reaches main through a PR"
+        exit 0
+    fi
+    if ! git fetch origin main; then
+        echo >&2
+        echo "could not fetch origin/main. Sync it and retry:" >&2
+        echo "  git pull --ff-only origin main" >&2
+        exit 1
+    fi
+    behind="$(git rev-list --count HEAD..origin/main)"
+    if [[ "${behind}" == 0 ]]; then
+        echo "main is up to date with origin/main"
+        exit 0
+    fi
+    echo "main is ${behind} commit(s) behind origin/main; fast-forwarding"
+    if ! git pull --ff-only origin main; then
+        echo >&2
+        echo "could not fast-forward main automatically. Fix it and retry:" >&2
+        echo "  git status   # commit or stash local changes" >&2
+        echo "  git pull --ff-only origin main" >&2
+        echo "  # diverged history: git rebase origin/main" >&2
+        exit 1
+    fi
+    echo "main is now at $(git rev-parse --short HEAD)"
+
 # Bump stable image tags everywhere Litepod ships them.
 #   just bump litepod v0.1.72
 #   just bump dragonfly v2.0.1
@@ -268,6 +303,7 @@ podx-lint *ARGS:
 # prompt) pushes both, which triggers .github/workflows/release.yml. On main
 # it first dispatches a dry run there to warm the rust cache for the tag run.
 bump component version:
+    @just _ensure-up-to-date
     @just _bump stable {{component}} {{version}}
     @just _release-tag stable {{component}}
 
@@ -277,6 +313,7 @@ bump component version:
 #   just bump-alpha caddy 2.11.5
 # Bumping litepod tags HEAD as vX.Y.Z-alpha.N and (after a prompt) pushes it.
 bump-alpha component version:
+    @just _ensure-up-to-date
     @just _bump alpha {{component}} {{version}}
     @just _release-tag alpha {{component}}
 

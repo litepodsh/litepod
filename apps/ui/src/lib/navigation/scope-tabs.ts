@@ -11,6 +11,7 @@ import PlugIcon from '@lucide/svelte/icons/plug';
 import SettingsIcon from '@lucide/svelte/icons/settings';
 import ServerCogIcon from '@lucide/svelte/icons/server-cog';
 import CreditCardIcon from '@lucide/svelte/icons/credit-card';
+import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 
 /**
  * Which level of the console a path belongs to. Organization tabs come from
@@ -41,6 +42,7 @@ const ORG_PATHS = [
 	/^\/debug$/,
 	/^\/settings\/backups$/,
 	/^\/billing$/,
+	/^\/admin(\/|$)/,
 ];
 
 export function scopeOf(pathname: string): Scope {
@@ -52,6 +54,10 @@ export function scopeOf(pathname: string): Scope {
 /**
  * `isSysadmin` adds the instance-wide System hub at the end. `isCloud` adds
  * Billing for cloud customers; sysadmins have no subscription.
+ *
+ * The Admin portal is the cloud edition's counterpart to the System hub: only
+ * the SysAdmin of a cloud instance gets one, and the API enforces the same
+ * rule on the routes behind it (`/api/v1/admin/*`).
  */
 export function orgTabs(organizationId: string, isSysadmin = false, isCloud = false): ScopeTab[] {
 	const base = `/organizations/${encodeURIComponent(organizationId)}`;
@@ -116,6 +122,17 @@ export function orgTabs(organizationId: string, isSysadmin = false, isCloud = fa
 							`${base}/containers`,
 							`${base}/caddy`,
 						],
+					},
+				]
+			: []),
+		...(isSysadmin && isCloud
+			? [
+					{
+						id: 'admin',
+						labelKey: 'menu.tabs.admin',
+						icon: ShieldCheckIcon,
+						href: '/admin',
+						owns: ['/admin/users', '/admin/security', '/admin/billing'],
 					},
 				]
 			: []),

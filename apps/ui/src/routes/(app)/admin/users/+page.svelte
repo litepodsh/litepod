@@ -6,12 +6,14 @@
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import * as Empty from '#lib/components/ui/empty/index.js';
-	import { listUsersWithOrgs, type UserWithOrgs } from '#lib/clients/auth-client.js';
+	import { listAdminUsers, type UserWithOrgs } from '#lib/clients/admin-users-client.js';
+	import { formatAuditAction } from '#lib/clients/audit-log-client.js';
 	import UserDisableDialog from '#lib/components/admin/user-disable-dialog.svelte';
 	import { toast } from '#lib/utils/toast.js';
+	import { relativeTime } from '#lib/utils/relative-time.js';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import UsersIcon from '@lucide/svelte/icons/users';
-	import { t } from '#lib/i18n/index.svelte.js';
+	import { i18n, t } from '#lib/i18n/index.svelte.js';
 
 	let users = $state<UserWithOrgs[]>([]);
 	let loading = $state(true);
@@ -22,21 +24,57 @@
 		return error instanceof Error ? error.message : t('operations.users.request_failed');
 	}
 
-	async function refresh() {
-		loading = true;
+	async function refresh(silent = false) {
+		if (!silent) loading = true;
 		try {
-			// Newest sign-ups first, whatever order the API answers in.
-			users = (await listUsersWithOrgs()).sort(
-				(a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
+			// Online first, then newest sign-ups, whatever order the API answers in.
+			users = (await listAdminUsers()).sort(
+				(a, b) =>
+					Number(b.online) - Number(a.online) ||
+					Date.parse(b.created_at) - Date.parse(a.created_at),
 			);
 		} catch (error) {
-			toast.error(message(error));
+			if (!silent) toast.error(message(error));
 		} finally {
 			loading = false;
 		}
 	}
 
-	onMount(() => void refresh());
+	onMount(() => {
+		void refresh();
+		const poll = setInterval(() => {
+			if (!document.hidden) void refresh(true);
+		}, 30_000);
+		return () => clearInterval(poll);
+	});
+
+	const onlineCount = $derived(users.filter((user) => user.online).length);
+
+	// Running work and server events aren't audit log rows, so that log's labels don't cover them.
+	const ACTIVITY_LABELS: Record<string, () => string> = {
+		'deployment.building': () => t('operations.users.activity_building'),
+		'deployment.deploying': () => t('operations.users.activity_deploying'),
+		'scheduled_task.running': () => t('operations.users.activity_task_running'),
+		'system.update_applied': () => t('operations.users.activity_instance_update'),
+		'server.setup_started': () => t('operations.users.activity_server_setup'),
+		'server.repair_started': () => t('operations.users.activity_server_repair'),
+		'server.restarted': () => t('operations.users.activity_server_restart'),
+		'server.hardened': () => t('operations.users.activity_server_hardened'),
+		'server.podman_restarted': () => t('operations.users.activity_podman_restart'),
+	};
+
+	const RUNNING_ACTIONS = new Set([
+		'deployment.building',
+		'deployment.deploying',
+		'scheduled_task.running',
+	]);
+	const hasRunningWork = $derived(
+		users.some((user) => user.recent_action && RUNNING_ACTIONS.has(user.recent_action)),
+	);
+
+	function activityLabel(action: string) {
+		return ACTIVITY_LABELS[action]?.() ?? formatAuditAction(action);
+	}
 
 	const fuse = $derived(
 		new Fuse(users, {
@@ -78,6 +116,16 @@
 			<p class="text-sm text-muted-foreground">
 				{t('operations.users.description')}
 			</p>
+			{#if !loading}
+				<p class="mt-1 inline-flex items-center gap-1.5 text-sm font-medium">
+					<i class="size-2 rounded-full {onlineCount > 0 ? 'bg-success' : 'bg-muted-foreground/40'}"
+						aria-hidden="true"></i>
+					{t('operations.users.online_count', { count: onlineCount })}
+				</p>
+				{#if hasRunningWork}
+					<p class="text-warning mt-1 text-sm">{t('operations.users.running_warning')}</p>
+				{/if}
+			{/if}
 		</div>
 		<Button variant="outline" onclick={() => refresh()} disabled={loading}
 			>{t('operations.users.refresh')}</Button>
@@ -128,6 +176,9 @@
 						<th class="p-3 font-medium">{t('operations.users.email')}</th>
 						<th class="p-3 font-medium">{t('operations.users.joined')}</th>
 						<th class="p-3 font-medium">{t('operations.users.organizations')}</th>
+						<th class="p-3 font-medium">{t('operations.users.activity')}</th>
+						<th class="p-3 font-medium">{t('operations.users.last_login')}</th>
+						<th class="p-3 font-medium">{t('operations.users.usage')}</th>
 						<th class="p-3 font-medium">{t('operations.users.status')}</th>
 						<th class="p-3"></th>
 					</tr>
@@ -152,6 +203,56 @@
 											</Badge>
 										{/each}
 									</div>
+								{/if}
+							</td>
+							<td class="p-3">
+								{#if user.online}
+									<span class="inline-flex items-center gap-1.5 text-xs font-medium">
+										<i class="bg-success size-2 rounded-full" aria-hidden="true"></i>
+										{t('operations.users.online')}
+									</span>
+									{#if user.recent_action}
+										{@const action = [activityLabel(user.recent_action), user.recent_action_target]
+											.filter(Boolean)
+											.join(' · ')}
+										<p class="text-muted-foreground mt-0.5 max-w-56 truncate text-xs" title={action}>
+											{action}
+										</p>
+									{/if}
+								{:else if user.mcp_connections === 0}
+									<span class="text-muted-foreground text-xs">—</span>
+								{/if}
+								{#if user.mcp_connections > 0}
+									<p class="text-muted-foreground mt-0.5 text-xs whitespace-nowrap">
+										{t('operations.users.mcp_connected_count', { count: user.mcp_connections })}
+									</p>
+								{/if}
+							</td>
+							<td class="text-muted-foreground p-3 whitespace-nowrap">
+								{#if user.last_login_at}
+									<time datetime={user.last_login_at} title={formatDate(user.last_login_at)}>
+										{relativeTime(Date.parse(user.last_login_at), Date.now(), i18n.locale)}
+									</time>
+								{:else}
+									—
+								{/if}
+							</td>
+							<td class="text-muted-foreground p-3 text-xs whitespace-nowrap">
+								{#if user.remote_servers === 0 && user.applications === 0}
+									—
+								{:else}
+									<p>
+										{t('operations.users.servers_usage', {
+											ready: user.remote_servers_ready,
+											total: user.remote_servers,
+										})}
+									</p>
+									<p>
+										{t('operations.users.apps_usage', {
+											running: user.applications_running,
+											total: user.applications,
+										})}
+									</p>
 								{/if}
 							</td>
 							<td class="p-3">

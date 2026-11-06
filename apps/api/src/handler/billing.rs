@@ -39,14 +39,13 @@ fn require_cloud_customer(state: &SharedState, user: &AuthUser) -> Result<(), Ap
     Ok(())
 }
 
-fn require_cloud_sysadmin(state: &SharedState, user: &AuthUser) -> Result<(), AppError> {
-    if !state.is_cloud || state.polar.is_none() {
+/// Billing's admin routes also need Polar: without it there is no billing to
+/// reconcile, so the surface stays hidden even from the cloud SysAdmin.
+async fn require_cloud_sysadmin(state: &SharedState, user: &AuthUser) -> Result<(), AppError> {
+    if state.polar.is_none() {
         return Err(AppError::ResourceNotFound);
     }
-    if !user.is_sysadmin {
-        return Err(AppError::InsufficientPermissions);
-    }
-    Ok(())
+    crate::handler::common::require_cloud_sysadmin(state, user).await
 }
 
 /// Where Polar sends the browser back to: the UI the request came from when
@@ -92,7 +91,7 @@ pub async fn admin_accounts_handler(
     State(state): State<SharedState>,
     Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
-    require_cloud_sysadmin(&state, &user)?;
+    require_cloud_sysadmin(&state, &user).await?;
     use sqlx::Row;
     let conn = crate::git::repositories::db::get_conn(&state).await;
     let rows = sqlx::query("SELECT u.id, u.name, u.email, ba.status, ba.polar_customer_id, ba.polar_subscription_id, ba.polar_product_id, ba.period_starts_at, ba.period_ends_at, ba.grace_until FROM users u LEFT JOIN billing_accounts ba ON ba.user_id = u.id ORDER BY u.email")
@@ -141,7 +140,7 @@ pub async fn admin_external_records_handler(
     State(state): State<SharedState>,
     Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
-    require_cloud_sysadmin(&state, &user)?;
+    require_cloud_sysadmin(&state, &user).await?;
     Ok(ok(repository::list_external_records(&state).await?))
 }
 
@@ -149,7 +148,7 @@ pub async fn admin_reconcile_handler(
     State(state): State<SharedState>,
     Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, AppError> {
-    require_cloud_sysadmin(&state, &user)?;
+    require_cloud_sysadmin(&state, &user).await?;
     let summary = crate::billing::reconciliation::reconcile(&state).await?;
     Ok(ok(summary))
 }
@@ -198,7 +197,7 @@ pub async fn admin_assign_external_record_handler(
     Path(id): Path<String>,
     Json(request): Json<AssignExternalPaymentRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    require_cloud_sysadmin(&state, &user)?;
+    require_cloud_sysadmin(&state, &user).await?;
     if !repository::user_exists(&state, &request.user_id).await? {
         return Err(AppError::ValidationError(
             "The selected Litepod user does not exist".into(),

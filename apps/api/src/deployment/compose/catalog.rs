@@ -60,6 +60,10 @@ pub struct ComposeServiceCatalog {
     pub name: String,
     pub suggested_internal_ports: Vec<u16>,
     pub direct_exposures: Vec<DirectExposure>,
+    /// `network_mode: host`. The service binds its ports straight on the host,
+    /// so `suggested_internal_ports` doubles as the host ports it occupies.
+    #[serde(default)]
+    pub host_network: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -229,6 +233,10 @@ pub fn catalog_from_yaml(content: &str, legacy: bool) -> Result<ComposeCatalog, 
             name: name.into(),
             suggested_internal_ports,
             direct_exposures: direct,
+            host_network: config
+                .get(serde_yaml::Value::String("network_mode".into()))
+                .and_then(serde_yaml::Value::as_str)
+                .is_some_and(|mode| mode.trim() == "host"),
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -314,6 +322,27 @@ mod tests {
     fn skips_variable_bearing_long_form_ports() {
         let catalog = catalog_from_yaml("services:\n  web:\n    ports:\n      - target: \"3000\"\n        published: \"${PORT}\"\n", false).unwrap();
         assert!(catalog.services[0].direct_exposures.is_empty());
+    }
+    #[test]
+    fn marks_host_networked_services() {
+        let catalog = catalog_from_yaml(
+            "services:\n  homeassistant:\n    network_mode: host\n    expose: [\"8123\"]\n  db:\n    image: postgres\n",
+            false,
+        )
+        .unwrap();
+        let ha = catalog
+            .services
+            .iter()
+            .find(|service| service.name == "homeassistant")
+            .unwrap();
+        let db = catalog
+            .services
+            .iter()
+            .find(|service| service.name == "db")
+            .unwrap();
+        assert!(ha.host_network);
+        assert_eq!(ha.suggested_internal_ports, vec![8123]);
+        assert!(!db.host_network);
     }
     #[test]
     fn still_rejects_ports_that_are_merely_invalid() {

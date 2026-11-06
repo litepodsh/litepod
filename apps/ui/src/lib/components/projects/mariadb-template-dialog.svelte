@@ -4,7 +4,7 @@
 	import SoftCheckbox from '#lib/components/custom/soft-checkbox.svelte';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
-	import * as Select from '#lib/components/ui/select/index.js';
+	import ServerPicker from '#lib/components/servers/server-picker.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import {
 		createMariaDbTemplate,
@@ -38,12 +38,6 @@
 		onBack: () => void;
 		onCancel: () => void;
 	} = $props();
-	const serverTriggerLabel = $derived.by(() => {
-		const match = servers.find((server) => server.id === serverId);
-		return match
-			? `${match.name} · ${match.ingress_mode.replace('_', ' ')}`
-			: t('projects.template_common.choose_ready_server');
-	});
 	let step = $state<'configure' | 'review'>('configure');
 	let applicationName = $state(suggestedResourceName('mariadb'));
 	let description = $state('');
@@ -194,17 +188,13 @@
 						bind:value={dockerImage} />
 				</div>
 				<div class="grid gap-2 sm:col-span-2">
-					<Label for="mariadb-server">{t('organizations.common.server')}</Label><Select.Root
-						type="single"
-						bind:value={serverId}>
-						<Select.Trigger id="mariadb-server" class="w-full">{serverTriggerLabel}</Select.Trigger>
-						<Select.Content>
-							{#each servers as server (server.id)}
-								<Select.Item value={server.id}
-									>{server.name} · {server.ingress_mode.replace('_', ' ')}</Select.Item>
-							{/each}
-						</Select.Content>
-					</Select.Root>{#if servers.length === 0}<p class="text-sm text-destructive">
+					<Label for="mariadb-server">{t('organizations.common.server')}</Label><ServerPicker
+						{servers}
+						bind:value={serverId}
+						placeholder={t('projects.template_common.choose_ready_server')}
+						searchPlaceholder={t('organizations.common.search_servers')}
+						emptyText={t('organizations.common.no_servers_found')}
+						triggerClass="w-full" />{#if servers.length === 0}<p class="text-sm text-destructive">
 							{t('projects.template_common.no_ready_servers')}
 						</p>{/if}
 				</div>

@@ -58,6 +58,32 @@ pub async fn record(
     outcome: Option<AuditOutcome>,
     error_message: Option<&str>,
 ) -> Result<(), String> {
+    crate::users::presence::on_audit(&actor.user_id, action, target_name);
+    if state.is_cloud {
+        let foreign_sysadmin = actor.is_sysadmin
+            && crate::git::repositories::role::get_organization_member_role(
+                state,
+                organization_id,
+                &actor.user_id,
+            )
+            .await
+            .is_none();
+        if foreign_sysadmin || action.starts_with("deployment.") || action.starts_with("server.") {
+            let _ = crate::security::security_events::record_for_organization(
+                state,
+                organization_id,
+                Some(actor),
+                action,
+                target_name,
+            )
+            .await;
+        }
+        // shortcut: support access stays out of the customer's log, show it there if
+        // customers ever need to review it. It remains in the SysAdmin's trail above.
+        if foreign_sysadmin {
+            return Ok(());
+        }
+    }
     let conn = crate::git::repositories::db::get_conn(state).await;
     let enabled: Option<i64> =
         sqlx::query_scalar("SELECT audit_logs_enabled FROM organizations WHERE id = ?1")
@@ -236,4 +262,98 @@ pub fn spawn(state: SharedState) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::{auth_user, cleanup_database, sysadmin_user, test_state_for};
+
+    async fn audit(state: &SharedState, actor: &AuthUser, action: &str) {
+        record(
+            state,
+            "organization-a",
+            actor,
+            action,
+            Some("application"),
+            Some("app"),
+            Some("my-app"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn audit_rows(state: &SharedState) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_logs")
+            .fetch_one(&state.db)
+            .await
+            .unwrap()
+    }
+
+    async fn security_rows(state: &SharedState) -> Vec<(String, Option<String>)> {
+        sqlx::query_as("SELECT action, metadata FROM security_events")
+            .fetch_all(&state.db)
+            .await
+            .unwrap()
+    }
+
+    async fn enable_audit_logs(state: &SharedState) {
+        sqlx::query("UPDATE organizations SET audit_logs_enabled = 1")
+            .execute(&state.db)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cloud_sysadmin_support_access_only_reaches_the_sysadmin_trail() {
+        let (state, path) = test_state_for(true).await;
+        enable_audit_logs(&state).await;
+        audit(&state, &sysadmin_user("outsider"), "project.updated").await;
+        assert_eq!(audit_rows(&state).await, 0);
+        assert_eq!(
+            security_rows(&state).await,
+            [(
+                "project.updated".to_string(),
+                Some("organization-a · my-app".to_string())
+            )]
+        );
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn a_sysadmin_in_their_own_organization_is_logged_as_usual() {
+        let (state, path) = test_state_for(true).await;
+        enable_audit_logs(&state).await;
+        audit(&state, &sysadmin_user("editor"), "project.updated").await;
+        assert_eq!(audit_rows(&state).await, 1);
+        assert!(security_rows(&state).await.is_empty());
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn self_hosted_keeps_logging_the_sysadmin_and_mirrors_nothing() {
+        let (state, path) = test_state_for(false).await;
+        enable_audit_logs(&state).await;
+        audit(&state, &sysadmin_user("outsider"), "deployment.triggered").await;
+        assert_eq!(audit_rows(&state).await, 1);
+        assert!(security_rows(&state).await.is_empty());
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn cloud_deployments_reach_the_trail_even_with_audit_logging_off() {
+        let (state, path) = test_state_for(true).await;
+        sqlx::query("UPDATE organizations SET audit_logs_enabled = 0")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        audit(&state, &auth_user("editor"), "deployment.triggered").await;
+        assert_eq!(audit_rows(&state).await, 0);
+        assert_eq!(security_rows(&state).await.len(), 1);
+        cleanup_database(&path);
+    }
 }

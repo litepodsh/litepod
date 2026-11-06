@@ -22,7 +22,8 @@ pub(crate) use pipeline::run;
 pub use pipeline::{enqueue, enqueue_rollback};
 
 pub(crate) use overrides::{
-    prepare_remote_compose, service_exposes_port, service_for_port, services_for_port,
+    host_network_dial_host, prepare_remote_compose, service_exposes_port, service_for_port,
+    service_uses_host_network, services_for_port,
 };
 
 pub(crate) use process::teardown_project;

@@ -632,6 +632,47 @@ mod tests {
         testing::test_state_for as test_state,
     };
 
+    /// The last guard for anything that reaches here with a stored id, an MCP
+    /// proposal included: another organization's server or group is refused.
+    #[tokio::test]
+    async fn another_organizations_server_or_group_is_refused() {
+        let (state, path) = test_state(false).await;
+        let (project_id, environment_id, _) =
+            crate::testing::seed_application(&state, "organization-a").await;
+        crate::testing::seed_application(&state, "organization-b").await;
+        sqlx::query(
+            "INSERT INTO server_groups (id, organization_id, name, description, created_at, updated_at) VALUES ('group-b', 'organization-b', 'web', '', 1, 1)",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        for (server_id, server_group_id) in [
+            (Some("organization-b-server"), None),
+            (None, Some("group-b")),
+        ] {
+            let created = create_application(
+                &state,
+                "organization-a",
+                &project_id,
+                &environment_id,
+                &CreateApplicationRequest {
+                    name: "intruder".into(),
+                    description: None,
+                    server_id: server_id.map(Into::into),
+                    server_group_id: server_group_id.map(Into::into),
+                },
+            )
+            .await;
+            assert!(
+                matches!(created, Err(AppError::ValidationError(_))),
+                "{server_id:?} {server_group_id:?}"
+            );
+        }
+
+        remove_database(&path);
+    }
+
     fn assert_v7(id: &str) {
         assert_eq!(Uuid::parse_str(id).unwrap().get_version_num(), 7);
     }

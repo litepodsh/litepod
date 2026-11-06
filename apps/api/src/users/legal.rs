@@ -15,7 +15,7 @@ use crate::state::state::SharedState;
 
 /// The "Last updated" date of the legal pages in the UI. Bump both together
 /// when a document changes materially, so new acceptances name the new text.
-pub const LEGAL_VERSION: &str = "2026-10-07";
+pub const LEGAL_VERSION: &str = "2026-11-04";
 
 /// Who accepted from where, captured by the handler that saw the request.
 pub struct Acceptance {

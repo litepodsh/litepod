@@ -338,6 +338,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_zip_application_offers_its_source_and_says_how_to_rebuild_it() {
+        use std::io::Write;
+
+        let (state, path) = crate::testing::test_state().await;
+        let (_, _, application_id) =
+            crate::testing::seed_application(&state, "organization-a").await;
+        sqlx::query("UPDATE organizations SET mcp_enabled = 1 WHERE id = 'organization-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE applications SET container_port = 4321 WHERE id = ?1")
+            .bind(&application_id)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file("package.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"{}").unwrap();
+        crate::deployment::source_archive::store(
+            &state,
+            &application_id,
+            &zip.finish().unwrap().into_inner(),
+        )
+        .await
+        .unwrap();
+        crate::testing::seed_mcp_connection(&state, "organization-a", "editor", "connection").await;
+        let mut connected = crate::testing::auth_user("editor");
+        connected.token_id = Some("connection".to_owned());
+        let router = Router::new()
+            .route("/organizations/{organization_id}/mcp", post(mcp_handler))
+            .layer(Extension(connected))
+            .with_state(state);
+
+        let params = json!({
+            "name": "get",
+            "arguments": { "resource": "source_archive", "application": application_id }
+        });
+        let (_, reply) = send(&router, "organization-a", call(3, "tools/call", params)).await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("/api/v1/assistant/downloads/"), "{text}");
+
+        let params = json!({
+            "name": "get",
+            "arguments": { "resource": "source", "application": application_id }
+        });
+        let (_, reply) = send(&router, "organization-a", call(4, "tools/call", params)).await;
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        let source: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(source["source_upload"], true, "{text}");
+        assert_eq!(source["container_port"], 4321, "{text}");
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn an_application_not_built_from_a_zip_has_no_source_to_download() {
+        let (router, path) = router("editor", true).await;
+        let params = json!({
+            "name": "get",
+            "arguments": { "resource": "source_archive", "application": "organization-a-app" }
+        });
+        let (_, reply) = send(&router, "organization-a", call(3, "tools/call", params)).await;
+        assert_eq!(reply["result"]["isError"], true, "{reply}");
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("no uploaded source ZIP"), "{text}");
+        assert!(!text.contains("download_url"), "{text}");
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
     async fn a_direct_stop_of_something_that_does_not_exist_says_so() {
         let (router, path) = router("editor", true).await;
         let params = json!({
@@ -361,6 +432,107 @@ mod tests {
         let text = reply["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("\"done\":true"), "{text}");
         assert!(text.contains("\"status\":\"applied\""), "{text}");
+        crate::testing::cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn an_outsider_cannot_reach_the_organization() {
+        let (router, path) = router("outsider", true).await;
+        let (status, _) = send(&router, "organization-a", call(1, "tools/list", json!({}))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        crate::testing::cleanup_database(&path);
+    }
+
+    /// `editor` is Editor in both organizations: what organization-b has must
+    /// still be out of reach through organization-a's MCP.
+    #[tokio::test]
+    async fn a_new_application_lands_on_a_group_of_this_organization_only() {
+        let (state, path) = crate::testing::test_state().await;
+        for organization in ["organization-a", "organization-b"] {
+            crate::testing::seed_application(&state, organization).await;
+            sqlx::query(
+                "INSERT INTO server_groups (id, organization_id, name, description, created_at, updated_at) VALUES (?1 || '-group', ?1, 'web-' || ?1, '', 1, 1)",
+            )
+            .bind(organization)
+            .execute(&state.db)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO server_group_members (group_id, server_id, created_at) VALUES (?1 || '-group', ?1 || '-server', 1)",
+            )
+            .bind(organization)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        }
+        sqlx::query("UPDATE organizations SET mcp_enabled = 1 WHERE id = 'organization-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        let router = Router::new()
+            .route("/organizations/{organization_id}/mcp", post(mcp_handler))
+            .layer(Extension(crate::testing::auth_user("editor")))
+            .with_state(state.clone());
+        let create = |placement: Value| {
+            let mut arguments = json!({
+                "action": "create_application",
+                "project": "organization-a-project",
+                "name": "grouped",
+                "reason": "test",
+            });
+            arguments
+                .as_object_mut()
+                .unwrap()
+                .extend(placement.as_object().unwrap().clone());
+            call(
+                7,
+                "tools/call",
+                json!({ "name": "exec", "arguments": arguments }),
+            )
+        };
+        let placed = || async {
+            sqlx::query_as::<_, (Option<String>, Option<String>)>(
+                "SELECT server_id, server_group_id FROM applications WHERE name = 'grouped'",
+            )
+            .fetch_optional(&state.db)
+            .await
+            .unwrap()
+        };
+
+        for foreign in [
+            json!({ "server_group": "web-organization-b" }),
+            json!({ "server_group": "organization-b-group" }),
+            json!({ "server": "organization-b-server" }),
+        ] {
+            let (_, reply) = send(&router, "organization-a", create(foreign.clone())).await;
+            assert_eq!(reply["result"]["isError"], true, "{foreign}: {reply}");
+            assert_eq!(placed().await, None, "{foreign}");
+        }
+
+        let (_, reply) = send(
+            &router,
+            "organization-a",
+            create(json!({ "server_group": "WEB-organization-a" })),
+        )
+        .await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        assert_eq!(
+            placed().await,
+            Some((None, Some("organization-a-group".to_string())))
+        );
+
+        let (_, reply) = send(&router, "organization-a", call(8, "tools/call", json!({
+            "name": "get",
+            "arguments": { "resource": "applications", "project": "organization-a-project", "environment": "all" },
+        })))
+        .await;
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("\"server_group\":\"web-organization-a\""),
+            "{text}"
+        );
+        assert!(!text.contains("organization-b"), "{text}");
+
         crate::testing::cleanup_database(&path);
     }
 

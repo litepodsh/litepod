@@ -75,6 +75,29 @@ pub async fn check_application(
     .ok_or(AppError::ApplicationNotFound)
 }
 
+/// The Admin portal's gate: only the SysAdmin of a *cloud* instance gets in.
+///
+/// The SysAdmin flag is read from the database rather than from the cached
+/// `AuthUser` field, because this decides who can list and disable every
+/// account on the instance — and because the cloud edition pins the flag to one
+/// user id (`CLOUD_SYSADMIN_USER_ID`), which the cache also honours but which a
+/// revocation must be able to take away mid-session.
+///
+/// Off-cloud the answer is 404, not 403: a self-hosted instance has no Admin
+/// portal, so the surface must not even advertise itself there.
+pub async fn require_cloud_sysadmin(
+    state: &SharedState,
+    user: &AuthUser,
+) -> Result<(), AppError> {
+    if !state.is_cloud {
+        return Err(AppError::ResourceNotFound);
+    }
+    if !crate::git::repositories::user::is_sysadmin(state, &user.user_id).await {
+        return Err(AppError::InsufficientPermissions);
+    }
+    Ok(())
+}
+
 /// Rejects a request authenticated by personal access token. Used only by the
 /// handlers that manage tokens themselves (`handler::personal_access_tokens`):
 /// a token must never be usable to mint or revoke tokens, its own included, so

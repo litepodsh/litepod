@@ -1,12 +1,42 @@
 use crate::dtos::response::AppError;
-use crate::dtos::user::{UserDto, UserOrganizationDto, UserWithOrgsDto};
-use crate::git::repositories::{organization, organization_member, user};
+use crate::dtos::user::{McpConnectionDto, UserDto, UserOrganizationDto, UserWithOrgsDto};
+use crate::git::repositories::{oauth, organization, organization_member, user};
 use crate::state::state::SharedState;
+
+pub async fn mcp_connections(
+    state: &SharedState,
+    user_id: &str,
+) -> Result<Vec<McpConnectionDto>, AppError> {
+    Ok(oauth::list_sessions(state, user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .into_iter()
+        .map(|row| McpConnectionDto {
+            id: row.id,
+            client_name: row.client_name,
+            agent: row.agent,
+            organization_name: row.organization_name,
+            created_at: row.created_at,
+            expires_at: row.expires_at,
+            closed_at: row.closed_at,
+            last_used_at: row.last_used_at,
+        })
+        .collect())
+}
 
 pub async fn list_users(state: &SharedState) -> Result<Vec<UserWithOrgsDto>, AppError> {
     let rows = user::list_all_users(state)
         .await
         .map_err(|e| AppError::DatabaseError(e))?;
+    let mut usage = user::list_usage(state)
+        .await
+        .map_err(AppError::DatabaseError)?;
+    let mut running = user::list_running_work(state)
+        .await
+        .map_err(AppError::DatabaseError)?;
+    let mut open_connections = oauth::count_open_sessions(state)
+        .await
+        .map_err(AppError::DatabaseError)?;
 
     let mut users = Vec::new();
     for row in rows {
@@ -41,13 +71,35 @@ pub async fn list_users(state: &SharedState) -> Result<Vec<UserWithOrgsDto>, App
             })
             .collect();
         let is_sysadmin = user::is_sysadmin(state, &row.id).await;
+        let disabled = row.status_id == 4;
+        let activity = running
+            .remove(&row.id)
+            .map(|(action, target)| (action, Some(target)))
+            .or_else(|| {
+                crate::users::presence::status(&row.id).map(|recent| (recent.action, recent.target))
+            })
+            .filter(|_| !disabled);
+        let online = activity.is_some();
+        let (recent_action, recent_action_target) = activity.unzip();
+        let recent_action_target = recent_action_target.flatten();
+        let usage = usage.remove(&row.id).unwrap_or_default();
+        let mcp_connections = open_connections.remove(&row.id).unwrap_or(0);
         users.push(UserWithOrgsDto {
             id: row.id,
             email: row.email,
             name: row.name,
             created_at: row.created_at,
-            disabled: row.status_id == 4,
+            disabled,
             is_sysadmin,
+            online,
+            recent_action,
+            recent_action_target,
+            last_login_at: usage.last_login_at,
+            remote_servers: usage.remote_servers,
+            remote_servers_ready: usage.remote_servers_ready,
+            mcp_connections,
+            applications: usage.applications,
+            applications_running: usage.applications_running,
             organizations: orgs,
         });
     }

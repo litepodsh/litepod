@@ -9,16 +9,16 @@ pub(super) fn generate_standalone_override(
     let mut yaml = serde_yaml::Mapping::new();
     let mut services_map = serde_yaml::Mapping::new();
 
-    let mut seen: BTreeMap<String, ()> = BTreeMap::new();
+    let mut seen: BTreeMap<String, bool> = BTreeMap::new();
     for service in services {
-        seen.insert(service.name.clone(), ());
+        seen.insert(service.name.clone(), service.host_network);
     }
     let proxy_services = proxy_services
         .iter()
         .map(String::as_str)
         .collect::<std::collections::BTreeSet<_>>();
 
-    for (service_name, ()) in &seen {
+    for (service_name, host_network) in &seen {
         let mut service_map = serde_yaml::Mapping::new();
         service_map.insert(
             serde_yaml::Value::String("container_name".into()),
@@ -30,7 +30,12 @@ pub(super) fn generate_standalone_override(
         // named e.g. "db" here can never resolve to a same-named service in
         // another app - that collision is exactly what put the wrong
         // Postgres behind a customer's Forgejo deploy.
-        if proxy_services.contains(service_name.as_str()) {
+        //
+        // A service in the host's network namespace (`network_mode: host`, used
+        // by LAN-discovery apps like Home Assistant) cannot join any network at
+        // all: Compose rejects `networks` next to `network_mode`. Caddy reaches
+        // it through the host gateway instead, see `host_network_dial_host`.
+        if proxy_services.contains(service_name.as_str()) && !*host_network {
             let mut networks_map = serde_yaml::Mapping::new();
             let mut network_config = serde_yaml::Mapping::new();
             let mut aliases = serde_yaml::Sequence::new();
@@ -180,18 +185,24 @@ pub(super) fn generate_remote_standalone_override(
             serde_yaml::Value::String("container_name".into()),
             serde_yaml::Value::String(format!("{runtime_name}-{}", service.name)),
         );
-        let ports = endpoints
-            .iter()
-            .filter(|(selected, _, _)| service.name == *selected)
-            .map(|(_, host_port, container_port)| {
-                let host = if *host_port == 0 {
-                    String::new()
-                } else {
-                    host_port.to_string()
-                };
-                serde_yaml::Value::String(format!("127.0.0.1:{host}:{container_port}/tcp"))
-            })
-            .collect::<serde_yaml::Sequence>();
+        // A host-networked service already owns the host port it binds; adding
+        // a `ports` mapping next to `network_mode: host` is rejected by Compose.
+        let ports = if service.host_network {
+            serde_yaml::Sequence::new()
+        } else {
+            endpoints
+                .iter()
+                .filter(|(selected, _, _)| service.name == *selected)
+                .map(|(_, host_port, container_port)| {
+                    let host = if *host_port == 0 {
+                        String::new()
+                    } else {
+                        host_port.to_string()
+                    };
+                    serde_yaml::Value::String(format!("127.0.0.1:{host}:{container_port}/tcp"))
+                })
+                .collect::<serde_yaml::Sequence>()
+        };
         if !ports.is_empty() {
             service_map.insert("ports".into(), serde_yaml::Value::Sequence(ports));
         }
@@ -264,6 +275,10 @@ pub(super) fn generate_runtime_resources_override(
 /// A service discovered in the user's Compose file.
 pub(super) struct ComposeService {
     pub(super) name: String,
+    /// `network_mode: host`: the service lives in the host's network namespace
+    /// (Home Assistant and other LAN-discovery apps need it for mDNS), so it
+    /// cannot join `litepod_proxy` and Caddy dials it through the host gateway.
+    pub(super) host_network: bool,
 }
 
 pub(super) fn compose_services(content: &str) -> Result<Vec<ComposeService>, String> {
@@ -275,13 +290,47 @@ pub(super) fn compose_services(content: &str) -> Result<Vec<ComposeService>, Str
         .ok_or_else(|| "Invalid Compose file: expected a services mapping".to_string())?;
     Ok(services
         .iter()
-        .filter_map(|(name, _config)| {
+        .filter_map(|(name, config)| {
             let name = name.as_str()?;
             Some(ComposeService {
                 name: name.to_owned(),
+                host_network: config
+                    .get(serde_yaml::Value::String("network_mode".into()))
+                    .and_then(serde_yaml::Value::as_str)
+                    .is_some_and(|mode| mode.trim() == "host"),
             })
         })
         .collect())
+}
+
+/// Whether this Compose service runs in the host's network namespace.
+///
+/// Caddy lives in its own container, so it cannot dial `127.0.0.1` for such a
+/// service; it uses `host_network_dial_host` instead.
+pub(crate) fn service_uses_host_network(compose_content: &str, service: &str) -> bool {
+    serde_yaml::from_str::<serde_yaml::Value>(compose_content)
+        .ok()
+        .and_then(|document| {
+            document
+                .get("services")?
+                .get(service)
+                .and_then(|config| config.get("network_mode"))
+                .and_then(serde_yaml::Value::as_str)
+                .map(|mode| mode.trim() == "host")
+        })
+        .unwrap_or(false)
+}
+
+/// The hostname Caddy dials to reach a service that sits in the host's network
+/// namespace. Podman publishes `host.containers.internal` to every container on
+/// a bridge network; `LITEPOD_HOST_GATEWAY` overrides it for networks where
+/// that entry is missing (rootless pasta setups, for instance).
+pub(crate) fn host_network_dial_host() -> String {
+    std::env::var("LITEPOD_HOST_GATEWAY")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "host.containers.internal".into())
 }
 
 /// Named (top-level-declared) volumes mounted by a service whose image tag

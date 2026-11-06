@@ -9,6 +9,7 @@ const publicEdgeDomain: DomainDto = {
 	id: 'domain-1',
 	application_id: 'application-1',
 	host: 'app.example.com',
+	path: null,
 	port: 80,
 	https: true,
 	is_primary: true,
@@ -189,5 +190,48 @@ describe('ApplicationDomainsTab DNS validation', () => {
 			.click();
 		await waitFor(() => expect(invalid.target.textContent).toContain('DNS mismatch'));
 		expect(invalid.target.textContent).toContain('should point to 203.0.113.10');
+	});
+});
+
+describe('ApplicationDomainsTab routes', () => {
+	const central = { ...publicEdgeDomain, ingress_mode: 'central' as const, host: 'a.example.com' };
+	const routes: DomainDto[] = [
+		{ ...central, id: 'v2', path: '/api/v2', is_primary: false },
+		{ ...central, id: 'other', host: 'b.example.com', path: null, is_primary: false },
+		{ ...central, id: 'root', path: null },
+		{ ...central, id: 'api', path: '/api', is_primary: false },
+	];
+
+	function renderRoutes() {
+		render(ApplicationDomainsTab, {
+			domains: routes,
+			server: null,
+			onValidateDns: vi.fn(),
+			onCreate: async () => {},
+			onUpdate: async () => {},
+			onDelete: async () => {},
+			onGenerate: async () => {},
+			onRefresh: async () => {},
+			onDeploy: async () => {},
+		});
+	}
+
+	it('lists each route right under its host', () => {
+		renderRoutes();
+		const order = screen
+			.getAllByRole('link')
+			.map((link) => link.textContent?.replace(/\s+/g, ''));
+		expect(order).toEqual(['b.example.com', 'a.example.com', 'a.example.com/api', 'a.example.com/api/v2']);
+	});
+
+	it('opens a new domain on the same host from Add route', async () => {
+		renderRoutes();
+		await fireEvent.click(screen.getAllByRole('button', { name: 'Add route' })[1]);
+		await waitFor(() =>
+			expect((screen.getByRole('textbox', { name: 'Host' }) as HTMLInputElement).value).toBe(
+				'a.example.com',
+			),
+		);
+		expect(screen.getAllByRole('button', { name: 'Add route' })).toHaveLength(2);
 	});
 });

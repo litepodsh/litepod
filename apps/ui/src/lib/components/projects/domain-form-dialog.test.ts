@@ -127,3 +127,94 @@ it('reports a failed DNS lookup instead of a status', async () => {
 	expect(await screen.findByText('Could not check DNS', {}, { timeout: 2000 })).toBeTruthy();
 	expect(screen.getByText('boom')).toBeTruthy();
 });
+
+it('also adds the www twin with the same settings when asked', async () => {
+	const onSubmit = vi.fn().mockResolvedValue(undefined);
+	render(DomainFormDialog, { open: true, onSubmit });
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'Example.com' },
+	});
+	await fireEvent.input(screen.getByLabelText('Internal port (Caddy target)'), {
+		target: { value: '8080' },
+	});
+	await fireEvent.click(await screen.findByLabelText('Also add www.example.com'));
+	await fireEvent.submit(screen.getByRole('textbox', { name: 'Host' }).closest('form')!);
+	await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+	expect(onSubmit.mock.calls[0][0]).toMatchObject({ host: 'example.com', port: 8080 });
+	expect(onSubmit.mock.calls[1][0]).toMatchObject({ host: 'www.example.com', port: 8080 });
+	expect(onSubmit.mock.calls[1][0]).not.toHaveProperty('is_primary');
+});
+
+it('disables the twin when the app already has it', async () => {
+	render(DomainFormDialog, {
+		open: true,
+		existingHosts: ['example.com'],
+		onSubmit: vi.fn(),
+	});
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'www.example.com' },
+	});
+	expect(await screen.findByText('This app already has that host.')).toBeTruthy();
+});
+
+it('sends the path and hides HTTPS and the www twin for a path domain', async () => {
+	const onSubmit = vi.fn().mockResolvedValue(undefined);
+	render(DomainFormDialog, { open: true, onSubmit });
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'example.com' },
+	});
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Path' }), {
+		target: { value: '/api' },
+	});
+	await fireEvent.input(screen.getByLabelText('Internal port (Caddy target)'), {
+		target: { value: '8080' },
+	});
+	expect(screen.queryByLabelText('HTTPS')).toBeNull();
+	expect(screen.queryByLabelText('Also add www.example.com')).toBeNull();
+	await fireEvent.submit(screen.getByRole('textbox', { name: 'Host' }).closest('form')!);
+	await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+	expect(onSubmit.mock.calls[0][0]).toMatchObject({ host: 'example.com', path: '/api', port: 8080 });
+});
+
+it('hides the path field for local hosts', async () => {
+	render(DomainFormDialog, { open: true, onSubmit: vi.fn() });
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'localhost' },
+	});
+	expect(screen.queryByRole('textbox', { name: 'Path' })).toBeNull();
+});
+
+it('splits a pasted address into host and route', async () => {
+	render(DomainFormDialog, { open: true, onSubmit: vi.fn() });
+	await fireEvent.input(screen.getByRole('textbox', { name: 'Host' }), {
+		target: { value: 'https://Example.com/API/' },
+	});
+	expect((screen.getByRole('textbox', { name: 'Host' }) as HTMLInputElement).value).toBe(
+		'Example.com',
+	);
+	expect((screen.getByRole('textbox', { name: 'Path' }) as HTMLInputElement).value).toBe('/API');
+	expect(screen.getByText('example.com/api/users reaches the app as /users.')).toBeTruthy();
+});
+
+it('opens the DNS card only once the host looks like a domain', async () => {
+	render(DomainFormDialog, { open: true, onSubmit: vi.fn(), serverAddress: '203.0.113.7' });
+	const hostInput = screen.getByRole('textbox', { name: 'Host' });
+	// jsdom has no `inert`, so read the collapsible's state from its grid rows.
+	const card = () => screen.getByText('DNS').closest('[class*="grid-template-rows"]')!.className;
+	await fireEvent.input(hostInput, { target: { value: 'l' } });
+	expect(card()).toContain('grid-rows-[0fr]');
+	await fireEvent.input(hostInput, { target: { value: 'app.example.com' } });
+	expect(card()).toContain('grid-rows-[1fr]');
+});
+
+it('focuses the host when it opens, and the route when the host is prefilled', async () => {
+	render(DomainFormDialog, { open: true, onSubmit: vi.fn() });
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Host' })),
+	);
+	cleanup();
+	render(DomainFormDialog, { open: true, onSubmit: vi.fn(), initialHost: 'example.com' });
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Path' })),
+	);
+});

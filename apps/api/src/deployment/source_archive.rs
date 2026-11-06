@@ -20,6 +20,8 @@ const MAX_ENTRIES: usize = 20_000;
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 /// How many past uploads are kept for rollback, newest first.
 const KEPT_VERSIONS: usize = 10;
+/// How long a one-time download link stays good when nobody uses it.
+const DOWNLOAD_LINK_MS: i64 = 10 * 60 * 1000;
 
 fn archive_path(state: &SharedState, application_id: &str) -> PathBuf {
     state
@@ -128,6 +130,146 @@ async fn keep_version(
         let _ = tokio::fs::remove_file(path).await;
     }
     Ok(())
+}
+
+fn download_token_hash(token: &str) -> String {
+    Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// A link to the application's stored ZIP, ready to `curl`, for the connection
+/// behind `access_token_id`: an agent never sees its own token, so it cannot send
+/// one. Links nobody used are swept here, so the table only holds live ones.
+pub async fn create_download_link(
+    state: &SharedState,
+    application_id: &str,
+    access_token_id: &str,
+) -> Result<String, AppError> {
+    let token = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let now = chrono::Utc::now().timestamp_millis();
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query("DELETE FROM source_archive_downloads WHERE expires_at <= ?1")
+        .bind(now)
+        .execute(&conn)
+        .await
+        .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    sqlx::query(
+        "INSERT INTO source_archive_downloads (token_hash, application_id, access_token_id, expires_at) VALUES (?1, ?2, ?3, ?4)",
+    )
+    .bind(download_token_hash(&token))
+    .bind(application_id)
+    .bind(access_token_id)
+    .bind(now + DOWNLOAD_LINK_MS)
+    .execute(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    Ok(format!(
+        "{}/api/v1/assistant/downloads/{token}",
+        crate::handler::settings::public_base_url(state)
+            .await
+            .trim_end_matches('/')
+    ))
+}
+
+/// The application a download token is good for, spending the token. `None` when
+/// it is unknown, already used or expired, or when the connection that asked for
+/// it may no longer read the application. One statement, so two requests racing
+/// on the same link cannot both get it.
+pub async fn redeem_download(state: &SharedState, token: &str) -> Result<Option<String>, AppError> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let row = sqlx::query_as::<_, (String, String)>(
+        "DELETE FROM source_archive_downloads WHERE token_hash = ?1 AND expires_at > ?2 RETURNING application_id, access_token_id",
+    )
+    .bind(download_token_hash(token))
+    .bind(chrono::Utc::now().timestamp_millis())
+    .fetch_optional(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    let Some((application_id, access_token_id)) = row else {
+        return Ok(None);
+    };
+    Ok(
+        connection_may_read(state, &application_id, &access_token_id)
+            .await?
+            .then_some(application_id),
+    )
+}
+
+/// The same checks a request with this token would pass: the token is open, its
+/// user is active, MCP is on, and the member may still read this application.
+async fn connection_may_read(
+    state: &SharedState,
+    application_id: &str,
+    access_token_id: &str,
+) -> Result<bool, AppError> {
+    use crate::git::repositories::{db, personal_access_token, user};
+    use crate::security::{
+        authz::{Permission, extract::member_permissions, set::Target},
+        middleware::auth::AuthUser,
+    };
+
+    let Some(token) = personal_access_token::find_active_by_id(state, access_token_id).await?
+    else {
+        return Ok(false);
+    };
+    let Some(user_row) = user::get_user_by_id_result(state, &token.user_id).await? else {
+        return Ok(false);
+    };
+    if !user::is_active(&user_row) {
+        return Ok(false);
+    }
+    let conn = db::get_conn(state).await;
+    let Some((organization_id, project_id, environment_id)) =
+        sqlx::query_as::<_, (String, String, String)>(
+            "SELECT p.organization_id, p.id, e.id FROM applications a \
+             JOIN environments e ON e.id = a.environment_id \
+             JOIN projects p ON p.id = e.project_id WHERE a.id = ?1",
+        )
+        .bind(application_id)
+        .fetch_optional(&conn)
+        .await
+        .map_err(|error| AppError::DatabaseError(error.to_string()))?
+    else {
+        return Ok(false);
+    };
+    if token
+        .mcp_organization_id
+        .as_ref()
+        .is_some_and(|pinned| *pinned != organization_id)
+        || crate::handler::mcp::mcp_on(state, &organization_id)
+            .await
+            .is_err()
+    {
+        return Ok(false);
+    }
+    let actor = AuthUser {
+        is_sysadmin: user::is_sysadmin(state, &user_row.id).await,
+        user_id: user_row.id,
+        email: user_row.email,
+        name: user_row.name,
+        token_id: Some(token.id),
+        token_name: Some(token.name),
+    };
+    let scopes: Vec<String> = serde_json::from_str(&token.scopes).unwrap_or_default();
+    // A member refused here (gone, or missing a 2FA now required) is a "no", not an error.
+    let Ok((_, permissions)) =
+        member_permissions(state, &actor, &organization_id, Some(&scopes)).await
+    else {
+        return Ok(false);
+    };
+    Ok(permissions.allows(
+        Permission::AppRead,
+        Target::Environment {
+            project_id: &project_id,
+            environment_id: &environment_id,
+        },
+    ))
 }
 
 /// Whether the application builds from an uploaded archive.
@@ -316,6 +458,76 @@ mod tests {
             zip.write_all(content.as_bytes()).unwrap();
         }
         zip.finish().unwrap().into_inner()
+    }
+
+    #[tokio::test]
+    async fn an_expired_download_link_is_refused() {
+        let (state, path) = crate::testing::test_state().await;
+        let (_, _, application_id) =
+            crate::testing::seed_application(&state, "organization-a").await;
+        crate::testing::seed_mcp_connection(&state, "organization-a", "editor", "connection").await;
+        let link = create_download_link(&state, &application_id, "connection")
+            .await
+            .unwrap();
+        let token = link.rsplit('/').next().unwrap();
+        sqlx::query("UPDATE source_archive_downloads SET expires_at = 0")
+            .execute(&state.db)
+            .await
+            .unwrap();
+
+        assert_eq!(redeem_download(&state, token).await.unwrap(), None);
+        crate::testing::cleanup_database(&path);
+    }
+
+    /// Each step leaves the connection good except for one thing, so a link only
+    /// works while the person behind it could still make the same request.
+    #[tokio::test]
+    async fn a_download_link_dies_with_the_connection_behind_it() {
+        let (state, path) = crate::testing::test_state().await;
+        let (_, _, application_id) =
+            crate::testing::seed_application(&state, "organization-a").await;
+        crate::testing::seed_mcp_connection(&state, "organization-a", "editor", "connection").await;
+        crate::testing::seed_mcp_connection(&state, "organization-a", "outsider", "stranger").await;
+        crate::testing::seed_mcp_connection(&state, "organization-b", "editor", "elsewhere").await;
+        let token_for = async |connection: &str| {
+            let link = create_download_link(&state, &application_id, connection)
+                .await
+                .unwrap();
+            link.rsplit('/').next().unwrap().to_owned()
+        };
+
+        let good = token_for("connection").await;
+        assert_eq!(
+            redeem_download(&state, &good).await.unwrap().as_deref(),
+            Some(application_id.as_str())
+        );
+
+        for connection in ["stranger", "elsewhere"] {
+            let token = token_for(connection).await;
+            assert_eq!(
+                redeem_download(&state, &token).await.unwrap(),
+                None,
+                "{connection}"
+            );
+        }
+
+        let mcp_off = token_for("connection").await;
+        sqlx::query("UPDATE organizations SET mcp_enabled = 0 WHERE id = 'organization-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(redeem_download(&state, &mcp_off).await.unwrap(), None);
+        sqlx::query("UPDATE organizations SET mcp_enabled = 1 WHERE id = 'organization-a'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+
+        let revoked = token_for("connection").await;
+        crate::git::repositories::personal_access_token::revoke(&state, "connection")
+            .await
+            .unwrap();
+        assert_eq!(redeem_download(&state, &revoked).await.unwrap(), None);
+        crate::testing::cleanup_database(&path);
     }
 
     fn scratch() -> PathBuf {

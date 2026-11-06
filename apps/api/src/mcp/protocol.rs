@@ -42,6 +42,14 @@ pub const INSTRUCTIONS: &str = "Litepod deploys and runs applications for this o
     organization set one up. `get repositories` lists the repositories the organization's Git providers \
     can see, private ones included, and `get url` reads one public page. \
     Write your own compose only when the catalog has nothing, or the user says so after hearing the options. \
+    Before placing a new application, read `get servers`: each server has its name, address and OS, \
+    `local` marks the host Litepod itself runs on, and `default` the server a new application goes to \
+    (`local` when there is one). When the user names no place, use the default without asking. \
+    Pass `server_group` instead of `server` to run one replica on every server of a group. \
+    When the user describes a place you cannot match for certain to one server or group (a name that \
+    is not listed, a region, \"the big one\"), do not guess: tell them the servers and groups from \
+    `get servers` they can publish to, with name, address and OS, and ask which one. \
+    `get applications` shows where each application runs: one server or a server group. \
     Use `exec` to change something: every action happens immediately and returns its result. \
     For `deploy_static_site`, send the site inline with `files` or `zip_base64` so it deploys in the same call.";
 

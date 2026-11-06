@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import SecurityEventsTable from '#lib/components/admin/security-events-table.svelte';
+	import SecurityRetentionSetting from '#lib/components/admin/security-retention-setting.svelte';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	// Alerts link here with `?flagged=1`.
@@ -12,6 +13,8 @@
 		<h1 class="text-xl font-semibold tracking-tight">{t('operations.security.title')}</h1>
 		<p class="text-muted-foreground text-sm">{t('operations.security.description')}</p>
 	</header>
+
+	<SecurityRetentionSetting />
 
 	<SecurityEventsTable bind:flagged />
 </div>

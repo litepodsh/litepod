@@ -67,20 +67,33 @@
 	let top = $derived(max ?? Math.max(1, ...data) * 1.08);
 	let w = $derived(cols * P - G);
 	let h = $derived(rows * P - G);
+	let hot = $state<number | null>(null);
+
+	// Nearest column, so the gaps between squares keep the selection.
+	function track(e: PointerEvent) {
+		const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+		const i = Math.max(0, Math.min(cols - 1, Math.floor(((e.clientX - r.left) / r.width) * cols)));
+		if (i === hot) return;
+		hot = i;
+		onhover?.(i);
+	}
 </script>
 
 <svg
-	class={cn('cell-chart block h-auto w-full', toneClass[tone], className)}
+	class={cn('cell-chart block h-auto w-full', toneClass[tone], hot !== null && 'hovering', className)}
 	viewBox="0 0 {w} {h}"
 	role="img"
 	aria-label={ariaLabel}
-	onpointerleave={() => onhover?.(null)}>
+	onpointermove={track}
+	onpointerleave={() => {
+		hot = null;
+		onhover?.(null);
+	}}>
 	{#each data as v, i (i)}
 		{@const n = v > 0 ? Math.min(rows, Math.max(1, Math.round((v / top) * rows))) : 0}
 		{@const cap = capRows?.[i] ?? rows}
 		{@const picked = selection && i >= selection[0] && i <= selection[1]}
-		<!-- svelte-ignore a11y_no_static_element_interactions (pointer readout only; the svg carries the label) -->
-		<g onpointerenter={() => onhover?.(i)}>
+		<g class={cn(hot === i && 'hot')}>
 			{#if !onhover}<title>{label(i)}{format(v)}</title>{/if}
 			{#each { length: rows }, k (k)}
 				<rect
@@ -121,13 +134,13 @@
 	g:last-of-type .cell.on {
 		opacity: 1;
 	}
-	svg:hover .cell.on {
+	.hovering .cell.on {
 		opacity: 0.32;
 	}
-	g:hover .cell.on {
+	.hot .cell.on {
 		opacity: 1;
 	}
-	g:hover .cell {
+	.hot .cell {
 		opacity: 0.2;
 	}
 	@media (prefers-reduced-motion: reduce) {

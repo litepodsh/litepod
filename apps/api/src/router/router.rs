@@ -73,7 +73,13 @@ const METRICS_ALLOWED_PATHS: &[&str] = &[
     users::update_user_handler,
     users::delete_user_handler,
     users::set_user_disabled_handler,
+    users::admin_list_users_handler,
+    users::admin_set_user_disabled_handler,
+    users::admin_list_mcp_connections_handler,
+    users::admin_revoke_mcp_connection_handler,
     security_events::list_security_events_handler,
+    security_events::get_retention_handler,
+    security_events::update_retention_handler,
     invitations::list_handler,
     invitations::create_handler,
     invitations::revoke_handler,
@@ -352,6 +358,11 @@ pub fn create_router(state: SharedState) -> Router {
                     crate::deployment::source_archive::MAX_ARCHIVE_BYTES,
                 )),
         )
+        // The way back: `get source_archive` hands the agent this one-time link.
+        .route(
+            "/api/v1/assistant/downloads/{token}",
+            get(webhooks::assistant_download_handler),
+        )
         .with_state(state.clone());
 
     let debug_routes = debug::routes()
@@ -393,6 +404,8 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/restart-podman", post(servers::maintenance_restart_podman_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/check-disk", post(servers::maintenance_check_disk_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/create-swap", post(servers::maintenance_create_swap_handler))
+        .route("/api/v1/organizations/{organization_id}/servers/{server_id}/security/audit", post(servers::security_audit_handler))
+        .route("/api/v1/organizations/{organization_id}/servers/{server_id}/security/apply", post(servers::security_apply_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/maintenance/update-helper", post(servers::maintenance_update_helper_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/test-deploy", post(servers::test_deploy_handler))
         .route("/api/v1/organizations/{organization_id}/servers/{server_id}/setup", post(servers::setup_handler))
@@ -474,6 +487,20 @@ pub fn create_router(state: SharedState) -> Router {
         )
         .route("/api/v1/users/{user_id}/disabled", put(users::set_user_disabled_handler))
         .route("/api/v1/admin/security-events", get(security_events::list_security_events_handler))
+        .route("/api/v1/admin/users", get(users::admin_list_users_handler))
+        .route(
+            "/api/v1/admin/users/{user_id}/disabled",
+            put(users::admin_set_user_disabled_handler),
+        )
+        .route(
+            "/api/v1/admin/users/{user_id}/mcp-connections",
+            get(users::admin_list_mcp_connections_handler),
+        )
+        .route(
+            "/api/v1/admin/users/{user_id}/mcp-connections/{connection_id}",
+            delete(users::admin_revoke_mcp_connection_handler),
+        )
+        .route("/api/v1/admin/security-events/retention", get(security_events::get_retention_handler).put(security_events::update_retention_handler))
         .route("/api/v1/invitations", get(invitations::list_handler).post(invitations::create_handler))
         .route("/api/v1/invitations/organizations", get(invitations::eligible_organizations_handler))
         .route("/api/v1/invitations/{id}/revoke", post(invitations::revoke_handler))
@@ -804,6 +831,23 @@ pub fn create_router(state: SharedState) -> Router {
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/templates/sqlserver/resource/rotate-password",
             post(templates::rotate_sqlserver_password_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/templates/clickhouse/preview",
+            post(templates::preview_clickhouse_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/templates/clickhouse",
+            post(templates::create_clickhouse_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/templates/clickhouse/resource",
+            get(templates::get_clickhouse_resource_handler)
+                .patch(templates::update_clickhouse_resource_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/templates/clickhouse/resource/rotate-password",
+            post(templates::rotate_clickhouse_password_handler),
         )
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}",

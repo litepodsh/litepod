@@ -525,6 +525,17 @@ pub async fn confirm(
     .await?;
     let _ = state.ephemeral.delete(&user_key(&user_id)).await;
     let _ = state.ephemeral.delete(&code_key(&code_digest)).await;
+    let _ = crate::security::security_events::record_about(
+        state,
+        &user_id,
+        if reactivated {
+            "auth.reactivated"
+        } else {
+            "auth.registered"
+        },
+        None,
+    )
+    .await;
     Ok(ConfirmResult {
         verified: true,
         reactivated,

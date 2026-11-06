@@ -35,6 +35,9 @@ impl Engine {
             Some("sqlserver") => Err(AppError::ValidationError(
                 "SQL Server backups are not supported yet".into(),
             )),
+            Some("clickhouse") => Err(AppError::ValidationError(
+                "ClickHouse backups are not supported yet".into(),
+            )),
             _ => Err(AppError::ValidationError(
                 "Backups only exist for managed databases".into(),
             )),

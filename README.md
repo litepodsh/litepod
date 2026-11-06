@@ -180,7 +180,7 @@ Local setup, Podman machine sizing and staging deploys are documented in [`apps/
 
 ## Telemetry
 
-Self-hosted Litepod sends an anonymous ping to our status service (`status.litepod.sh`) once a day, so we can count how many installations exist and which versions they run. The ping contains only a random instance ID (a UUID v7 generated on your server) and the Litepod version. It does not include domains, emails, app names, project data or IP addresses, and we do not store IPs.
+Self-hosted Litepod sends an anonymous ping to our status service (`status.litepod.sh`) once a day, so we can count how many installations exist and which versions they run. The ping contains only anonymous, aggregated install data. It does not include domains, emails, app names, project data or IP addresses, and we do not store IPs.
 
 It is on by default, and the installer says so when it finishes. To turn it off:
 

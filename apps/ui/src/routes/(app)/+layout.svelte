@@ -1,11 +1,13 @@
 <script lang="ts">
 	import '../../app.css';
+	import { animate } from 'motion';
 	import favicon from '#lib/assets/favicon.svg';
 	import { page } from '$app/state';
 	import CommandPalette from '#lib/components/custom/command-palette.svelte';
 	import { UpdateOverlay } from '#lib/components/update/index.js';
 	import OnboardingDock from '#lib/components/onboarding/onboarding-dock.svelte';
 	import AppSidebar from '#lib/components/shell/app-sidebar.svelte';
+	import { sidebarSide } from '#lib/state/sidebar-side.svelte.js';
 	import * as Sidebar from '#lib/components/ui/sidebar/index.js';
 	import { SIDEBAR_COOKIE_NAME } from '#lib/components/ui/sidebar/constants.js';
 	import ScopeHeader from '#lib/components/shell/scope-header.svelte';
@@ -33,6 +35,27 @@
 	let organizationsLoaded = $state(false);
 	// The primitive writes this cookie but never reads it back.
 	let sidebarOpen = $state(!document.cookie.includes(`${SIDEBAR_COOKIE_NAME}=false`));
+
+	// Side swap, FLIP style: the layout jumps, then each piece springs from where it was.
+	let content = $state<HTMLElement>();
+	let before = new Map<Element, DOMRect>();
+	const flipped = () =>
+		[document.querySelector('[data-slot="sidebar-container"]'), content].filter(
+			(el): el is Element => !!el,
+		);
+	$effect.pre(() => {
+		void sidebarSide.current;
+		before = new Map(flipped().map((el) => [el, el.getBoundingClientRect()]));
+	});
+	$effect(() => {
+		void sidebarSide.current;
+		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		for (const el of flipped()) {
+			const from = before.get(el);
+			const dx = from ? from.left - el.getBoundingClientRect().left : 0;
+			if (dx) animate(el, { x: [dx, 0] }, { type: 'spring', stiffness: 260, damping: 30 });
+		}
+	});
 
 	function pageTitle(): string {
 		const labels = resolveBreadcrumbs(page.url.pathname)
@@ -65,7 +88,7 @@
 
 <CommandPalette />
 <UpdateOverlay />
-<Sidebar.Provider bind:open={sidebarOpen}>
+<Sidebar.Provider bind:open={sidebarOpen} class={sidebarSide.current === 'right' ? 'flex-row-reverse' : ''}>
 	<AppSidebar
 		bind:organizations
 		active={activeOrganization}
@@ -76,7 +99,7 @@
 		{user}
 		{systemVersion} />
 	<!-- Not Sidebar.Inset: it renders a <main>, and the page's own <main> sits inside. -->
-	<div class="flex min-h-svh min-w-0 flex-1 flex-col">
+	<div bind:this={content} class="flex min-h-svh min-w-0 flex-1 flex-col">
 		<ScopeHeader
 			bind:organizations
 			bind:isSysadmin

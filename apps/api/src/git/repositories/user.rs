@@ -190,6 +190,104 @@ pub async fn list_all_users(state: &SharedState) -> Result<Vec<UserRow>, String>
     Ok(users)
 }
 
+/// What a SysAdmin weighs before disabling an account. Servers and applications count
+/// the organizations the user created, like billing does: an invited member has none.
+#[derive(Default)]
+pub struct UserUsage {
+    pub last_login_at: Option<String>,
+    pub remote_servers: i64,
+    pub remote_servers_ready: i64,
+    pub applications: i64,
+    pub applications_running: i64,
+}
+
+pub async fn list_usage(
+    state: &SharedState,
+) -> Result<std::collections::HashMap<String, UserUsage>, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let rows = sqlx::query(
+        "SELECT u.id, u.last_login_at, COALESCE(s.total, 0), COALESCE(s.ready, 0),
+                COALESCE(a.total, 0), COALESCE(a.running, 0)
+         FROM users u
+         LEFT JOIN (
+             SELECT o.created_by AS user_id, COUNT(*) AS total, SUM(sv.state = 'ready') AS ready
+             FROM servers sv
+             JOIN organizations o ON o.id = sv.organization_id
+             WHERE sv.kind = 'ssh'
+             GROUP BY o.created_by
+         ) s ON s.user_id = u.id
+         LEFT JOIN (
+             SELECT o.created_by AS user_id, COUNT(*) AS total,
+                    SUM(d.status = 'running' OR EXISTS (
+                        SELECT 1 FROM application_replicas r
+                        WHERE r.application_id = ap.id AND r.status = 'running'
+                    )) AS running
+             FROM applications ap
+             JOIN environments e ON e.id = ap.environment_id
+             JOIN projects p ON p.id = e.project_id
+             JOIN organizations o ON o.id = p.organization_id
+             LEFT JOIN application_deployments d ON d.application_id = ap.id
+             WHERE ap.maintenance_for IS NULL
+             GROUP BY o.created_by
+         ) a ON a.user_id = u.id",
+    )
+    .fetch_all(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    rows.iter()
+        .map(|row| {
+            Ok((
+                row.try_get(0)?,
+                UserUsage {
+                    last_login_at: row.try_get(1)?,
+                    remote_servers: row.try_get(2)?,
+                    remote_servers_ready: row.try_get(3)?,
+                    applications: row.try_get(4)?,
+                    applications_running: row.try_get(5)?,
+                },
+            ))
+        })
+        .collect::<Result<_, sqlx::Error>>()
+        .map_err(|e| e.to_string())
+}
+
+/// What each user has running right now, as an action and its target. Someone with several shows
+/// one of them, deployments first.
+pub async fn list_running_work(
+    state: &SharedState,
+) -> Result<std::collections::HashMap<String, (String, String)>, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let rows = sqlx::query(
+        "SELECT r.created_by, 'deployment.' || r.status, a.name
+         FROM application_deployment_runs r
+         JOIN applications a ON a.id = r.application_id
+         WHERE a.maintenance_for IS NULL
+           AND r.created_by IS NOT NULL
+           AND r.status IN ('building', 'deploying')
+         UNION ALL
+         SELECT t.created_by, 'scheduled_task.running', t.name
+         FROM scheduled_task_executions x
+         JOIN scheduled_tasks t ON t.id = x.task_id
+         WHERE x.status = 'running'
+         ORDER BY 2",
+    )
+    .fetch_all(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut running = std::collections::HashMap::new();
+    for row in &rows {
+        running
+            .entry(row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?)
+            .or_insert((
+                row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?,
+                row.try_get(2).map_err(|e: sqlx::Error| e.to_string())?,
+            ));
+    }
+    Ok(running)
+}
+
 pub async fn update_user(
     state: &SharedState,
     user_id: &str,
@@ -335,6 +433,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn running_work_is_attributed_to_its_user_and_prefers_deployments() {
+        let (state, path) = test_state().await;
+        crate::testing::seed_application(&state, "organization-a").await;
+        for (id, status, created_by) in [
+            ("run-viewer", "building", Some("viewer")),
+            ("run-finished", "succeeded", Some("outsider")),
+            ("run-webhook", "deploying", None),
+        ] {
+            sqlx::query("INSERT INTO application_deployment_runs (id, application_id, source_type, build_method, status, started_at, created_by) VALUES (?1, 'organization-a-app', 'git', 'docker', ?2, 1, ?3)")
+                .bind(id)
+                .bind(status)
+                .bind(created_by)
+                .execute(&state.db)
+                .await
+                .unwrap();
+        }
+        for (task, created_by, status) in [
+            ("task-editor", "editor", "running"),
+            ("task-viewer", "viewer", "running"),
+            ("task-queued", "outsider", "queued"),
+        ] {
+            sqlx::query("INSERT INTO scheduled_tasks (id, organization_id, server_id, name, cron_expression, runner, shell, script, timeout_seconds, created_by, created_at, updated_at) VALUES (?1, 'organization-a', 'local', ?1, '* * * * *', 'litepod_api', 'sh', 'echo ran', 10, ?2, 1, 1)")
+                .bind(task)
+                .bind(created_by)
+                .execute(&state.db)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO scheduled_task_executions (id, task_id, organization_id, server_id, trigger, runner, shell, script, timeout_seconds, status, queued_at) VALUES (?1, ?1, 'organization-a', 'local', 'scheduled', 'litepod_api', 'sh', 'echo ran', 10, ?2, 1)")
+                .bind(task)
+                .bind(status)
+                .execute(&state.db)
+                .await
+                .unwrap();
+        }
+
+        let running = list_running_work(&state).await.unwrap();
+
+        assert_eq!(
+            running["viewer"],
+            (
+                "deployment.building".to_string(),
+                "organization-a-app".to_string()
+            )
+        );
+        assert_eq!(
+            running["editor"],
+            (
+                "scheduled_task.running".to_string(),
+                "task-editor".to_string()
+            )
+        );
+        assert!(!running.contains_key("outsider"));
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
     async fn set_disabled_blocks_login_and_drops_sessions() {
         let (state, path) = test_state().await;
         let conn = crate::git::repositories::db::get_conn(&state).await;
@@ -355,6 +509,50 @@ mod tests {
 
         assert!(set_disabled(&state, "u", false).await.unwrap());
         assert!(is_active(&get_user_by_id(&state, "u").await.unwrap()));
+
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn usage_shows_the_last_sign_in_and_only_what_the_user_created() {
+        let (state, path) = test_state().await;
+        // Both organizations are created by `editor`; `viewer` is only a member of one.
+        let (_, _, app) = crate::testing::seed_application(&state, "organization-a").await;
+        sqlx::query("INSERT INTO application_deployments (application_id, status, container_name, hostname, updated_at) VALUES (?1, 'running', 'app', 'app.test', 1)")
+            .bind(&app)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        // Group-targeted: no running deployment row, only a running replica.
+        let (_, _, replicated) = crate::testing::seed_application(&state, "organization-b").await;
+        sqlx::query("INSERT INTO application_replicas (application_id, server_id, status, container_name, updated_at) VALUES (?1, 'organization-b-server', 'running', 'app', 1)")
+            .bind(&replicated)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE servers SET state = 'offline' WHERE id = 'organization-b-server'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        crate::git::repositories::session::create_session(
+            &state,
+            "session-editor",
+            "editor",
+            "token",
+            "2999-01-01 00:00:00",
+            None,
+        )
+        .await
+        .unwrap();
+
+        let usage = list_usage(&state).await.unwrap();
+        let editor = &usage["editor"];
+        assert!(editor.last_login_at.as_deref().unwrap().ends_with('Z'));
+        assert_eq!((editor.remote_servers, editor.remote_servers_ready), (2, 1));
+        assert_eq!((editor.applications, editor.applications_running), (2, 2));
+        let viewer = &usage["viewer"];
+        assert_eq!(viewer.last_login_at, None);
+        assert_eq!((viewer.remote_servers, viewer.applications), (0, 0));
 
         cleanup_database(&path);
     }

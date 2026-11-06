@@ -11,6 +11,7 @@ pub mod ports;
 pub mod replica;
 pub mod repository;
 pub mod runtime;
+pub mod security;
 pub mod setup;
 pub mod ssh;
 pub mod terminal;

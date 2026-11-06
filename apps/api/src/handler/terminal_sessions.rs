@@ -118,6 +118,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cloud_hides_support_sessions_from_the_organization() {
+        for (is_cloud, expected) in [(true, 1), (false, 2)] {
+            let (state, path) = crate::testing::test_state_for(is_cloud).await;
+            seed_application(&state, "organization-a").await;
+            sqlx::query("INSERT INTO user_global_roles (user_id, role_id) VALUES ('outsider', 0)")
+                .execute(&state.db)
+                .await
+                .unwrap();
+            for user in ["outsider", "editor"] {
+                crate::servers::terminal::start_session(
+                    &state,
+                    "organization-a",
+                    "organization-a-server",
+                    &auth_user(user),
+                )
+                .await
+                .unwrap();
+            }
+            let sessions = list_sessions(
+                &state,
+                "organization-a",
+                SessionScope::Server {
+                    id: "organization-a-server",
+                    include_host: true,
+                },
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            assert_eq!(sessions.len(), expected, "is_cloud={is_cloud}");
+            cleanup_database(&path);
+        }
+    }
+
+    #[tokio::test]
     async fn history_needs_the_permission_that_opens_the_terminal() {
         let (state, path) = test_state().await;
         let (p, e, a) = seed_application(&state, "organization-a").await;

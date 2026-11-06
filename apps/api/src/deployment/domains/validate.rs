@@ -146,6 +146,11 @@ pub fn validate_domain_for_ingress(ingress_mode: IngressMode, host: &str) -> Res
 /// so a tenant cannot claim whichever one is not currently active.
 pub(super) async fn reject_reserved_host(state: &SharedState, host: &str) -> Result<(), AppError> {
     let host = host.trim().to_ascii_lowercase();
+    // A local domain is a published port, never routed through the panel's Caddy,
+    // so it cannot share the panel's origin (dev runs the panel on localhost too).
+    if is_local(&host) {
+        return Ok(());
+    }
     let bases = [
         crate::handler::settings::public_base_url(state).await,
         state.public_url.clone(),
@@ -163,13 +168,14 @@ pub(super) async fn reject_reserved_host(state: &SharedState, host: &str) -> Res
     Ok(())
 }
 
-/// An exact `(host, port)` duplicate is left to the unique index, which reports
-/// it as a 409 conflict; this guard only fires for a *different* port.
+/// An exact `(host, port, path)` duplicate is left to the unique index, which reports
+/// it as a 409 conflict; this guard only fires for a *different* port on the same path.
 pub(super) async fn reject_conflicting_public_host(
     state: &SharedState,
     server_id: &str,
     host: &str,
     port: i64,
+    path: Option<&str>,
     exclude_domain_id: Option<&str>,
 ) -> Result<(), AppError> {
     if is_local(host) {
@@ -179,12 +185,13 @@ pub(super) async fn reject_conflicting_public_host(
     let rows = sqlx::query(
         "SELECT d.id FROM application_domains d \
          JOIN applications a ON a.id = d.application_id \
-         WHERE d.host = ?1 AND d.port <> ?3 \
+         WHERE d.host = ?1 AND d.port <> ?3 AND COALESCE(d.path, '') = COALESCE(?4, '') \
            AND COALESCE(d.server_id, a.server_id) = ?2",
     )
     .bind(host)
     .bind(server_id)
     .bind(port)
+    .bind(path)
     .fetch_all(&conn)
     .await
     .map_err(|error| AppError::DatabaseError(error.to_string()))?;
@@ -217,4 +224,103 @@ pub(super) async fn validate_domain_for_application(
         .map_err(|error| AppError::DatabaseError(error.to_string()))?;
     let ingress_mode = ingress_mode.parse::<IngressMode>()?;
     validate_domain_for_ingress(ingress_mode, host)
+}
+
+/// `/API/` becomes `/api`; empty or `/` is the host's root (`None`). Lowercased because
+/// Caddy's path matcher ignores case, so `/api` and `/API` would be one route. Each
+/// segment is a plain URL token, so the prefix is safe inside a Caddy matcher and rewrite.
+pub(super) fn normalize_path(raw: Option<&str>) -> Result<Option<String>, AppError> {
+    let path = raw.unwrap_or_default().trim();
+    let path = path.strip_suffix('/').unwrap_or(path);
+    if path.is_empty() {
+        return Ok(None);
+    }
+    let segment_ok = |segment: &str| {
+        !segment.is_empty()
+            && segment != "."
+            && segment != ".."
+            && segment
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '~' | '-'))
+    };
+    match path.strip_prefix('/') {
+        Some(rest) if path.len() <= 200 && rest.split('/').all(segment_ok) => {
+            Ok(Some(path.to_ascii_lowercase()))
+        }
+        _ => Err(AppError::ValidationError(
+            "Path must look like /api: letters, digits, - . _ ~ separated by /".into(),
+        )),
+    }
+}
+
+/// HTTPS of the host's root domain, which a path domain inherits: Caddy keys the
+/// listener, SNI and certificate by host, so only the root owns them.
+pub(super) async fn path_domain_https(
+    state: &SharedState,
+    application_id: &str,
+    server_id: &str,
+    host: &str,
+    exclude_domain_id: Option<&str>,
+) -> Result<bool, AppError> {
+    if is_local(host) {
+        return Err(AppError::ValidationError(
+            "Paths are not available for local hosts".into(),
+        ));
+    }
+    // Edge servers write one Caddyfile site block per host; a second route there is ambiguous.
+    if !super::caddy_sync::application_uses_local_caddy(state, application_id).await? {
+        return Err(AppError::ValidationError(
+            "Path routing is only available on the main server for now".into(),
+        ));
+    }
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let row = sqlx::query(
+        "SELECT d.https FROM application_domains d \
+         JOIN applications a ON a.id = d.application_id \
+         WHERE d.host = ?1 AND d.path IS NULL AND d.id <> COALESCE(?3, '') \
+           AND COALESCE(d.server_id, a.server_id) = ?2",
+    )
+    .bind(host)
+    .bind(server_id)
+    .bind(exclude_domain_id)
+    .fetch_optional(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?
+    .ok_or_else(|| {
+        AppError::ValidationError(format!(
+            "Add {host} without a path first; path domains use its HTTPS settings"
+        ))
+    })?;
+    Ok(row
+        .try_get::<i64, _>(0)
+        .map_err(|error| AppError::DatabaseError(error.to_string()))?
+        != 0)
+}
+
+/// A root cannot go away (delete, rename, move, gain a path) while path domains
+/// still hang off its host, or they would keep a route with no TLS owner.
+pub(super) async fn reject_orphaning_paths(
+    state: &SharedState,
+    server_id: &str,
+    host: &str,
+) -> Result<(), AppError> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let paths: Vec<String> = sqlx::query_scalar(
+        "SELECT d.path FROM application_domains d \
+         JOIN applications a ON a.id = d.application_id \
+         WHERE d.host = ?1 AND d.path IS NOT NULL \
+           AND COALESCE(d.server_id, a.server_id) = ?2 ORDER BY d.path",
+    )
+    .bind(host)
+    .bind(server_id)
+    .fetch_all(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::ValidationError(format!(
+        "Remove the path domains of {host} first: {}",
+        paths.join(", ")
+    )))
 }

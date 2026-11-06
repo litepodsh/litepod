@@ -24,6 +24,29 @@ pub async fn finish_session(state: &SharedState, id: &str, result: &str, reason:
         .bind(result).bind(reason).bind(id).execute(&conn).await;
 }
 
+/// SysAdmin trail (cloud only) of a connection to a remote server: which one, and who.
+pub async fn record_connection_event(
+    state: &SharedState,
+    organization_id: &str,
+    actor: &AuthUser,
+    server: &crate::servers::repository::ServerRecord,
+    action: &str,
+) {
+    let target = match &server.ssh_host {
+        Some(host) => format!("{} ({host})", server.name),
+        None => server.name.clone(),
+    };
+    crate::users::presence::on_audit(&actor.user_id, action, Some(&target));
+    let _ = crate::security::security_events::record_for_organization(
+        state,
+        organization_id,
+        Some(actor),
+        action,
+        Some(&target),
+    )
+    .await;
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -399,6 +399,23 @@
 		}
 	}
 
+	// A project ZIP rarely ships a Dockerfile, so a fresh ZIP source starts on Railpack.
+	function chooseZipSource() {
+		if (!source.source_upload) buildMethod = 'railpack';
+		deployType = 'git';
+		gitSource = 'zip';
+	}
+
+	// The upload itself never touches the build method, so save the chosen one after it.
+	async function uploadSourceZip(file: File) {
+		const method = buildMethod;
+		await onUploadSourceArchive(file);
+		if (source.source_upload && source.build_method !== method) {
+			buildMethod = method;
+			await save();
+		}
+	}
+
 	async function loadBranches() {
 		if (!repoUrl.trim()) {
 			toast.error(t('projects.application_general.repo_url_required'));
@@ -801,11 +818,20 @@
 				onclick={() => (deployType = 'static')}
 				><BoxIcon class="size-4" /> {t('projects.application_general.static_files')}</Button>
 			<Button
-				variant={deployType === 'git' ? 'default' : 'outline'}
+				variant={deployType === 'git' && gitSource === 'repository' ? 'default' : 'outline'}
 				disabled={busy}
-				onclick={() => (deployType = 'git')}
+				onclick={() => {
+					deployType = 'git';
+					gitSource = 'repository';
+				}}
 				><GitBranchIcon class="size-4" />
 				{t('projects.application_general.git_repository')}</Button>
+			<Button
+				variant={deployType === 'git' && gitSource === 'zip' ? 'default' : 'outline'}
+				disabled={busy}
+				onclick={chooseZipSource}
+				><FileArchiveIcon class="size-4" />
+				{t('projects.application_general.source_zip')}</Button>
 			<Button
 				variant={deployType === 'compose' ? 'default' : 'outline'}
 				disabled={busy}
@@ -844,33 +870,15 @@
 						: null} />
 			</div>
 		{:else if deployType === 'git'}
-			<div class="mt-5 grid gap-4">
-				<div class="flex flex-wrap gap-2">
-					<Button
-						size="sm"
-						variant={gitSource === 'repository' ? 'default' : 'outline'}
-						disabled={busy}
-						onclick={() => (gitSource = 'repository')}
-						><GitBranchIcon class="size-4" />
-						{t('projects.application_general.source_repository')}</Button>
-					<Button
-						size="sm"
-						variant={gitSource === 'zip' ? 'default' : 'outline'}
-						disabled={busy}
-						onclick={() => (gitSource = 'zip')}
-						><FileArchiveIcon class="size-4" />
-						{t('projects.application_general.source_zip')}</Button>
-				</div>
-			</div>
 			{#if gitSource === 'zip'}
-				<div class="mt-4">
+				<div class="mt-5">
 					<AnimatedFileUpload
 						accept=".zip,application/zip"
 						heading={t('projects.application_general.source_zip_heading')}
 						description={t('projects.application_general.source_zip_description')}
 						validate={validateSourceZip}
 						onMultipleFiles={() => toast.error(t('projects.application_general.one_file_at_a_time'))}
-						onUpload={onUploadSourceArchive}
+						onUpload={uploadSourceZip}
 						allowDelete={false}
 						downloadUrl={sourceArchiveDownloadUrl}
 						currentFile={source.source_upload

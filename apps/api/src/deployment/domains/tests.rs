@@ -137,6 +137,7 @@ fn private_only_rejects_public_domains_but_keeps_local_hosts_available() {
 
 fn dns_candidate() -> DomainDto {
     DomainDto {
+        path: None,
         certificate_id: None,
         certificate_name: None,
         certificate_provider: "automatic".into(),
@@ -211,6 +212,7 @@ async fn first_domain_becomes_primary_and_later_ones_do_not() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "a.example.com".into(),
@@ -226,6 +228,7 @@ async fn first_domain_becomes_primary_and_later_ones_do_not() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "b.example.com".into(),
@@ -260,6 +263,7 @@ async fn the_control_plane_host_cannot_be_claimed_as_an_application_domain() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "PANEL.example.com".into(), // case must not matter
@@ -279,6 +283,7 @@ async fn the_control_plane_host_cannot_be_claimed_as_an_application_domain() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "app.example.com".into(),
@@ -289,6 +294,20 @@ async fn the_control_plane_host_cannot_be_claimed_as_an_application_domain() {
     )
     .await
     .unwrap();
+    cleanup(path);
+}
+
+#[tokio::test]
+async fn dev_seeds_a_localhost_domain_when_the_panel_is_on_localhost() {
+    let (state, path) = test_state(true).await;
+    sqlx::query(
+        "INSERT INTO server_domain_settings (id, domain, email, https, updated_at) VALUES (1, 'localhost:6001', 'a@b.test', 0, 1)",
+    )
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let generated = generate(&state, "application-1").await.unwrap();
+    assert_eq!(generated.host, "localhost");
     cleanup(path);
 }
 
@@ -326,6 +345,7 @@ async fn group_targeted_application_requires_a_domain_pin() {
         &state,
         "application-group",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "a.example.com".into(),
@@ -343,6 +363,7 @@ async fn group_targeted_application_requires_a_domain_pin() {
         &state,
         "application-group",
         CreateDomainRequest {
+            path: None,
             server_id: Some("server-99".into()),
             certificate: Default::default(),
             host: "b.example.com".into(),
@@ -427,6 +448,7 @@ async fn promoting_a_domain_demotes_the_previous_primary() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "a.example.com".into(),
@@ -441,6 +463,7 @@ async fn promoting_a_domain_demotes_the_previous_primary() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "b.example.com".into(),
@@ -457,6 +480,7 @@ async fn promoting_a_domain_demotes_the_previous_primary() {
         "application-1",
         &second.id,
         UpdateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: None,
@@ -485,6 +509,7 @@ async fn deleting_the_primary_promotes_the_oldest_remaining() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "a.example.com".into(),
@@ -499,6 +524,7 @@ async fn deleting_the_primary_promotes_the_oldest_remaining() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "b.example.com".into(),
@@ -535,6 +561,7 @@ async fn duplicate_host_and_port_is_a_conflict() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "a.example.com".into(),
@@ -549,6 +576,7 @@ async fn duplicate_host_and_port_is_a_conflict() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "a.example.com".into(),
@@ -572,6 +600,7 @@ async fn edge_route_targets_lists_non_local_domains_for_one_server() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "svc.example.com".into(),
@@ -586,6 +615,7 @@ async fn edge_route_targets_lists_non_local_domains_for_one_server() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -611,6 +641,7 @@ async fn rejects_a_second_public_domain_reusing_a_host_on_the_same_server() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "kong.example.com".into(),
@@ -627,6 +658,7 @@ async fn rejects_a_second_public_domain_reusing_a_host_on_the_same_server() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "kong.example.com".into(),
@@ -646,6 +678,7 @@ async fn rejects_a_second_public_domain_reusing_a_host_on_the_same_server() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "kong-manager.example.com".into(),
@@ -662,6 +695,7 @@ async fn rejects_a_second_public_domain_reusing_a_host_on_the_same_server() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -683,6 +717,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "a.example.com".into(),
@@ -697,6 +732,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "b.example.com".into(),
@@ -714,6 +750,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
         "application-1",
         &a.id,
         UpdateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: Some("a.example.com".into()),
@@ -731,6 +768,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
         "application-1",
         &b.id,
         UpdateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: Some("a.example.com".into()),
@@ -751,6 +789,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
         "application-1",
         &b.id,
         UpdateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: Some("a.example.com".into()),
@@ -927,6 +966,7 @@ async fn generate_allocates_the_next_free_local_port() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -949,6 +989,7 @@ async fn validation_rejects_bad_input_before_writing() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "http://a.example.com".into(),
@@ -963,6 +1004,7 @@ async fn validation_rejects_bad_input_before_writing() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -980,6 +1022,7 @@ async fn validation_rejects_bad_input_before_writing() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -1004,6 +1047,7 @@ async fn port_mappings_cover_local_domains_only() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -1018,6 +1062,7 @@ async fn port_mappings_cover_local_domains_only() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "127.0.0.1".into(),
@@ -1032,6 +1077,7 @@ async fn port_mappings_cover_local_domains_only() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "app.example.com".into(),
@@ -1095,6 +1141,7 @@ async fn compose_domains_dial_the_routed_service_not_the_compose_project() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "app.example.com".into(),
@@ -1146,6 +1193,7 @@ async fn non_compose_domains_keep_dialing_the_deployment_container() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "app.example.com".into(),
@@ -1177,6 +1225,7 @@ async fn routing_a_new_service_asks_for_a_redeploy_but_reusing_one_does_not() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "a.example.com".into(),
@@ -1191,6 +1240,7 @@ async fn routing_a_new_service_asks_for_a_redeploy_but_reusing_one_does_not() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "b.example.com".into(),
@@ -1242,6 +1292,7 @@ async fn a_stopped_deployment_is_never_routable() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "app.example.com".into(),
@@ -1294,6 +1345,7 @@ async fn local_port_changes_flag_stale_but_proxied_edits_do_not() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -1315,6 +1367,7 @@ async fn local_port_changes_flag_stale_but_proxied_edits_do_not() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "app.example.com".into(),
@@ -1336,6 +1389,7 @@ async fn local_port_changes_flag_stale_but_proxied_edits_do_not() {
         "application-1",
         &local.id,
         UpdateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: None,
@@ -1420,6 +1474,7 @@ async fn local_port_outside_the_generation_range_is_accepted() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -1453,6 +1508,7 @@ async fn port_constraints_lists_taken_local_ports_only() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -1467,6 +1523,7 @@ async fn port_constraints_lists_taken_local_ports_only() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "a.example.com".into(),
@@ -1494,6 +1551,7 @@ async fn duplicate_local_port_reports_the_conflicting_port() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -1508,6 +1566,7 @@ async fn duplicate_local_port_reports_the_conflicting_port() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "localhost".into(),
@@ -1598,6 +1657,7 @@ async fn caddy_recovery_handles_late_start_restart_failure_and_concurrent_writes
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "pastefy.example.com".into(),
@@ -1723,6 +1783,7 @@ async fn certificate_changes_and_primary_survive_failed_caddy_updates() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             host: "api.example.com".into(),
             port: 8080,
@@ -1748,6 +1809,7 @@ async fn certificate_changes_and_primary_survive_failed_caddy_updates() {
         "application-1",
         &created.id,
         UpdateDomainRequest {
+            path: None,
             server_id: None,
             host: None,
             port: Some(8081),
@@ -1768,6 +1830,7 @@ async fn certificate_changes_and_primary_survive_failed_caddy_updates() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             host: "other.example.com".into(),
             port: 8080,
@@ -1806,6 +1869,7 @@ async fn add_domain(state: &SharedState, host: &str) -> DomainDto {
         state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: host.into(),
@@ -2048,6 +2112,7 @@ async fn deleting_the_last_basic_auth_user_unprotects_the_domains() {
         &state,
         "application-1",
         CreateDomainRequest {
+            path: None,
             server_id: None,
             certificate: Default::default(),
             host: "app.example.com".into(),
@@ -2095,4 +2160,120 @@ async fn deleting_the_last_basic_auth_user_unprotects_the_domains() {
     assert!(config.protected_domain_ids.is_empty());
 
     let _ = std::fs::remove_file(path);
+}
+
+fn path_request(host: &str, path: Option<&str>, port: i64, https: Option<bool>) -> CreateDomainRequest {
+    CreateDomainRequest {
+        path: path.map(Into::into),
+        server_id: None,
+        certificate: Default::default(),
+        host: host.into(),
+        port,
+        https,
+        is_primary: None,
+    }
+}
+
+fn path_update(host: Option<&str>, https: Option<bool>) -> UpdateDomainRequest {
+    UpdateDomainRequest {
+        path: None,
+        server_id: None,
+        certificate: Default::default(),
+        host: host.map(Into::into),
+        port: None,
+        https,
+        is_primary: None,
+    }
+}
+
+fn error_text(error: AppError) -> String {
+    match error {
+        AppError::ValidationError(message) => message,
+        other => panic!("expected a validation error, got {other:?}"),
+    }
+}
+
+#[test]
+fn normalize_path_cases() {
+    assert_eq!(normalize_path(None).unwrap(), None);
+    assert_eq!(normalize_path(Some("")).unwrap(), None);
+    assert_eq!(normalize_path(Some(" / ")).unwrap(), None);
+    assert_eq!(normalize_path(Some("/api/")).unwrap().as_deref(), Some("/api"));
+    assert_eq!(normalize_path(Some("/API/v1")).unwrap().as_deref(), Some("/api/v1"));
+    let long = format!("/{}", "a".repeat(200));
+    for bad in ["api", "//", "/api//x", "/../x", "/a/./b", "/a b", "/a*", "/a?x", &long] {
+        assert!(normalize_path(Some(bad)).is_err(), "{bad} must be rejected");
+    }
+}
+
+#[tokio::test]
+async fn path_domain_needs_a_root_and_copies_its_https() {
+    let (state, path) = test_state(false).await;
+    let orphan = create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None))
+        .await
+        .unwrap_err();
+    assert!(error_text(orphan).contains("a.example.com"));
+
+    create(&state, "application-1", path_request("a.example.com", None, 80, Some(true)))
+        .await
+        .unwrap();
+    let api = create(&state, "application-1", path_request("a.example.com", Some("/api/"), 3000, Some(false)))
+        .await
+        .unwrap();
+    assert!(api.https, "a path domain inherits its root's HTTPS");
+    assert_eq!(api.path.as_deref(), Some("/api"));
+    assert_eq!(api.url, "https://a.example.com/api");
+    cleanup(path);
+}
+
+#[tokio::test]
+async fn same_host_and_path_is_a_conflict_on_any_port() {
+    let (state, path) = test_state(false).await;
+    create(&state, "application-1", path_request("a.example.com", None, 80, None)).await.unwrap();
+    create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None)).await.unwrap();
+    assert!(create(&state, "application-1", path_request("a.example.com", Some("/api"), 4000, None)).await.is_err());
+    assert!(create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None)).await.is_err());
+    create(&state, "application-1", path_request("a.example.com", Some("/docs"), 3000, None)).await.unwrap();
+    // A second root on the same host is still a conflict.
+    assert!(create(&state, "application-1", path_request("a.example.com", None, 81, None)).await.is_err());
+    cleanup(path);
+}
+
+#[tokio::test]
+async fn paths_are_rejected_for_local_hosts() {
+    let (state, path) = test_state(false).await;
+    let error = create(&state, "application-1", path_request("localhost", Some("/api"), 10_500, None))
+        .await
+        .unwrap_err();
+    assert!(error_text(error).contains("local hosts"));
+    cleanup(path);
+}
+
+#[tokio::test]
+async fn root_with_paths_cannot_be_deleted_or_renamed() {
+    let (state, path) = test_state(false).await;
+    let root = create(&state, "application-1", path_request("a.example.com", None, 80, None)).await.unwrap();
+    let api = create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None)).await.unwrap();
+
+    let error = delete(&state, "application-1", &root.id).await.unwrap_err();
+    assert!(error_text(error).contains("/api"));
+    assert!(update(&state, "application-1", &root.id, path_update(Some("b.example.com"), None)).await.is_err());
+
+    delete(&state, "application-1", &api.id).await.unwrap();
+    delete(&state, "application-1", &root.id).await.unwrap();
+    cleanup(path);
+}
+
+#[tokio::test]
+async fn root_https_change_propagates_to_paths() {
+    let (state, path) = test_state(false).await;
+    let root = create(&state, "application-1", path_request("a.example.com", None, 80, None)).await.unwrap();
+    let api = create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None)).await.unwrap();
+    assert_eq!(api.url, "http://a.example.com/api");
+
+    update(&state, "application-1", &root.id, path_update(None, Some(true))).await.unwrap();
+    let api = get(&state, "application-1", &api.id).await.unwrap();
+    assert!(api.https);
+    assert_eq!(api.url, "https://a.example.com/api");
+    cleanup(path);
 }

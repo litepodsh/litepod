@@ -38,6 +38,19 @@ it('adds the System tab last for sysadmins only', () => {
 		expect(activeTab(path, tabs)).toBe('system');
 });
 
+it('adds the Admin portal tab for the cloud sysadmin only', () => {
+	// A plain customer, a self-hosted sysadmin and a cloud customer all lack it.
+	expect(orgTabs('org1').some((tab) => tab.id === 'admin')).toBe(false);
+	expect(orgTabs('org1', true).some((tab) => tab.id === 'admin')).toBe(false);
+	expect(orgTabs('org1', false, true).some((tab) => tab.id === 'admin')).toBe(false);
+
+	const tabs = orgTabs('org1', true, true);
+	expect(tabs.at(-1)).toMatchObject({ id: 'admin', href: '/admin' });
+	for (const path of ['/admin', '/admin/users', '/admin/security', '/admin/billing'])
+		expect(activeTab(path, tabs)).toBe('admin');
+	expect(scopeOf('/admin')).toBe('org');
+});
+
 it('adds Billing for cloud customers only', () => {
 	expect(orgTabs('org1').some((tab) => tab.id === 'billing')).toBe(false);
 	expect(orgTabs('org1', true, true).some((tab) => tab.id === 'billing')).toBe(false);

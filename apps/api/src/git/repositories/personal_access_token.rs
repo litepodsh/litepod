@@ -104,6 +104,29 @@ pub async fn find_active_by_digest(
     }))
 }
 
+pub async fn find_active_by_id(
+    state: &SharedState,
+    id: &str,
+) -> Result<Option<TokenRow>, crate::dtos::response::AppError> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let row = sqlx::query(
+        "SELECT id, user_id, name, scopes, expires_at, mcp_organization_id FROM personal_access_tokens WHERE id = ?1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%d %H:%M:%S', 'now'))",
+    )
+    .bind(id)
+    .fetch_optional(&conn)
+    .await
+    .map_err(|e| crate::dtos::response::AppError::DatabaseError(e.to_string()))?;
+
+    Ok(row.map(|row| TokenRow {
+        id: row.try_get(0).unwrap(),
+        user_id: row.try_get(1).unwrap(),
+        name: row.try_get(2).unwrap(),
+        scopes: row.try_get(3).unwrap(),
+        expires_at: row.try_get(4).unwrap(),
+        mcp_organization_id: row.try_get(5).unwrap(),
+    }))
+}
+
 pub async fn touch_last_used(state: &SharedState, id: &str) {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let _ = sqlx::query(

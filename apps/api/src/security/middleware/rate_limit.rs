@@ -114,8 +114,10 @@ pub(crate) fn client_ip_from_parts(
     headers: &axum::http::HeaderMap,
     connect_info: Option<SocketAddr>,
 ) -> IpAddr {
+    // The API binds `[::]`, so an IPv4 peer arrives as `::ffff:a.b.c.d`, which equals neither
+    // the resolved proxy address nor an entry of `TRUSTED_PROXY_IPS`.
     let peer = connect_info
-        .map(|addr| addr.ip())
+        .map(|addr| addr.ip().to_canonical())
         .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
 
     if !peer_may_set_forwarded_for(peer) {
@@ -526,6 +528,15 @@ mod forwarded_for_tests {
         // login ban and the captcha threshold.
         let ip = client_ip_from_parts(&headers_with("1.2.3.4"), peer("203.0.113.9"));
         assert_eq!(ip.to_string(), "203.0.113.9");
+    }
+
+    #[test]
+    fn an_ipv4_mapped_peer_is_judged_as_ipv4() {
+        // A dual-stack listener reports IPv4 peers in the mapped form.
+        let ip = client_ip_from_parts(&headers_with("1.2.3.4"), peer("::ffff:127.0.0.1"));
+        assert_eq!(ip.to_string(), "1.2.3.4");
+        let ip = client_ip_from_parts(&headers_with("1.2.3.4"), peer("::ffff:10.89.0.2"));
+        assert_eq!(ip.to_string(), "10.89.0.2");
     }
 
     #[test]

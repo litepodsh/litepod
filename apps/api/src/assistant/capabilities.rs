@@ -19,6 +19,7 @@ pub const RESOURCES: &[&str] = &[
     "containers",
     "container_logs",
     "source",
+    "source_archive",
     "domains",
     "servers",
     "git_providers",

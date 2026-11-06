@@ -188,6 +188,19 @@ export type UserWithOrgs = {
 	/** Locked out by a SysAdmin. */
 	disabled: boolean;
 	is_sysadmin: boolean;
+	/** Did something in Litepod within the last few minutes, or has a deployment or scheduled task running. */
+	online: boolean;
+	/** What they have running or just did, e.g. `deployment.building`, `deployment.triggered`. */
+	recent_action: string | null;
+	recent_action_target: string | null;
+	last_login_at: string | null;
+	/** Remote servers and applications in the organizations this user created. */
+	remote_servers: number;
+	remote_servers_ready: number;
+	/** Agents with an open MCP OAuth grant right now. */
+	mcp_connections: number;
+	applications: number;
+	applications_running: number;
 	organizations: UserOrganizationMembership[];
 };
 

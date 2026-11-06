@@ -1,11 +1,14 @@
-//! Anonymous install counter. Sends `{instance_id, version, is_cloud}` to the Litepod status
-//! service once a day so the project can tell how many self-hosted instances exist.
-//! Nothing else leaves the server: no domains, emails, app names or IPs.
+//! Anonymous install counter. Sends
+//! `{instance_id, version, is_cloud, podman_mode, arch, os_family}` to the Litepod status
+//! service once a day so the project can tell how many self-hosted instances exist and how
+//! they run. Nothing else leaves the server: no domains, emails, app names or IPs.
 //!
 //! On by default; the sysadmin can turn it off in System > Telemetry, or an operator
 //! can force it off with `LITEPOD_TELEMETRY=off`.
 
 use std::time::Duration;
+
+use podman_api::Podman;
 
 use crate::state::state::SharedState;
 
@@ -57,6 +60,52 @@ async fn stored_enabled(pool: &sqlx::SqlitePool) -> Result<bool, sqlx::Error> {
         .map(|enabled| enabled != 0)
 }
 
+/// How Podman runs for this install, read from the endpoint the API was started with.
+/// Rootless sockets live under `/run/user/<uid>`; rootful uses the system socket. `None`
+/// for an endpoint we do not recognise, so the status service shows "unknown" instead of
+/// guessing.
+pub(super) fn podman_mode(endpoint: &str) -> Option<&'static str> {
+    let endpoint = endpoint.trim();
+    if endpoint.contains("/run/user/") {
+        Some("rootless")
+    } else if endpoint.ends_with("/run/podman/podman.sock") {
+        Some("rootful")
+    } else {
+        None
+    }
+}
+
+/// Normalises an os-release distribution id (`ID=` or Podman's host distribution) into a
+/// short token like `ubuntu`, `fedora` or `arch`. Keeps it inert: ASCII, lowercase and no
+/// free text.
+fn os_token(value: &str) -> Option<String> {
+    let value = value.trim().to_ascii_lowercase();
+    let valid = (1..=32).contains(&value.len())
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    valid.then_some(value)
+}
+
+/// Host distribution. Podman knows the real machine even when the API runs in a container,
+/// so ask it first. If that fails, fall back to the local `/etc/os-release` and finally to
+/// the compiler's OS name, so a ping always carries something readable.
+async fn host_os(state: &SharedState) -> String {
+    if let Ok(podman) = Podman::new(&state.podman_socket)
+        && let Ok(info) = podman.info().await
+        && let Some(value) = info
+            .host
+            .and_then(|host| host.distribution)
+            .and_then(|distribution| distribution.distribution)
+        && let Some(token) = os_token(&value)
+    {
+        return token;
+    }
+    crate::handler::runtime::host_distribution()
+        .and_then(|value| os_token(&value))
+        .unwrap_or_else(|| std::env::consts::OS.to_string())
+}
+
 /// `toggle` is `Some("enabled" | "disabled")` when the sysadmin flips the setting, so the
 /// status service can tell a manual opt-out apart from an instance that just stopped pinging.
 async fn ping(state: &SharedState, toggle: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
@@ -64,7 +113,16 @@ async fn ping(state: &SharedState, toggle: Option<&str>) -> Result<(), Box<dyn s
     let base =
         std::env::var("LITEPOD_TELEMETRY_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
     let url = format!("{}{ALIVE_PATH}", base.trim_end_matches('/'));
-    let mut body = serde_json::json!({ "instance_id": id, "version": state.version, "is_cloud": state.is_cloud });
+    let mut body = serde_json::json!({
+        "instance_id": id,
+        "version": state.version,
+        "is_cloud": state.is_cloud,
+        "arch": std::env::consts::ARCH,
+    });
+    if let Some(mode) = podman_mode(&state.podman_socket) {
+        body["podman_mode"] = mode.into();
+    }
+    body["os_family"] = host_os(state).await.into();
     if let Some(toggle) = toggle {
         body["telemetry"] = toggle.into();
     }
@@ -112,4 +170,40 @@ pub fn spawn(state: SharedState) {
             tokio::time::sleep(INTERVAL).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{os_token, podman_mode};
+
+    #[test]
+    fn rootless_socket_reports_rootless() {
+        assert_eq!(
+            podman_mode("unix:///run/user/1000/podman/podman.sock"),
+            Some("rootless")
+        );
+    }
+
+    #[test]
+    fn rootful_socket_reports_rootful() {
+        assert_eq!(
+            podman_mode("unix:///run/podman/podman.sock"),
+            Some("rootful")
+        );
+    }
+
+    #[test]
+    fn unknown_endpoint_reports_nothing() {
+        assert_eq!(podman_mode("tcp://podman.example:8080"), None);
+        assert_eq!(podman_mode(""), None);
+    }
+
+    #[test]
+    fn os_token_normalises_safe_distribution_ids() {
+        assert_eq!(os_token(" Ubuntu\n").as_deref(), Some("ubuntu"));
+        assert_eq!(os_token("fedora").as_deref(), Some("fedora"));
+        assert_eq!(os_token("arch").as_deref(), Some("arch"));
+        assert_eq!(os_token("Ubuntu 24.04 LTS"), None);
+        assert_eq!(os_token(""), None);
+    }
 }

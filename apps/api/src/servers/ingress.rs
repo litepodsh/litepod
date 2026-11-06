@@ -394,6 +394,8 @@ pub async fn sync_domain(state: &SharedState, domain: &DomainDto) -> Result<(), 
                 state,
                 &domains::route_id(&domain.id),
                 &domain.host,
+                // Path domains are rejected off the main server, so a relay route never has one.
+                None,
                 &relay_host,
                 relay.relay_port as i64,
                 domain.https,

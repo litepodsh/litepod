@@ -28,6 +28,7 @@ use crate::{
         repository::{self, ServerJobRecord, ServerRecord},
         setup::{self, ServerFacts},
         ssh::{SshExecutor, validate_imported_private_key},
+        terminal::record_connection_event,
     },
     state::state::SharedState,
     utils::security::{encrypt_data, get_encryption_key},
@@ -722,7 +723,20 @@ pub async fn preflight_handler(
             server.ssh_port.unwrap_or_default(),
             server.ssh_user.as_deref().unwrap_or_default(),
         )?;
-        let observed = SshExecutor::discover_host_key(&target).await?;
+        let observed = match SshExecutor::discover_host_key(&target).await {
+            Ok(observed) => observed,
+            Err(error) => {
+                record_connection_event(
+                    &state,
+                    &organization_id,
+                    &org.user,
+                    &server,
+                    "server.connection_failed",
+                )
+                .await;
+                return Err(error);
+            }
+        };
         let server = dto(&state, server).await?;
         return Ok(ok(ServerPreflightDto {
             server,
@@ -732,6 +746,14 @@ pub async fn preflight_handler(
     let server = repository::ensure_host_key_known_hosts(&state, server).await?;
     match setup::preflight(&server).await {
         Ok((facts, next)) => {
+            record_connection_event(
+                &state,
+                &organization_id,
+                &org.user,
+                &server,
+                "server.connection_verified",
+            )
+            .await;
             let facts_json = serde_json::to_string(&facts)
                 .map_err(|error| AppError::InternalError(error.to_string()))?;
             let updated =
@@ -742,6 +764,14 @@ pub async fn preflight_handler(
             }))
         }
         Err(error) => {
+            record_connection_event(
+                &state,
+                &organization_id,
+                &org.user,
+                &server,
+                "server.connection_failed",
+            )
+            .await;
             let message = error.to_string();
             let _ = repository::set_state_error(
                 &state,
@@ -789,6 +819,14 @@ pub async fn confirm_host_key_handler(
         ServerState::NeedsSetup,
     )
     .await?;
+    record_connection_event(
+        &state,
+        &organization_id,
+        &org.user,
+        &confirmed,
+        "server.host_key_confirmed",
+    )
+    .await;
     Ok(ok(dto(&state, confirmed).await?))
 }
 
@@ -910,6 +948,7 @@ pub async fn maintenance_restart_handler(
     if result.success {
         repository::set_state(&state, &server.id, ServerState::Offline).await?;
     }
+    record_connection_event(&state, &organization_id, &org.user, &server, "server.restarted").await;
     Ok(ok(maintenance_dto(result)))
 }
 
@@ -942,7 +981,16 @@ pub async fn maintenance_restart_podman_handler(
 ) -> Result<impl IntoResponse, AppError> {
     let organization_id = org.organization_id;
     let server = maintenance_server(&state, &organization_id, &server_id).await?;
-    Ok(ok(maintenance_dto(setup::restart_podman(&server).await?)))
+    let result = setup::restart_podman(&server).await?;
+    record_connection_event(
+        &state,
+        &organization_id,
+        &org.user,
+        &server,
+        "server.podman_restarted",
+    )
+    .await;
+    Ok(ok(maintenance_dto(result)))
 }
 
 pub async fn maintenance_check_disk_handler(
@@ -1021,6 +1069,39 @@ pub async fn maintenance_create_swap_handler(
     let organization_id = org.organization_id;
     let server = maintenance_server(&state, &organization_id, &server_id).await?;
     Ok(ok(maintenance_dto(setup::create_swap(&server).await?)))
+}
+
+pub async fn security_audit_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    // The extractor covers `organization_id`.
+    Path((_, server_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let server = maintenance_server(&state, &org.organization_id, &server_id).await?;
+    Ok(ok(crate::servers::security::audit(&server).await?))
+}
+
+pub async fn security_apply_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    // The extractor covers `organization_id`.
+    Path((_, server_id)): Path<(String, String)>,
+    Json(request): Json<crate::servers::security::ApplySecurityRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    let server = maintenance_server(&state, &organization_id, &server_id).await?;
+    let result = crate::servers::security::apply(&server, request.action).await?;
+    if result.success {
+        record_connection_event(
+            &state,
+            &organization_id,
+            &org.user,
+            &server,
+            "server.hardened",
+        )
+        .await;
+    }
+    Ok(ok(maintenance_dto(result)))
 }
 
 /// Proves the server can actually pull an image and run a container, which a health check only
@@ -1135,6 +1216,18 @@ async fn queue_setup(
         ));
     }
     let job = repository::create_job(&state, &server_id, &user.user_id, kind).await?;
+    record_connection_event(
+        &state,
+        &organization_id,
+        &user,
+        &server,
+        if kind == "setup" {
+            "server.setup_started"
+        } else {
+            "server.repair_started"
+        },
+    )
+    .await;
     tokio::spawn(execute_setup_job(state, server_id, job.id.clone()));
     Ok(accepted(job_dto(job)))
 }

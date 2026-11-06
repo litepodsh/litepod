@@ -61,6 +61,7 @@ pub const INTERNAL_TEMPLATES: &[&str] = &[
     "dragonflydb",
     "keydb",
     "sqlserver",
+    "clickhouse",
 ];
 
 /// The branch a repository is assumed to deploy from when nobody says
@@ -231,6 +232,9 @@ pub struct CreateApplication {
     /// A ready server of this organization. Resolved before the card is stored.
     #[serde(default)]
     pub server_id: String,
+    /// Instead of `server_id`: a group of this organization, one replica per member.
+    #[serde(default)]
+    pub server_group_id: Option<String>,
     #[serde(default)]
     pub compose: Option<String>,
     /// The container port the proxy should route to. Names the Compose service
@@ -298,6 +302,9 @@ pub struct StaticSite {
     pub name: String,
     #[serde(default)]
     pub server_id: String,
+    /// Instead of `server_id`: a group of this organization, one replica per member.
+    #[serde(default)]
+    pub server_group_id: Option<String>,
     #[serde(default)]
     pub host: Option<String>,
     #[serde(default)]
@@ -323,6 +330,9 @@ pub struct SourceApp {
     pub name: String,
     #[serde(default)]
     pub server_id: String,
+    /// Instead of `server_id`: a group of this organization, one replica per member.
+    #[serde(default)]
+    pub server_group_id: Option<String>,
     /// `railpack` (default) or `docker`.
     #[serde(default)]
     pub build_method: String,
@@ -389,6 +399,9 @@ pub struct ComposeApp {
     pub name: String,
     #[serde(default)]
     pub server_id: String,
+    /// Instead of `server_id`: a group of this organization, one replica per member.
+    #[serde(default)]
+    pub server_group_id: Option<String>,
     pub compose: String,
     /// `.env` content: `KEY=VALUE` lines. Secret markers (`{{password_32}}`)
     /// are expanded on confirm, never stored in the action; domain markers

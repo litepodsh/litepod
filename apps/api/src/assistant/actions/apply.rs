@@ -377,8 +377,11 @@ pub(super) async fn apply_create_application(
         &crate::dtos::project::CreateApplicationRequest {
             name: arguments.name.clone(),
             description: arguments.description.clone(),
-            server_id: Some(arguments.server_id.clone()),
-            server_group_id: None,
+            server_id: arguments
+                .server_group_id
+                .is_none()
+                .then(|| arguments.server_id.clone()),
+            server_group_id: arguments.server_group_id.clone(),
         },
     )
     .await?;
@@ -546,6 +549,7 @@ pub(super) async fn apply_add_domain(
         state,
         &stored.application_id,
         crate::dtos::deployment::CreateDomainRequest {
+            path: None,
             certificate: Default::default(),
             host,
             port,
@@ -590,6 +594,7 @@ pub(super) async fn apply_update_domain(
         &stored.application_id,
         &domain_id,
         crate::dtos::deployment::UpdateDomainRequest {
+            path: None,
             certificate: Default::default(),
             host: arguments.host,
             port: arguments.port,
@@ -864,8 +869,11 @@ pub(super) async fn apply_static_site(
             &crate::dtos::project::CreateApplicationRequest {
                 name: site.name.clone(),
                 description: None,
-                server_id: Some(site.server_id.clone()),
-                server_group_id: None,
+                server_id: site
+                    .server_group_id
+                    .is_none()
+                    .then(|| site.server_id.clone()),
+                server_group_id: site.server_group_id.clone(),
             },
         )
         .await?;
@@ -1059,6 +1067,7 @@ async fn ensure_primary_domain(
                 application_id,
                 &domain.id,
                 crate::dtos::deployment::UpdateDomainRequest {
+                    path: None,
                     certificate: Default::default(),
                     host: None,
                     port: Some(port),
@@ -1074,6 +1083,7 @@ async fn ensure_primary_domain(
                 state,
                 application_id,
                 crate::dtos::deployment::CreateDomainRequest {
+                    path: None,
                     certificate: Default::default(),
                     host: host.to_owned(),
                     port,
@@ -1219,6 +1229,7 @@ pub(super) async fn apply_from_template(
                         state,
                         &application_id,
                         crate::dtos::deployment::CreateDomainRequest {
+                            path: None,
                             certificate: Default::default(),
                             host: host.clone(),
                             port,
@@ -1293,7 +1304,7 @@ async fn create_from_template(
     arguments: &FromTemplate,
 ) -> Result<String, AppError> {
     use crate::templates::internal_templates::{
-        dragonflydb, keydb, mariadb, mongodb, postgres, sqlserver,
+        clickhouse, dragonflydb, keydb, mariadb, mongodb, postgres, sqlserver,
     };
 
     if !INTERNAL_TEMPLATES.contains(&arguments.template.as_str()) {
@@ -1350,6 +1361,7 @@ async fn create_from_template(
         "mongodb" => create!(mongodb),
         "dragonflydb" => create!(dragonflydb),
         "keydb" => create!(keydb),
+        "clickhouse" => create!(clickhouse),
         _ => create!(sqlserver),
     }
 }
@@ -1411,8 +1423,11 @@ pub(super) async fn apply_deploy_compose(
             &crate::dtos::project::CreateApplicationRequest {
                 name: arguments.name.clone(),
                 description: None,
-                server_id: Some(arguments.server_id.clone()),
-                server_group_id: None,
+                server_id: arguments
+                    .server_group_id
+                    .is_none()
+                    .then(|| arguments.server_id.clone()),
+                server_group_id: arguments.server_group_id.clone(),
             },
         )
         .await?;
@@ -1438,6 +1453,7 @@ pub(super) async fn apply_deploy_compose(
                         state,
                         &application.id,
                         crate::dtos::deployment::CreateDomainRequest {
+                            path: None,
                             certificate: Default::default(),
                             host: host.clone(),
                             port,
@@ -1598,8 +1614,8 @@ pub(super) async fn apply_source_app(
             &crate::dtos::project::CreateApplicationRequest {
                 name: app.name.clone(),
                 description: None,
-                server_id: Some(app.server_id.clone()),
-                server_group_id: None,
+                server_id: app.server_group_id.is_none().then(|| app.server_id.clone()),
+                server_group_id: app.server_group_id.clone(),
             },
         )
         .await?;

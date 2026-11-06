@@ -28,8 +28,9 @@ pub struct ServerPortDto {
     pub container_port: String,
     pub protocol: String,
     /// "compose" (the app's own `ports:`), "port-override" (the Ports-section
-    /// `port-overrides.yml`), or "managed-endpoint" (litepod's own loopback
-    /// slot for an HTTP domain).
+    /// `port-overrides.yml`), "managed-endpoint" (litepod's own loopback slot
+    /// for an HTTP domain), or "host-network" (a `network_mode: host` service,
+    /// which binds its own ports straight on the host).
     pub source: String,
 }
 
@@ -60,6 +61,28 @@ pub async fn list_for_server(
                                 protocol: exposure.protocol.clone(),
                                 source: "compose".into(),
                             });
+                        }
+                        // A host-networked service publishes nothing: it binds
+                        // its own ports straight on the host (`expose:` is a
+                        // no-op there but lists what it listens on). Surfacing
+                        // them here is what makes a second Home Assistant on the
+                        // same server show a visible conflict instead of failing
+                        // inside Podman.
+                        if service.host_network {
+                            for port in &service.suggested_internal_ports {
+                                for protocol in ["tcp", "udp"] {
+                                    ports.push(ServerPortDto {
+                                        application_id: application.id.clone(),
+                                        application_name: application.name.clone(),
+                                        service: Some(service.name.clone()),
+                                        host_ip: None,
+                                        host_port: port.to_string(),
+                                        container_port: port.to_string(),
+                                        protocol: protocol.into(),
+                                        source: "host-network".into(),
+                                    });
+                                }
+                            }
                         }
                     }
                 }

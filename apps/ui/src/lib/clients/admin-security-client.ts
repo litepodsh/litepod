@@ -45,3 +45,26 @@ export async function listSecurityEvents(
   );
   return resp.data ?? [];
 }
+
+export type SecurityEventRetention = {
+  retention_days: number;
+  default_days: number;
+  max_days: number;
+};
+
+export async function getSecurityEventRetention(): Promise<SecurityEventRetention> {
+  const resp = await api<SecurityEventRetention>(
+    "/api/v1/admin/security-events/retention",
+  );
+  return resp.data as SecurityEventRetention;
+}
+
+export async function updateSecurityEventRetention(
+  retentionDays: number,
+): Promise<SecurityEventRetention> {
+  const resp = await api<SecurityEventRetention>(
+    "/api/v1/admin/security-events/retention",
+    { method: "PUT", body: JSON.stringify({ retention_days: retentionDays }) },
+  );
+  return resp.data as SecurityEventRetention;
+}

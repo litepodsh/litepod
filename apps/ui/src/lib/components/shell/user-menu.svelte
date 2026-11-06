@@ -13,7 +13,6 @@
 	import MessageSquareWarningIcon from '@lucide/svelte/icons/message-square-warning';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PaletteIcon from '@lucide/svelte/icons/palette';
-	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import LocaleFlag from '#lib/components/shell/locale-flag.svelte';
 	import ThemePicker from '#lib/components/custom/theme-picker.svelte';
 	import { i18n, setLocale, t } from '#lib/i18n/index.svelte.js';
@@ -37,9 +36,6 @@
 
 	let appearanceOpen = $state(false);
 	let languageOpen = $state(false);
-
-	// Admin is the only instance page without a scope tab of its own.
-	let showAdmin = $derived(user.is_sysadmin && (systemVersion?.is_cloud ?? false));
 </script>
 
 {#snippet avatar(size: string)}
@@ -166,13 +162,6 @@
 					</div>
 				{/if}
 				<DropdownMenu.Separator />
-				{#if showAdmin}
-					<DropdownMenu.Item onclick={() => goto('/admin')}>
-						<ShieldCheckIcon />
-						{t('menu.navigation.admin')}
-					</DropdownMenu.Item>
-					<DropdownMenu.Separator />
-				{/if}
 				<DropdownMenu.Item onclick={() => window.open(ISSUES_URL, '_blank', 'noopener,noreferrer')}>
 					<MessageSquareWarningIcon />
 					{t('menu.user_menu.feedback')}

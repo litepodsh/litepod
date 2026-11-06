@@ -23,6 +23,7 @@
 	import { tabIndexFromKeydown } from '#lib/utils/tab-shortcut.js';
 	import IconUploadButton from '#lib/components/icon-upload-button.svelte';
 	import OrganizationIcon from '#lib/components/organization-icon.svelte';
+	import ServerPicker from '#lib/components/servers/server-picker.svelte';
 	import { isNamedIcon } from '#lib/utils/organization-icons.js';
 	import IconNamePicker from './icon-name-picker.svelte';
 	import { marked } from 'marked';
@@ -77,12 +78,6 @@
 	// swatch only follows `iconUrl` after a pause.
 	let previewIconUrl = $state('');
 	let serverId = $state('');
-	const serverTriggerLabel = $derived.by(() => {
-		const match = servers.find((server) => server.id === serverId);
-		return match
-			? `${match.name} · ${match.ingress_mode.replace('_', ' ')}`
-			: t('projects.application_form.choose_server');
-	});
 	// A group target fans the app out to every member server, so the picker
 	// toggles between the two rather than showing them in one list.
 	let targetMode = $state<'server' | 'group'>('server');
@@ -735,16 +730,13 @@
 				</div>
 				<div class="grid gap-2 border-t pt-4">
 					<Label for="catalog-application-server">{t('projects.application_form.server')}</Label>
-					<Select.Root type="single" bind:value={serverId}>
-						<Select.Trigger id="catalog-application-server" class="w-full"
-							>{serverTriggerLabel}</Select.Trigger>
-						<Select.Content>
-							{#each servers as server (server.id)}
-								<Select.Item value={server.id}
-									>{server.name} · {server.ingress_mode.replace('_', ' ')}</Select.Item>
-							{/each}
-						</Select.Content>
-					</Select.Root>
+					<ServerPicker
+						{servers}
+						bind:value={serverId}
+						placeholder={t('projects.application_form.choose_server')}
+						searchPlaceholder={t('organizations.common.search_servers')}
+						emptyText={t('organizations.common.no_servers_found')}
+						triggerClass="w-full" />
 					{#if servers.length === 0}<p class="text-sm text-destructive">
 							{t('projects.application_form.no_ready_servers')}
 						</p>{/if}
@@ -840,16 +832,13 @@
 							bind:value={targetMode}
 							label={t('projects.application_form.deploy_target')} />
 						{#if targetMode === 'server'}
-							<Select.Root type="single" bind:value={serverId}>
-								<Select.Trigger id="application-server" class="w-full"
-									>{serverTriggerLabel}</Select.Trigger>
-								<Select.Content>
-									{#each servers as server (server.id)}
-										<Select.Item value={server.id}
-											>{server.name} · {server.ingress_mode.replace('_', ' ')}</Select.Item>
-									{/each}
-								</Select.Content>
-							</Select.Root>
+							<ServerPicker
+								{servers}
+								bind:value={serverId}
+								placeholder={t('projects.application_form.choose_server')}
+								searchPlaceholder={t('organizations.common.search_servers')}
+								emptyText={t('organizations.common.no_servers_found')}
+								triggerClass="w-full" />
 							{#if servers.length === 0}<p class="text-sm text-destructive">
 									{t('projects.application_form.no_ready_servers')}
 								</p>{/if}

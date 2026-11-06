@@ -180,7 +180,7 @@ El entorno local, el dimensionamiento de la máquina Podman y los despliegues de
 
 ## Telemetría
 
-Litepod autoalojado envía un ping anónimo a nuestro servicio de estado (`status.litepod.sh`) una vez al día, para saber cuántas instalaciones existen y qué versiones usan. El ping solo contiene un ID de instancia aleatorio (un UUID v7 generado en tu servidor) y la versión de Litepod. No incluye dominios, correos, nombres de apps, datos de proyectos ni direcciones IP, y no guardamos IPs.
+Litepod autoalojado envía un ping anónimo a nuestro servicio de estado (`status.litepod.sh`) una vez al día, para saber cuántas instalaciones existen y qué versiones usan. El ping solo contiene datos anónimos y agregados de la instalación. No incluye dominios, correos, nombres de apps, datos de proyectos ni direcciones IP, y no guardamos IPs.
 
 Está activado por defecto, y el instalador lo avisa al terminar. Para desactivarlo:
 

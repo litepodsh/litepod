@@ -49,6 +49,12 @@ pub async fn list_sessions(
          ) s
          LEFT JOIN users u ON u.id = s.actor_user_id
          WHERE s.organization_id = ?1 AND (?5 IS NULL OR s.id < ?5)
+           AND NOT (?7 = 1
+                AND EXISTS (SELECT 1 FROM user_global_roles g
+                             WHERE g.user_id = s.actor_user_id AND g.role_id = 0)
+                AND NOT EXISTS (SELECT 1 FROM organization_members m
+                                 WHERE m.organization_id = s.organization_id
+                                   AND m.user_id = s.actor_user_id))
          ORDER BY s.id DESC
          LIMIT ?6",
     )
@@ -58,6 +64,8 @@ pub async fn list_sessions(
     .bind(include_host)
     .bind(before)
     .bind(limit)
+    // Same rule as `audit_log::record`: cloud support access is not shown to the customer.
+    .bind(state.is_cloud)
     .fetch_all(&conn)
     .await
     .map_err(|error| AppError::DatabaseError(error.to_string()))?;

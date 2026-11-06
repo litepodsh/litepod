@@ -18,6 +18,7 @@
 	import ServerCard from '#lib/components/servers/server-card.svelte';
 	import ServerGlobe from '#lib/components/servers/server-globe.svelte';
 	import ServerMaintenanceDialog from '#lib/components/servers/server-maintenance-dialog.svelte';
+	import ServerSecurityDialog from '#lib/components/servers/server-security-dialog.svelte';
 	import ServerTerminalDialog from '#lib/components/servers/server-terminal-dialog.svelte';
 	import { getMe } from '#lib/clients/auth-client.js';
 	import { listMembers } from '#lib/clients/organization-client.js';
@@ -79,6 +80,8 @@
 	let pendingDelete = $state<Server | null>(null);
 	let maintenanceServer = $state<Server | null>(null);
 	let maintenanceOpen = $state(false);
+	let securityServer = $state<Server | null>(null);
+	let securityOpen = $state(false);
 	let renameTarget = $state<Server | null>(null);
 	let renameOpen = $state(false);
 	/** Applications still on the server being removed; removal stays blocked while this is non-empty. */
@@ -284,6 +287,11 @@
 		maintenanceOpen = true;
 	}
 
+	function openSecurity(server: Server) {
+		securityServer = server;
+		securityOpen = true;
+	}
+
 	function openRename(server: Server) {
 		renameTarget = server;
 		renameOpen = true;
@@ -457,6 +465,7 @@
 								onShowKey={(target) => resume(target, 2)}
 								onHealthcheck={(target) => void run(target, 'health')}
 								onMaintenance={openMaintenance}
+								onSecurity={openSecurity}
 								onTestDeploy={(target) => void testDeploy(target)}
 								onRepair={(target) => void run(target, 'repair')}
 								onRename={openRename}
@@ -534,6 +543,7 @@
 										onShowKey={(target) => resume(target, 2)}
 										onHealthcheck={(target) => void run(target, 'health')}
 										onMaintenance={openMaintenance}
+										onSecurity={openSecurity}
 										onTestDeploy={(target) => void testDeploy(target)}
 										onRepair={(target) => void run(target, 'repair')}
 										onRename={openRename}
@@ -606,6 +616,8 @@
 	{organizationId}
 	server={maintenanceServer}
 	onDone={() => void refresh()} />
+
+<ServerSecurityDialog bind:open={securityOpen} {organizationId} server={securityServer} />
 
 <RenameServerDialog
 	bind:open={renameOpen}

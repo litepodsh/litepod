@@ -148,6 +148,7 @@
 		'dragonflydb',
 		'keydb',
 		'sqlserver',
+		'clickhouse',
 	]);
 
 	const statusMeta: Record<string, { dot: string; label: string }> = {
@@ -768,6 +769,15 @@
 		);
 	}
 
+	async function handleClickHouseCreated(created: { application: ApplicationDto }) {
+		if (!environment) return;
+		await loadProject(projectId, environmentReference);
+		toast.success(t('projects.environment.created_clickhouse'));
+		await goto(
+			`${environmentApplicationsHref(projectId, environment.name)}/${encodeURIComponent(created.application.id)}`,
+		);
+	}
+
 	function openEditApplication(application: ApplicationDto) {
 		editingApplication = application;
 		applicationDialogOpen = true;
@@ -1275,7 +1285,8 @@
 		onDragonflyDbCreated={handleDragonflyDbCreated}
 		onKeyDbCreated={handleKeyDbCreated}
 		onSqlServerCreated={handleSqlServerCreated}
-		onMongoDbCreated={handleMongoDbCreated} />
+		onMongoDbCreated={handleMongoDbCreated}
+		onClickHouseCreated={handleClickHouseCreated} />
 {/if}
 <DeleteResourceDialog
 	bind:open={deleteDialogOpen}

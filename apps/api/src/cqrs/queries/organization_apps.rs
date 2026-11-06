@@ -112,7 +112,7 @@ LEFT JOIN application_deployments d ON d.application_id = a.id
 WHERE p.organization_id = ?1 AND a.maintenance_for IS NULL
 ORDER BY a.updated_at DESC";
 
-const DOMAINS_SQL: &str = "SELECT d.application_id, d.id, d.host, d.port, d.https, d.is_primary
+const DOMAINS_SQL: &str = "SELECT d.application_id, d.id, d.host, d.port, d.https, d.is_primary, d.path
 FROM application_domains d
 INNER JOIN applications a ON a.id = d.application_id
 INNER JOIN environments e ON e.id = a.environment_id
@@ -357,7 +357,7 @@ async fn domains_by_application(
         let https = read_int(row, 4)? != 0;
         let domain = AppSummaryDomainDto {
             certificate_name: certificate_names.get(&route_id(&id)).cloned().flatten(),
-            url: domain_url(&host, port, https),
+            url: domain_url(&host, port, https) + read_opt(row, 6)?.unwrap_or_default().as_str(),
             id,
             host,
             port,

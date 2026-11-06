@@ -38,3 +38,5 @@ skills-lock.json
 /.github/agents
 /.github/skills
 /.taste-skill
+/apps/api/icons
+/apps/ui/src/lib/i18n/.svelte-kit/generated

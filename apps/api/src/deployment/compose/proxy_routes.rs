@@ -96,8 +96,11 @@ pub async fn save(
     let saved = upsert(state, application_id, domain_id, service, container_port).await?;
 
     let domain = domains::get(state, application_id, domain_id).await?;
-    if let Some((container_name, container_port)) =
-        domains::caddy_target(state, application_id, &domain).await?
+    // Only the embedded Caddy dials container names. A remote application is
+    // reconciled by `servers::ingress` after its deployment.
+    if domains::application_uses_local_caddy(state, application_id).await?
+        && let Some((container_name, container_port)) =
+            domains::caddy_target(state, application_id, &domain).await?
     {
         domains::push_caddy_route(state, &domain, &container_name, container_port).await?;
     }

@@ -836,6 +836,11 @@ pub async fn download_source_archive_handler(
     ))
     .await
     .map_err(|_| AppError::ValidationError("No source archive uploaded".into()))?;
+    Ok(source_archive_response(bytes))
+}
+
+/// A stored source ZIP as a file download.
+pub(crate) fn source_archive_response(bytes: Vec<u8>) -> Response {
     let mut response = Response::new(axum::body::Body::from(bytes));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -845,7 +850,7 @@ pub async fn download_source_archive_handler(
         header::CONTENT_DISPOSITION,
         axum::http::HeaderValue::from_static("attachment; filename=\"source.zip\""),
     );
-    Ok(response)
+    response
 }
 
 pub async fn delete_artifact_handler(

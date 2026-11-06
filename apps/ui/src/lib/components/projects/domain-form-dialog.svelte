@@ -4,8 +4,9 @@
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
+	import * as InputGroup from '#lib/components/ui/input-group/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
-	import * as Select from '#lib/components/ui/select/index.js';
+	import ServerPicker from '#lib/components/servers/server-picker.svelte';
 	import SoftSwitch from '#lib/components/custom/soft-switch.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import DeleteConfirmControl from '#lib/components/custom/delete-confirm-control.svelte';
@@ -40,6 +41,8 @@
 		composeServices = [],
 		composeRoute = null,
 		serverAddress = null,
+		existingHosts = [],
+		initialHost = '',
 		deleteWarning,
 		onDelete,
 		onSubmit,
@@ -56,6 +59,10 @@
 		composeRoute?: { service: string; container_port: number } | null;
 		/** Public address of the serving server, shown as the DNS record value for a new host. */
 		serverAddress?: string | null;
+		/** Hosts the app already has, so the www twin is not offered twice. */
+		existingHosts?: string[];
+		/** Prefills the host of a new domain, e.g. "Add route" on an existing host. */
+		initialHost?: string;
 		/** Shown above Remove, e.g. variables left without a domain. */
 		deleteWarning?: string;
 		/** Present in edit mode to offer Remove. */
@@ -69,6 +76,9 @@
 	} = $props();
 
 	let host = $state('');
+	let path = $state('');
+	let hostInput = $state<HTMLInputElement | null>(null);
+	let pathInput = $state<HTMLInputElement | null>(null);
 	// `Input type="number"` binds a number, not a string, and an empty field
 	// binds undefined — so never assume this is a string.
 	let port = $state<string | number | undefined>('');
@@ -79,6 +89,7 @@
 	let service = $state<string | null>(null);
 	let containerPort = $state<string | number | undefined>('');
 	let serverId = $state('');
+	let alsoVariant = $state(false);
 	let serviceItems = $derived<SearchableDropdownItem[]>(
 		composeServices.map((item) => ({
 			value: item.name,
@@ -112,6 +123,21 @@
 
 	const normalizedHost = $derived(host.trim().toLowerCase());
 	const isLocal = $derived(['localhost', '127.0.0.1', '::1'].includes(normalizedHost));
+	// A path domain borrows HTTPS and the certificate from its host's root domain.
+	const hasPath = $derived(!isLocal && path.trim() !== '' && path.trim() !== '/');
+	// Mirrors the API's normalization, for the title and the preview only.
+	const normalizedPath = $derived(
+		hasPath ? `/${path.trim().replace(/^\/+|\/+$/g, '').toLowerCase()}` : '',
+	);
+
+	// People type or paste whole addresses: `https://example.com/api/` fills both fields.
+	function splitAddress(event: Event) {
+		const value = (event.currentTarget as HTMLInputElement).value.trim();
+		const match = /^(?:[a-z][a-z0-9+.-]*:\/\/)?([^/?#]+)(\/[^?#]*)?/i.exec(value);
+		if (!match || (match[0] === match[1] && !value.includes('://'))) return;
+		host = match[1];
+		if (match[2] && match[2] !== '/') path = match[2].replace(/\/+$/, '');
+	}
 	// Public domains always enter through Caddy. This is deliberately separate
 	// from `port`, which is the port Caddy dials inside the container network.
 	const publicPort = $derived(https ? 443 : 80);
@@ -147,8 +173,23 @@
 			!isSslip &&
 			/^([a-z0-9-]+\.)+[a-z][a-z0-9-]+$/.test(normalizedHost),
 	);
+	// Each domain matches one exact host, so `www.` and the bare name need two rows.
+	const wwwVariant = $derived(
+		!domain && !hasPath && !isSslip && /^([a-z0-9-]+\.)+[a-z][a-z0-9-]+$/.test(normalizedHost)
+			? normalizedHost.startsWith('www.')
+				? normalizedHost.slice(4)
+				: `www.${normalizedHost}`
+			: '',
+	);
+	const wwwVariantExists = $derived(existingHosts.includes(wwwVariant));
 	const dnsTarget = $derived(
 		domain?.required_dns_target ?? serverAddress ?? dnsCheck.result?.expected_addresses[0] ?? '',
+	);
+	// Waits for something that looks like a domain, so typing `l` (or `localhost`) never flashes it.
+	const showDns = $derived(
+		!isLocal &&
+			/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(normalizedHost) &&
+			Boolean(dnsTarget || isSslip || canCheckDns),
 	);
 	const dnsFound = $derived(
 		[
@@ -209,7 +250,8 @@
 
 	$effect(() => {
 		if (open && !wasOpen) {
-			host = domain?.host ?? '';
+			host = domain?.host ?? initialHost;
+			path = domain?.path ?? '';
 			port = domain?.port?.toString() ?? '';
 			https = domain?.https ?? false;
 			primary = domain?.is_primary ?? false;
@@ -218,6 +260,7 @@
 			service = composeRoute?.service ?? null;
 			containerPort = composeRoute?.container_port?.toString() ?? '';
 			serverId = domain?.server_id ?? (pinServers.length === 1 ? pinServers[0].id : '');
+			alsoVariant = false;
 		}
 		wasOpen = open;
 	});
@@ -258,21 +301,30 @@
 			return;
 		}
 
+		const shared = {
+			port: effectivePort,
+			https,
+			certificate_provider: https ? certificateProvider : 'automatic',
+			...(https && certificateProvider === 'custom' ? { certificate_id: certificateId } : {}),
+			...(pinServers.length ? { server_id: serverId } : {}),
+			service: service ?? undefined,
+			container_port: selectedPort ?? undefined,
+		};
 		saving = true;
 		try {
 			await onSubmit({
 				host: trimmedHost,
-				port: effectivePort,
-				https,
-				certificate_provider: https ? certificateProvider : 'automatic',
-				...(https && certificateProvider === 'custom' ? { certificate_id: certificateId } : {}),
-				...(pinServers.length ? { server_id: serverId } : {}),
+				// Empty clears the path on edit; the API normalizes it.
+				path: isLocal ? '' : path.trim(),
+				...shared,
 				// Only promote: the API keeps one primary per app, and un-marking it
 				// here would leave the app without one.
 				...(primary && !domain?.is_primary ? { is_primary: true } : {}),
-				service: service ?? undefined,
-				container_port: selectedPort ?? undefined,
 			});
+			// The first host is saved; a failed twin is toasted by the caller and
+			// must not keep the dialog open, or a retry would re-add the first one.
+			if (alsoVariant && wwwVariant && !wwwVariantExists)
+				await onSubmit({ host: wwwVariant, ...shared }).catch(() => {});
 			open = false;
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : t('projects.domain_form.failed_save'));
@@ -315,7 +367,12 @@
 <Dialog.Root bind:open>
 	<Dialog.Content
 		showCloseButton={false}
-		class="flex max-h-[min(88dvh,880px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+		onOpenAutoFocus={(event) => {
+			// bits-ui would focus the header's close button; start typing instead.
+			event.preventDefault();
+			(initialHost && pathInput ? pathInput : hostInput)?.focus();
+		}}
+		class="top-[max(1rem,6dvh)] flex max-h-[min(88dvh,880px)] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
 		<header
 			class="lp-groove-b grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 py-3 ps-5 pe-3.5">
 			<p class="font-mono text-[10.5px] tracking-[.06em] text-muted-foreground uppercase">
@@ -332,7 +389,7 @@
 				{/snippet}
 			</Dialog.Close>
 			<Dialog.Title class="truncate text-base leading-tight font-semibold tracking-tight">
-				{normalizedHost || t('projects.domain_form.host_placeholder')}
+				{normalizedHost || t('projects.domain_form.host_placeholder')}{normalizedPath}
 			</Dialog.Title>
 			<Dialog.Description
 				class="col-span-2 mt-0.5 flex flex-wrap gap-x-2.5 gap-y-1 font-mono text-xs text-muted-foreground">
@@ -351,14 +408,30 @@
 					<div class="grid gap-2">
 						<Label for="domain-host">{t('projects.domain_form.host')}</Label>
 						<div class="flex gap-2">
-							<Input
-								id="domain-host"
-								class="flex-1 font-mono"
-								bind:value={host}
-								maxlength={253}
-								autocomplete="off"
-								placeholder={t('projects.domain_form.host_placeholder')}
-								autofocus />
+							<!-- One address bar: host, then an optional route; the group owns the focus ring. -->
+							<InputGroup.Root class="min-w-0 flex-1">
+								<InputGroup.Input
+									id="domain-host"
+									class="min-w-0 font-mono"
+									bind:value={host}
+									oninput={splitAddress}
+									maxlength={253}
+									autocomplete="off"
+									placeholder={t('projects.domain_form.host_placeholder')}
+									bind:ref={hostInput} />
+								{#if !isLocal}
+									<span aria-hidden="true" class="h-5 w-px shrink-0 bg-foreground/14"></span>
+									<InputGroup.Input
+										id="domain-path"
+										class="w-28 flex-none font-mono placeholder:text-muted-foreground/30 sm:w-36"
+										bind:value={path}
+										maxlength={200}
+										autocomplete="off"
+										aria-label={t('projects.domain_form.path')}
+										placeholder={t('projects.domain_form.path_placeholder')}
+										bind:ref={pathInput} />
+								{/if}
+							</InputGroup.Root>
 							{#if onRandomSslipHost}<Button
 									type="button"
 									variant="outline"
@@ -372,95 +445,128 @@
 									></Button
 								>{/if}
 						</div>
-						<p class="text-xs text-muted-foreground">{t('projects.domain_form.description')}</p>
+						<p class="text-xs text-muted-foreground">
+						{hasPath
+							? t('projects.domain_form.path_preview', {
+									url: `${normalizedHost || t('projects.domain_form.host_placeholder')}${normalizedPath}/users`,
+								})
+							: isLocal
+								? t('projects.domain_form.description')
+								: `${t('projects.domain_form.description')} ${t('projects.domain_form.path_hint')}`}
+					</p>
 					</div>
-					{#if normalizedHost && !isLocal && (dnsTarget || isSslip || canCheckDns)}
-						{@const result = dnsCheck.result}
-						<div class="lp-well grid gap-2 rounded-[10px] bg-muted p-3 text-xs">
-							<div class="flex flex-wrap items-center justify-between gap-2">
-								<span class="font-semibold">DNS</span>
-								<span class="flex flex-wrap items-center gap-2" aria-live="polite">
-									{#if isSslip}
-										<span class="flex items-center gap-1.5 text-success"
-											><CircleCheckIcon class="size-3.5" />{t(
-												'projects.domain_form.dns_sslip',
-											)}</span>
-									{:else if dnsCheck.loading}
-										<span class="flex items-center gap-1.5 text-muted-foreground"
-											><LoaderCircleIcon
-												class="size-3.5 animate-spin motion-reduce:animate-none" />{t(
-												'projects.domain_form.dns_checking',
-											)}</span>
-									{:else if dnsCheck.error || result?.status === 'error'}
-										<span
-											class="flex items-center gap-1.5 text-destructive"
-											title={dnsCheck.error ?? result?.message ?? undefined}
-											><CircleAlertIcon class="size-3.5" />{t(
-												'projects.domain_form.dns_error',
-											)}</span>
-									{:else if result?.status === 'valid'}
-										<span class="flex items-center gap-1.5 text-success"
-											><CircleCheckIcon class="size-3.5" />{t('projects.domain_form.dns_ok', {
-												target: result.resolved_addresses.join(', '),
-											})}</span>
-									{:else if result?.status === 'cdn'}
-										<span class="flex items-center gap-1.5 text-success"
-											><CircleCheckIcon class="size-3.5" />{t('projects.domain_form.dns_cdn', {
-												provider: result.cdn_provider ?? 'CDN',
-											})}</span>
-									{:else if result?.status === 'invalid'}
-										<span class="flex items-center gap-1.5 text-warning"
-											><CircleAlertIcon class="size-3.5" />{t(
-												'projects.domain_form.dns_mismatch',
-											)}</span>
-									{:else if result?.status === 'unresolved'}
-										<span class="flex items-center gap-1.5 text-warning"
-											><CircleAlertIcon class="size-3.5" />{t(
-												'projects.domain_form.dns_missing',
-											)}</span>
-									{/if}
-									{#if canCheckDns && !dnsCheck.loading && (result || dnsCheck.error)}
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											class="h-7 px-2 text-xs"
-											onclick={() => void checkDns(normalizedHost, serverId)}
-											><RefreshCwIcon class="size-3.5" />{t(
-												'projects.domain_form.dns_check_again',
-											)}</Button>
-									{/if}
-								</span>
+					{#if wwwVariant}
+						<div class="flex items-center justify-between gap-3">
+							<div class="min-w-0">
+								<Label for="domain-www-variant"
+									>{t('projects.domain_form.also_add', { host: wwwVariant })}</Label>
+								<p class="mt-1 text-xs text-muted-foreground">
+									{wwwVariantExists
+										? t('projects.domain_form.also_add_exists')
+										: t('projects.domain_form.also_add_hint')}
+								</p>
 							</div>
-							{#if !isSslip && !dnsCheck.loading && (dnsCheck.error || result?.status === 'error')}
-								<p class="break-words text-muted-foreground">
-									{dnsCheck.error ?? result?.message}
-								</p>
-							{:else if !isSslip && !dnsCheck.loading && dnsFound && result?.status !== 'valid'}
-								<p class="font-mono break-all text-muted-foreground">
-									{t('projects.domain_form.dns_found', { records: dnsFound })}
-								</p>
-							{/if}
-							{#if !isSslip && dnsTarget}
-								<div
-									class="grid grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-x-2.5 gap-y-1 font-mono">
-									<span class="font-sans text-[11.5px] text-muted-foreground"
-										>{t('projects.domain_form.dns_type')}</span>
-									<span class="font-sans text-[11.5px] text-muted-foreground"
-										>{t('projects.domain_form.dns_name')}</span>
-									<span class="font-sans text-[11.5px] text-muted-foreground"
-										>{t('projects.domain_dns.value')}</span>
-									<span>{dnsRecordType}</span>
-									<span class="truncate">{dnsRecordName}</span>
-									<CopyButton
-										value={dnsTarget}
-										revealOnHover={false}
-										class="min-w-0 justify-between"
-										errorMessage={t('projects.domain_dns.copy_failed')} />
-								</div>
-							{/if}
+							<SoftSwitch
+								id="domain-www-variant"
+								bind:checked={alsoVariant}
+								disabled={wwwVariantExists || saving} />
 						</div>
 					{/if}
+					<!-- Collapses on grid rows, so it animates to its real height; -mt-3 + pt-3 cancel the
+					     section gap while closed. -->
+					<div
+						class={`-mt-3 grid transition-[grid-template-rows,opacity] duration-300 ease-[var(--lp-ease)] motion-reduce:transition-none ${showDns ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+						inert={!showDns}>
+						<div class="min-h-0 overflow-hidden pt-3">
+						{#if !isLocal}
+							{@const result = dnsCheck.result}
+							<div class="lp-well grid gap-2 rounded-[10px] bg-muted p-3 text-xs">
+								<div class="flex flex-wrap items-center justify-between gap-2">
+									<span class="font-semibold">DNS</span>
+									<span class="flex flex-wrap items-center gap-2" aria-live="polite">
+										{#if isSslip}
+											<span class="flex items-center gap-1.5 text-success"
+												><CircleCheckIcon class="size-3.5" />{t(
+													'projects.domain_form.dns_sslip',
+												)}</span>
+										{:else if dnsCheck.loading}
+											<span class="flex items-center gap-1.5 text-muted-foreground"
+												><LoaderCircleIcon
+													class="size-3.5 animate-spin motion-reduce:animate-none" />{t(
+													'projects.domain_form.dns_checking',
+												)}</span>
+										{:else if dnsCheck.error || result?.status === 'error'}
+											<span
+												class="flex items-center gap-1.5 text-destructive"
+												title={dnsCheck.error ?? result?.message ?? undefined}
+												><CircleAlertIcon class="size-3.5" />{t(
+													'projects.domain_form.dns_error',
+												)}</span>
+										{:else if result?.status === 'valid'}
+											<span class="flex items-center gap-1.5 text-success"
+												><CircleCheckIcon class="size-3.5" />{t('projects.domain_form.dns_ok', {
+													target: result.resolved_addresses.join(', '),
+												})}</span>
+										{:else if result?.status === 'cdn'}
+											<span class="flex items-center gap-1.5 text-success"
+												><CircleCheckIcon class="size-3.5" />{t('projects.domain_form.dns_cdn', {
+													provider: result.cdn_provider ?? 'CDN',
+												})}</span>
+										{:else if result?.status === 'invalid'}
+											<span class="flex items-center gap-1.5 text-warning"
+												><CircleAlertIcon class="size-3.5" />{t(
+													'projects.domain_form.dns_mismatch',
+												)}</span>
+										{:else if result?.status === 'unresolved'}
+											<span class="flex items-center gap-1.5 text-warning"
+												><CircleAlertIcon class="size-3.5" />{t(
+													'projects.domain_form.dns_missing',
+												)}</span>
+										{/if}
+										{#if canCheckDns && !dnsCheck.loading && (result || dnsCheck.error)}
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												class="h-7 px-2 text-xs"
+												onclick={() => void checkDns(normalizedHost, serverId)}
+												><RefreshCwIcon class="size-3.5" />{t(
+													'projects.domain_form.dns_check_again',
+												)}</Button>
+										{/if}
+									</span>
+								</div>
+								{#if !isSslip && !dnsCheck.loading && (dnsCheck.error || result?.status === 'error')}
+									<p class="break-words text-muted-foreground">
+										{dnsCheck.error ?? result?.message}
+									</p>
+								{:else if !isSslip && !dnsCheck.loading && dnsFound && result?.status !== 'valid'}
+									<p class="font-mono break-all text-muted-foreground">
+										{t('projects.domain_form.dns_found', { records: dnsFound })}
+									</p>
+								{/if}
+								{#if !isSslip && dnsTarget}
+									<div
+										class="grid grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-x-2.5 gap-y-1 font-mono">
+										<span class="font-sans text-[11.5px] text-muted-foreground"
+											>{t('projects.domain_form.dns_type')}</span>
+										<span class="font-sans text-[11.5px] text-muted-foreground"
+											>{t('projects.domain_form.dns_name')}</span>
+										<span class="font-sans text-[11.5px] text-muted-foreground"
+											>{t('projects.domain_dns.value')}</span>
+										<span>{dnsRecordType}</span>
+										<span class="truncate">{dnsRecordName}</span>
+										<CopyButton
+											value={dnsTarget}
+											revealOnHover={false}
+											class="min-w-0 justify-between"
+											errorMessage={t('projects.domain_dns.copy_failed')} />
+									</div>
+								{/if}
+							</div>
+						{/if}
+						</div>
+					</div>
 				</section>
 
 				{#if composeServices.length}
@@ -535,23 +641,29 @@
 				{/if}
 
 				<section class="lp-groove-t grid gap-4 pt-4">
-					<div class="flex items-center justify-between gap-3">
-						<div>
-							<Label for="domain-https">HTTPS</Label>
-							<p class="mt-1 text-xs text-muted-foreground">
-								{isLocal
-									? t('projects.domain_form.https_unavailable_local')
-									: t('projects.domain_form.https_public_hint', { port: publicPort })}
-							</p>
+					{#if hasPath}
+						<p class="text-xs text-muted-foreground">
+							{t('projects.domain_form.path_https_inherited', { host: normalizedHost })}
+						</p>
+					{:else}
+						<div class="flex items-center justify-between gap-3">
+							<div>
+								<Label for="domain-https">HTTPS</Label>
+								<p class="mt-1 text-xs text-muted-foreground">
+									{isLocal
+										? t('projects.domain_form.https_unavailable_local')
+										: t('projects.domain_form.https_public_hint', { port: publicPort })}
+								</p>
+							</div>
+							<SoftSwitch id="domain-https" bind:checked={https} disabled={isLocal} />
 						</div>
-						<SoftSwitch id="domain-https" bind:checked={https} disabled={isLocal} />
-					</div>
-					{#if https}
-						<CertificateFields
-							bind:provider={certificateProvider}
-							bind:certificateId
-							certificateName={domain?.certificate_name ?? ''}
-							disabled={saving} />
+						{#if https}
+							<CertificateFields
+								bind:provider={certificateProvider}
+								bind:certificateId
+								certificateName={domain?.certificate_name ?? ''}
+								disabled={saving} />
+						{/if}
 					{/if}
 					<div class="flex items-center justify-between gap-3">
 						<div>
@@ -565,17 +677,13 @@
 					{#if pinServers.length}
 						<div class="grid gap-2">
 							<Label for="domain-pin">{t('projects.domain_form.pin')}</Label>
-							<Select.Root type="single" bind:value={serverId}>
-								<Select.Trigger id="domain-pin" class="w-full">
-									{pinServers.find((server) => server.id === serverId)?.name ??
-										t('projects.application_form.choose_server')}
-								</Select.Trigger>
-								<Select.Content>
-									{#each pinServers as server (server.id)}
-										<Select.Item value={server.id}>{server.name}</Select.Item>
-									{/each}
-								</Select.Content>
-							</Select.Root>
+							<ServerPicker
+								servers={pinServers}
+								bind:value={serverId}
+								placeholder={t('projects.application_form.choose_server')}
+								searchPlaceholder={t('organizations.common.search_servers')}
+								emptyText={t('organizations.common.no_servers_found')}
+								triggerClass="w-full" />
 							<p class="text-xs text-muted-foreground">{t('projects.domain_form.pin_hint')}</p>
 						</div>
 					{/if}

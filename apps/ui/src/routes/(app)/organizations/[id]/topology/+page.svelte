@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { Button } from '#lib/components/ui/button/index.js';
-	import * as Select from '#lib/components/ui/select/index.js';
+	import ServerPicker from '#lib/components/servers/server-picker.svelte';
 	import * as Tabs from '#lib/components/ui/tabs/index.js';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import ServerMap from '#lib/components/servers/server-map.svelte';
@@ -125,22 +125,18 @@
 			</p>
 		</div>
 		<div class="flex w-full flex-wrap items-center gap-2 sm:w-auto" hidden={tab !== 'network'}>
-			<Select.Root type="single" value={serverId} onValueChange={changeServer}>
-				<Select.Trigger class="w-full sm:w-56" aria-label={t('organizations.common.server')}>
-					{activeServer ? activeServer.name : t('organizations.common.select_server')}
-				</Select.Trigger>
-				<Select.Content>
-					{#each serverOptions as server (server.id)}
-						<Select.Item value={server.id} label={server.name}>
-							{server.name}
-							<span class="ml-2 text-xs text-muted-foreground"
-								>{server.kind === 'local'
-									? t('organizations.common.local')
-									: t('organizations.common.remote')}</span>
-						</Select.Item>
-					{/each}
-				</Select.Content>
-			</Select.Root>
+			<ServerPicker
+				servers={serverOptions}
+				bind:value={serverId}
+				placeholder={t('organizations.common.select_server')}
+				searchPlaceholder={t('organizations.common.search_servers')}
+				emptyText={t('organizations.common.no_servers_found')}
+				detailFor={(server) =>
+					server.kind === 'local'
+						? t('organizations.common.local')
+						: t('organizations.common.remote')}
+				onSelect={changeServer}
+				triggerClass="w-full sm:w-56" />
 			<Button variant="outline" onclick={() => void load()} disabled={loading || !serverId}>
 				<RefreshCwIcon class={loading ? 'animate-spin' : ''} />{t('organizations.common.refresh')}
 			</Button>

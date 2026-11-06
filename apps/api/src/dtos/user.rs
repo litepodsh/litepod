@@ -30,7 +30,35 @@ pub struct UserWithOrgsDto {
     /// Locked out by a SysAdmin; only a SysAdmin lifts it.
     pub disabled: bool,
     pub is_sysadmin: bool,
+    /// Did something in Litepod within the last few minutes, or has a deployment or scheduled
+    /// task running.
+    pub online: bool,
+    /// What they have running or just did, e.g. `deployment.building`, `deployment.triggered`.
+    pub recent_action: Option<String>,
+    pub recent_action_target: Option<String>,
+    pub last_login_at: Option<String>,
+    /// Remote servers and applications in the organizations this user created.
+    pub remote_servers: i64,
+    pub remote_servers_ready: i64,
+    pub applications: i64,
+    pub applications_running: i64,
+    /// Agents with an open MCP OAuth grant right now.
+    pub mcp_connections: i64,
     pub organizations: Vec<UserOrganizationDto>,
+}
+
+/// One agent a user approved over MCP OAuth, open or closed.
+#[derive(Serialize, ToSchema)]
+pub struct McpConnectionDto {
+    pub id: String,
+    pub client_name: String,
+    /// Detected agent: claude | chatgpt | hermes | other.
+    pub agent: String,
+    pub organization_name: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub closed_at: Option<String>,
+    pub last_used_at: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]

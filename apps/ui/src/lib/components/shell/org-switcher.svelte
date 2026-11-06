@@ -11,7 +11,10 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import type { OrganizationDto } from '#lib/clients/organization-client.js';
-	import { setSelectedOrganizationId } from '#lib/utils/selected-organization.js';
+	import {
+		organizationPathFor,
+		setSelectedOrganizationId,
+	} from '#lib/utils/selected-organization.js';
 	import OrganizationIcon from '#lib/components/organization-icon.svelte';
 	import OrganizationEditDialog from '#lib/components/organizations/organization-edit-dialog.svelte';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -54,9 +57,8 @@
 		setSelectedOrganizationId(organization.id);
 		// Keep the section (`?tab=`); other params (a server id) belong to the old org.
 		const tab = new URLSearchParams(window.location.search).get('tab');
-		window.location.assign(
-			tab ? `${window.location.pathname}?tab=${encodeURIComponent(tab)}` : window.location.pathname,
-		);
+		const path = organizationPathFor(window.location.pathname, organization.id);
+		window.location.assign(tab ? `${path}?tab=${encodeURIComponent(tab)}` : path);
 	}
 
 	function applyUpdate(updated: OrganizationDto) {
