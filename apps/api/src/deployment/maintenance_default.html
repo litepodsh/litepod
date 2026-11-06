@@ -5,31 +5,581 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Back soon</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect x='10' y='10' width='100' height='100' rx='26' fill='%23D4410B'/%3E%3Crect x='34' y='42' width='52' height='36' rx='18' fill='%23FFFFFF' transform='rotate(-24 60 60)'/%3E%3C/svg%3E">
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    color-scheme: light dark;
+    --ground: #fafafa;
+    --cell: #efefef;
+    --ink: #0f0f0f;
+    --muted: #5e5e5e;
+    --accent: #d4410b;
+    --cell-size: 24px;
+    --gap: 3px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground: #000; --cell: #141414; --ink: #fff; --muted: #b0b0b0; --accent: #ff6a1f; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
     min-height: 100vh;
-    display: grid;
-    place-items: center;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: #f6f6f7;
-    color: #1c1c1e;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
   }
-  main { max-width: 32rem; padding: 2rem; text-align: center; }
-  h1 { font-size: 1.6rem; margin: 0 0 .75rem; }
-  p { margin: .25rem 0; line-height: 1.5; color: #55555c; }
-  @media (prefers-color-scheme: dark) {
-    body { background: #141416; color: #f2f2f3; }
-    p { color: #a0a0a8; }
+  /* The pixel field: drawn with CSS so it shows even where scripts do not run. */
+  .board {
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 64vh;
+    background-color: var(--cell);
+    background-image:
+      linear-gradient(to right, var(--ground) var(--gap), transparent var(--gap)),
+      linear-gradient(to bottom, var(--ground) var(--gap), transparent var(--gap));
+    background-size: var(--cell-size) var(--cell-size);
+    -webkit-mask-image: linear-gradient(#000 45%, transparent);
+    mask-image: linear-gradient(#000 45%, transparent);
+    touch-action: none;
   }
+  .board canvas { display: block; width: 100%; height: 100%; }
+  main {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 2.5rem;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 0 clamp(1.25rem, 5vw, 3rem) clamp(1.5rem, 4vh, 2.5rem);
+    pointer-events: none;
+  }
+  main a, main button { pointer-events: auto; }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: .6rem;
+    margin: 0 0 1.1rem;
+    font: 500 .75rem/1 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .pulse {
+    width: .5rem; height: .5rem;
+    background: var(--accent);
+    animation: pulse 1.6s steps(2, jump-none) infinite;
+  }
+  @keyframes pulse { 50% { opacity: .25; } }
+  h1 {
+    margin: 0;
+    max-width: 14ch;
+    font-size: clamp(2.4rem, 6.5vw, 4.5rem);
+    line-height: .98;
+    font-weight: 600;
+    letter-spacing: -.045em;
+  }
+  .lede {
+    margin: 1.25rem 0 0;
+    max-width: 34rem;
+    font-size: clamp(1rem, 1.6vw, 1.125rem);
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid color-mix(in oklab, var(--ink) 10%, transparent);
+    font: 500 .75rem/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--muted);
+  }
+  .hint kbd {
+    display: inline-block;
+    min-width: 1.4rem;
+    padding: .15rem .35rem;
+    border: 1px solid color-mix(in oklab, var(--ink) 16%, transparent);
+    border-bottom-width: 2px;
+    border-radius: .3rem;
+    font: inherit;
+    text-align: center;
+    color: var(--ink);
+  }
+  .score { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .score span { color: var(--muted); }
+  .brand { display: inline-flex; align-items: center; gap: .5rem; }
+  .brand svg { width: 1rem; height: 1rem; }
+  .noscript-hidden { display: none; }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
 </style>
 </head>
 <body>
+<div class="board" aria-hidden="true"><canvas></canvas></div>
 <main>
-  <h1>We'll be right back</h1>
-  <p>This site is down for maintenance. Please try again in a few minutes.</p>
-  <p>Volvemos en unos minutos.</p>
+  <section>
+    <p class="eyebrow"><span class="pulse"></span><span data-i18n="eyebrow">503 · Maintenance</span></p>
+    <h1 data-i18n="title">We'll be right back.</h1>
+    <p class="lede" data-i18n="lede">This site is getting some maintenance and will be back in a few minutes. Nothing to do on your side: just refresh in a bit.</p>
+  </section>
+  <footer>
+    <p class="hint noscript-hidden" style="margin:0" id="hint"><span id="hint-text"></span> <span id="hint-keys"></span></p>
+    <p class="score noscript-hidden" style="margin:0" id="score"><span data-i18n="score">Score</span> <b id="points">0</b> &nbsp;<span data-i18n="best">Best</span> <b id="best">0</b></p>
+    <span class="brand">
+      <svg viewBox="0 0 120 120" aria-hidden="true"><rect x="10" y="10" width="100" height="100" rx="26" fill="var(--accent)"/><rect x="34" y="42" width="52" height="36" rx="18" fill="#fff" transform="rotate(-24 60 60)"/></svg>
+      <span data-i18n="brand">Served by Litepod</span>
+    </span>
+  </footer>
 </main>
+<script>
+(() => {
+  const es = /^es\b/i.test(navigator.language || '');
+  const touch = matchMedia('(pointer: coarse)').matches;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (es) {
+    document.documentElement.lang = 'es';
+    document.title = 'Volvemos pronto';
+    const text = {
+      eyebrow: '503 · Mantenimiento',
+      title: 'Volvemos enseguida.',
+      lede: 'Este sitio está en mantenimiento y vuelve en unos minutos. No tienes que hacer nada: recarga en un rato.',
+      score: 'Puntos',
+      best: 'Récord',
+      brand: 'Servido por Litepod',
+    };
+    document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = text[el.dataset.i18n]; });
+  }
+  document.querySelectorAll('.noscript-hidden').forEach((el) => el.classList.remove('noscript-hidden'));
+
+  const board = document.querySelector('.board');
+  const canvas = board.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  const pointsEl = document.getElementById('points');
+  const bestEl = document.getElementById('best');
+  const SIZE = 24, GAP = 3;
+  const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  const rand = (n) => Math.floor(Math.random() * n);
+  const opposite = (a, b) => DIRS[a][0] === -DIRS[b][0] && DIRS[a][1] === -DIRS[b][1];
+
+  let cols, rows, colors, game, playing = false, dead = 0, points = 0, best = 0, last = 0, running = false;
+
+  function cell(x, y, color, alpha = 1, grow = 0) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.fillRect(x * SIZE + GAP - grow, y * SIZE + GAP - grow, SIZE - GAP + grow * 2, SIZE - GAP + grow * 2);
+  }
+  function dot(x, y, color, alpha, size) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    const o = GAP + (SIZE - GAP - size) / 2;
+    ctx.fillRect(x * SIZE + o, y * SIZE + o, size, size);
+  }
+  function score(n = 1) {
+    if (!playing) return;
+    points += n;
+    pointsEl.textContent = points;
+    if (points > best) {
+      bestEl.textContent = best = points;
+      try { localStorage.setItem(`litepod-best-${game.name}`, best); } catch {}
+    }
+  }
+  const die = () => { dead = 8; };
+
+  // ---- Snake: eat the orange cell, do not bite yourself. The edges wrap around.
+  const snake = (() => {
+    let body, dir, queue, food, sparks;
+    const occupied = (x, y) => body.some(([bx, by]) => bx === x && by === y);
+    const wrap = (x, y) => [(x + cols) % cols, (y + rows) % rows];
+    // Distance on a board whose edges meet.
+    const span = (a, b, n) => Math.min(Math.abs(a - b), n - Math.abs(a - b));
+    function placeFood() {
+      do food = [rand(cols), rand(rows)]; while (occupied(food[0], food[1]));
+    }
+    function autopilot() {
+      const [hx, hy] = body[0];
+      const best = Object.keys(DIRS).filter((d) => !opposite(d, dir)).map((d) => {
+        const [nx, ny] = wrap(hx + DIRS[d][0], hy + DIRS[d][1]);
+        const safe = !occupied(nx, ny);
+        const room = safe ? Object.values(DIRS).filter(([dx, dy]) => !occupied(...wrap(nx + dx, ny + dy))).length : 0;
+        return { d, score: safe ? span(nx, food[0], cols) + span(ny, food[1], rows) - room * 0.5 : Infinity };
+      }).sort((a, b) => a.score - b.score)[0];
+      if (best.score !== Infinity) dir = best.d;
+    }
+    return {
+      name: 'snake',
+      keys: 'arrows',
+      accepts: (a) => a in DIRS,
+      interval: () => (playing ? 95 : 130),
+      reset() {
+        const y = Math.floor(rows / 2), x = Math.floor(cols / 3);
+        body = [[x, y], [x - 1, y], [x - 2, y], [x - 3, y]];
+        dir = 'right';
+        queue = [];
+        sparks = [];
+        placeFood();
+      },
+      input(next) {
+        const lastDir = queue.length ? queue[queue.length - 1] : dir;
+        if (next !== lastDir && !opposite(next, lastDir) && queue.length < 3) queue.push(next);
+      },
+      step() {
+        if (playing && queue.length) dir = queue.shift();
+        if (!playing) autopilot();
+        const head = wrap(body[0][0] + DIRS[dir][0], body[0][1] + DIRS[dir][1]);
+        if (occupied(...head)) return die();
+        body.unshift(head);
+        if (head[0] === food[0] && head[1] === food[1]) {
+          sparks.push({ x: food[0], y: food[1], life: 1 });
+          placeFood();
+          score();
+        } else {
+          body.pop();
+        }
+      },
+      draw(time, hidden) {
+        cell(food[0], food[1], colors.accent, 0.65 + 0.35 * Math.sin(time / 220));
+        sparks = sparks.filter((s) => (s.life -= 0.06) > 0);
+        for (const s of sparks) cell(s.x, s.y, colors.accent, s.life * 0.5, (1 - s.life) * 8);
+        if (hidden) return;
+        body.forEach(([x, y], i) => {
+          cell(x, y, i === 0 ? colors.accent : colors.ink, (playing ? 1 : 0.55) * (1 - (i / body.length) * 0.6));
+        });
+      },
+    };
+  })();
+
+  // ---- Chomp: a maze carved out of the grid. Clear every dot, keep away from the blocks.
+  // A Litepod logo turns the tables for a while: the blocks run, and you can eat them.
+  const chomp = (() => {
+    const POWER = 45;
+    let open, dots, pods, me, dir, want, chasers, tick, power;
+    const key = (x, y) => y * cols + x;
+    const isOpen = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows && open[key(x, y)];
+    // Breadth-first search; returns the first step toward the nearest cell `goal` accepts.
+    function route(from, goal, blocked) {
+      const seen = new Map([[key(...from), null]]);
+      const queue = [from];
+      while (queue.length) {
+        const [x, y] = queue.shift();
+        if (goal(x, y) && (x !== from[0] || y !== from[1])) {
+          let k = key(x, y), prev;
+          while ((prev = seen.get(k)) !== null && prev.k !== key(...from)) k = prev.k;
+          return prev ? prev.d : null;
+        }
+        for (const [d, [dx, dy]] of Object.entries(DIRS)) {
+          const nx = x + dx, ny = y + dy, nk = key(nx, ny);
+          if (!isOpen(nx, ny) || seen.has(nk) || blocked(nx, ny)) continue;
+          seen.set(nk, { k: key(x, y), d });
+          queue.push([nx, ny]);
+        }
+      }
+      return null;
+    }
+    function maze() {
+      open = new Array(cols * rows).fill(false);
+      const maxX = cols - 2 - ((cols - 2) % 2 === 0 ? 1 : 0), maxY = rows - 2 - ((rows - 2) % 2 === 0 ? 1 : 0);
+      const stack = [[1, 1]];
+      open[key(1, 1)] = true;
+      while (stack.length) {
+        const [x, y] = stack[stack.length - 1];
+        const next = Object.values(DIRS).map(([dx, dy]) => [x + dx * 2, y + dy * 2, x + dx, y + dy])
+          .filter(([nx, ny]) => nx >= 1 && ny >= 1 && nx <= maxX && ny <= maxY && !open[key(nx, ny)]);
+        if (!next.length) { stack.pop(); continue; }
+        const [nx, ny, wx, wy] = next[rand(next.length)];
+        open[key(nx, ny)] = open[key(wx, wy)] = true;
+        stack.push([nx, ny]);
+      }
+      // Knock out some walls so there are loops to escape through.
+      for (let y = 1; y <= maxY; y++) for (let x = 1; x <= maxX; x++) {
+        if (open[key(x, y)] || Math.random() > 0.3) continue;
+        if ((isOpen(x - 1, y) && isOpen(x + 1, y)) || (isOpen(x, y - 1) && isOpen(x, y + 1))) open[key(x, y)] = true;
+      }
+      dots = new Set();
+      for (let i = 0; i < open.length; i++) if (open[i]) dots.add(i);
+      me = [1, 1];
+      dots.delete(key(1, 1));
+      // One logo in each quarter of the maze, on the open cell closest to its centre.
+      pods = new Set();
+      for (const [fx, fy] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
+        const tx = maxX * fx, ty = maxY * fy;
+        let best = null, bestDistance = Infinity;
+        for (const k of dots) {
+          const distance = Math.abs((k % cols) - tx) + Math.abs(Math.floor(k / cols) - ty);
+          if (distance < bestDistance) { best = k; bestDistance = distance; }
+        }
+        if (best !== null) { dots.delete(best); pods.add(best); }
+      }
+      dir = want = 'right';
+      const corners = [[maxX, maxY], [maxX, 1], [1, maxY]];
+      chasers = corners.slice(0, cols > 30 ? 3 : 2).map(([x, y]) => ({ x, y, home: [x, y], dir: 'left' }));
+      tick = 0;
+      power = 0;
+    }
+    const near = (x, y, r) => chasers.some((c) => Math.abs(c.x - x) + Math.abs(c.y - y) <= r);
+    // Meeting a block either ends the run or, with a logo active, sends it home for points.
+    function meet() {
+      for (const c of chasers) {
+        if (c.x !== me[0] || c.y !== me[1]) continue;
+        if (!power) return true;
+        [c.x, c.y] = c.home;
+        score(10);
+      }
+      return false;
+    }
+    function moveChaser(c) {
+      const choices = Object.keys(DIRS).filter((d) => !opposite(d, c.dir) && isOpen(c.x + DIRS[d][0], c.y + DIRS[d][1]));
+      let d = null;
+      if (power) {
+        // Running scared: the open step that ends farthest from you.
+        d = choices.sort((a, b) => {
+          const far = (k) => Math.abs(c.x + DIRS[k][0] - me[0]) + Math.abs(c.y + DIRS[k][1] - me[1]);
+          return far(b) - far(a);
+        })[0];
+      } else if (Math.random() < 0.7) {
+        d = route([c.x, c.y], (x, y) => x === me[0] && y === me[1], () => false);
+      }
+      if (!d) d = choices.length ? choices[rand(choices.length)] : Object.keys(DIRS).find((k) => opposite(k, c.dir));
+      c.dir = d;
+      c.x += DIRS[d][0];
+      c.y += DIRS[d][1];
+    }
+    // The Litepod logo, fitted to one cell: an orange tile with a tilted white capsule.
+    function logo(x, y, alpha) {
+      const s = SIZE - GAP, cx = x * SIZE + GAP + s / 2, cy = y * SIZE + GAP + s / 2;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = colors.accent;
+      ctx.beginPath();
+      ctx.roundRect(cx - s / 2, cy - s / 2, s, s, s * 0.26);
+      ctx.fill();
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate((-24 * Math.PI) / 180);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.roundRect(-s * 0.26, -s * 0.18, s * 0.52, s * 0.36, s * 0.18);
+      ctx.fill();
+      ctx.restore();
+    }
+    return {
+      name: 'chomp',
+      keys: 'arrows',
+      accepts: (a) => a in DIRS,
+      interval: () => (playing ? 120 : 150),
+      reset: maze,
+      input(next) { want = next; },
+      step() {
+        if (!playing) {
+          const food = (x, y) => dots.has(key(x, y)) || pods.has(key(x, y));
+          want = (power > 8 && route(me, (x, y) => near(x, y, 0), () => false))
+            || route(me, food, (x, y) => !power && near(x, y, 1))
+            || route(me, food, () => false) || dir;
+        }
+        if (isOpen(me[0] + DIRS[want][0], me[1] + DIRS[want][1])) dir = want;
+        if (isOpen(me[0] + DIRS[dir][0], me[1] + DIRS[dir][1])) {
+          me = [me[0] + DIRS[dir][0], me[1] + DIRS[dir][1]];
+        }
+        if (dots.delete(key(...me))) score();
+        if (pods.delete(key(...me))) { power = POWER; score(5); }
+        if (meet()) return die();
+        // The blocks move two steps out of three, and only every other step while scared.
+        tick++;
+        if (power ? tick % 2 : tick % 3) chasers.forEach(moveChaser);
+        if (meet()) return die();
+        if (power) power--;
+        if (!dots.size) { score(10); maze(); }
+      },
+      draw(time, hidden) {
+        // Corridors are drawn in the page colour, so the walls are the grid itself.
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = colors.ground;
+        for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+          if (open[key(x, y)]) ctx.fillRect(x * SIZE, y * SIZE, SIZE + GAP, SIZE + GAP);
+        }
+        for (const k of dots) dot(k % cols, Math.floor(k / cols), colors.ink, 0.3, 4);
+        for (const k of pods) logo(k % cols, Math.floor(k / cols), 0.7 + 0.3 * Math.sin(time / 200));
+        // Scared blocks fade, and flicker when the logo is about to wear off.
+        const scared = power && (power > 10 || Math.floor(time / 150) % 2) ? 0.25 : 0.85;
+        for (const c of chasers) cell(c.x, c.y, colors.ink, scared);
+        if (hidden) return;
+        // While a logo is active you are the logo.
+        if (power) logo(me[0], me[1], 1);
+        else cell(me[0], me[1], colors.accent, 0.75 + 0.25 * Math.sin(time / 120));
+      },
+    };
+  })();
+
+  // ---- Runner: the Litepod pod jumps over stacks of blocks that get faster.
+  const runner = (() => {
+    const ARC = [1, 2, 3, 4, 4, 4, 4, 3, 2, 1];
+    const X = 4;
+    let air, wantJump, blocks, gap, passed;
+    const groundRow = () => Math.max(6, Math.floor(rows * 0.8));
+    const lift = (a) => (a < 0 ? 0 : ARC[a]);
+    const hits = (a, list) => {
+      const e = lift(a);
+      return list.some((b) => b.x < X + 2 && b.x + b.w > X && e < b.h);
+    };
+    // Plays the next ticks with a jump at tick `at` and says whether the pod clears
+    // the nearest stack; the ones after it get their own jump.
+    function clears(at) {
+      const next = blocks.find((b) => b.x + b.w > X);
+      if (!next) return true;
+      const b = { ...next };
+      let a = air;
+      while (b.x + b.w > X) {
+        if (at-- === 0 && a < 0) a = 0;
+        else if (a >= 0 && ++a >= ARC.length) a = -1;
+        b.x--;
+        if (hits(a, [b])) return false;
+      }
+      return true;
+    }
+    return {
+      name: 'runner',
+      keys: 'jump',
+      accepts: (a) => a === 'jump' || a === 'up',
+      interval: () => (playing ? Math.max(42, 80 - passed * 1.5) : 80),
+      reset() {
+        air = -1;
+        wantJump = false;
+        blocks = [];
+        gap = 8;
+        passed = 0;
+      },
+      input() { wantJump = true; },
+      step() {
+        // Attract mode jumps at the last moment that still clears what is ahead.
+        if (!playing && air < 0 && clears(0) && !clears(1)) wantJump = true;
+        if (wantJump && air < 0) air = 0;
+        else if (air >= 0 && ++air >= ARC.length) air = -1;
+        wantJump = false;
+        blocks.forEach((b) => b.x--);
+        blocks = blocks.filter((b) => {
+          if (b.x + b.w === X) { passed++; score(); }
+          return b.x + b.w > 0;
+        });
+        if (--gap <= 0) {
+          blocks.push({ x: cols, w: 1 + rand(2), h: 1 + rand(3) });
+          // Never closer than one jump plus a step, so every stack can be cleared.
+          gap = ARC.length + 4 + rand(12);
+        }
+        if (hits(air, blocks)) die();
+      },
+      draw(time, hidden) {
+        const g = groundRow();
+        for (let x = 0; x < cols; x++) cell(x, g, colors.ink, 0.14);
+        for (const b of blocks) {
+          for (let i = 0; i < b.w; i++) for (let j = 0; j < b.h; j++) cell(b.x + i, g - 1 - j, colors.ink, 0.8);
+        }
+        if (hidden) return;
+        const e = lift(air);
+        for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) cell(X + i, g - 1 - e - j, colors.accent, playing ? 1 : 0.7);
+      },
+    };
+  })();
+
+  const games = { snake, chomp, runner };
+  // `#snake`, `#chomp` or `#runner` in the URL picks one; otherwise it is a surprise.
+  game = games[location.hash.slice(1)] || Object.values(games)[rand(3)];
+
+  const hintText = document.getElementById('hint-text');
+  const hintKeys = document.getElementById('hint-keys');
+  if (game.keys === 'jump') {
+    hintText.textContent = touch
+      ? (es ? 'Juega mientras esperas: toca la cuadrícula para saltar' : 'Play while you wait: tap the grid to jump')
+      : (es ? 'Juega mientras esperas: salta con' : 'Play while you wait: jump with');
+    if (!touch) hintKeys.innerHTML = '<kbd>Space</kbd> <kbd>↑</kbd>';
+  } else {
+    hintText.textContent = touch
+      ? (es ? 'Juega mientras esperas: desliza sobre la cuadrícula' : 'Play while you wait: swipe on the grid')
+      : (es ? 'Juega mientras esperas:' : 'Play while you wait:');
+    if (!touch) hintKeys.innerHTML = '<kbd>←</kbd> <kbd>↑</kbd> <kbd>↓</kbd> <kbd>→</kbd>';
+  }
+  try { best = Number(localStorage.getItem(`litepod-best-${game.name}`)) || 0; } catch {}
+  bestEl.textContent = best;
+
+  function readColors() {
+    const css = getComputedStyle(document.documentElement);
+    colors = Object.fromEntries(['ink', 'accent', 'ground'].map((k) => [k, css.getPropertyValue(`--${k}`).trim()]));
+  }
+  function start(asPlayer) {
+    playing = asPlayer;
+    dead = 0;
+    points = 0;
+    pointsEl.textContent = 0;
+    game.reset();
+  }
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const { width, height } = board.getBoundingClientRect();
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Only the rows above the fade are playable.
+    const next = [Math.floor(width / SIZE), Math.max(9, Math.floor((height * 0.72) / SIZE))];
+    // A phone's toolbar resizes the page while scrolling; a game in progress survives that.
+    if (next[0] !== cols || next[1] !== rows) {
+      [cols, rows] = next;
+      start(false);
+    }
+    draw(0);
+  }
+  function draw(time) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    game.draw(time, dead > 0 && dead % 2 === 0);
+    ctx.globalAlpha = 1;
+  }
+  function loop(time) {
+    if (time - last >= game.interval()) {
+      last = time;
+      if (dead) { if (--dead === 0) start(false); }
+      else game.step();
+    }
+    draw(time);
+    requestAnimationFrame(loop);
+  }
+  function run() {
+    if (running) return;
+    running = true;
+    requestAnimationFrame(loop);
+  }
+  function input(action) {
+    if (!game.accepts(action)) return false;
+    if (!playing || dead) start(true);
+    game.input(action);
+    run();
+    return true;
+  }
+
+  const KEYS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right', ' ': 'jump' };
+  addEventListener('keydown', (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const action = KEYS[event.key] || KEYS[event.key.toLowerCase()];
+    if (action && input(action)) event.preventDefault();
+  });
+  let pointer = null;
+  board.addEventListener('pointerdown', (e) => { pointer = [e.clientX, e.clientY]; });
+  board.addEventListener('pointerup', (e) => {
+    if (!pointer) return;
+    const dx = e.clientX - pointer[0], dy = e.clientY - pointer[1];
+    pointer = null;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return void input('jump');
+    input(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+  });
+
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
+  addEventListener('resize', resize);
+  readColors();
+  resize();
+  // With reduced motion there is no attract mode: the board waits for a player.
+  if (!reduced) run();
+})();
+</script>
 </body>
 </html>

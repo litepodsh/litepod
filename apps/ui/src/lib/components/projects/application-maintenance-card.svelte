@@ -8,13 +8,16 @@
 	import * as Card from '#lib/components/ui/card/index.js';
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
-	import { Textarea } from '#lib/components/ui/textarea/index.js';
+	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import AnimatedFileUpload from '#lib/components/custom/animated-file-upload.svelte';
 	import SoftSwitch from '#lib/components/custom/soft-switch.svelte';
 	import ConstructionIcon from '@lucide/svelte/icons/construction';
 	import UploadIcon from '@lucide/svelte/icons/upload';
+	import Maximize2Icon from '@lucide/svelte/icons/maximize-2';
+	import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
+	import ScriptEditor from '#lib/components/scheduled-tasks/script-editor.svelte';
 	import {
 		deleteMaintenanceSite,
 		getMaintenance,
@@ -52,6 +55,9 @@
 	let saving = $state(false);
 	let confirmEnable = $state(false);
 	let htmlInput = $state<HTMLInputElement | null>(null);
+	let expanded = $state(false);
+	/** Bumped by the reload button: re-creating the frame reloads the page from scratch. */
+	let previewRun = $state(0);
 
 	/** What the application actually serves, as the server has it. */
 	function savedSource(from: MaintenanceDto): Source {
@@ -247,21 +253,36 @@
 							size="sm"
 							variant={source === value ? 'default' : 'outline'}
 							disabled={!canWrite || saving}
-							onclick={() => (source = value as Source)}>
+							onclick={() => {
+								source = value as Source;
+								// Start a custom page from the default one instead of an empty box.
+								if (source === 'html' && !draft.trim()) draft = data?.default_html ?? '';
+							}}>
 							{t(`projects.maintenance.${label}`)}
 						</Button>
 					{/each}
 				</div>
 
 				{#if source === 'html'}
-					<Textarea
+					<ScriptEditor
 						bind:value={draft}
-						rows={10}
-						spellcheck={false}
+						language="html"
+						height="16rem"
+						filename="maintenance.html"
 						disabled={!canWrite}
-						class="font-mono text-xs"
-						aria-label={t('projects.maintenance.html_label')}
-						placeholder={t('projects.maintenance.html_placeholder')} />
+						label={t('projects.maintenance.html_label')}>
+						{#snippet actions()}
+							<Button
+								type="button"
+								size="sm"
+								variant="ghost"
+								class="h-6 gap-1.5 px-2 text-[11.5px]"
+								onclick={() => (expanded = true)}>
+								<Maximize2Icon class="size-3.5" />
+								{t('projects.maintenance.expand')}
+							</Button>
+						{/snippet}
+					</ScriptEditor>
 					<div class="flex flex-wrap items-center gap-2">
 						<input
 							bind:this={htmlInput}
@@ -323,14 +344,7 @@
 				{/if}
 
 				{#if source !== 'site'}
-					<p class="text-sm font-medium">{t('projects.maintenance.preview')}</p>
-					<!-- Scripts are off and the frame has no origin: a custom page is the user's own
-					     HTML, and the preview must not be a way to run it inside Litepod. -->
-					<iframe
-						title={t('projects.maintenance.preview')}
-						sandbox=""
-						srcdoc={previewHtml}
-						class="h-64 w-full rounded-lg border bg-white"></iframe>
+					{@render preview('h-64')}
 				{:else if data.site}
 					<!-- An uploaded site is only served to the application's own domains while the
 					     mode is on, so there is nothing to frame from here. -->
@@ -348,6 +362,62 @@
 		{/if}
 	</Card.Content>
 </Card.Root>
+
+{#snippet preview(height: string)}
+	<!-- Scripts are off and the frame has no origin: a custom page is the user's own
+	     HTML, and the preview must not be a way to run it inside Litepod. -->
+	<!-- Same frame and bar as the editor, so the two match side by side. -->
+	<div class="lp-inset min-w-0 overflow-hidden rounded-xl border bg-background">
+		<div
+			class="lp-groove-b flex items-center justify-between gap-2 bg-muted/60 py-1.5 ps-3 pe-2 font-mono text-[11.5px] text-muted-foreground">
+			<span class="truncate">{t('projects.maintenance.preview')}</span>
+			<!-- Negative margin: the button must not make this bar taller than the editor's. -->
+			<Button
+				type="button"
+				size="icon"
+				variant="ghost"
+				class="-my-1.5 size-6"
+				aria-label={t('projects.maintenance.reload_preview')}
+				title={t('projects.maintenance.reload_preview')}
+				onclick={() => previewRun++}>
+				<RotateCwIcon class="size-3.5" />
+			</Button>
+		</div>
+		{#key previewRun}
+			<iframe
+				title={t('projects.maintenance.preview')}
+				sandbox=""
+				srcdoc={previewHtml}
+				class="block {height} w-full bg-white"></iframe>
+		{/key}
+	</div>
+{/snippet}
+
+<Dialog.Root bind:open={expanded}>
+	<Dialog.Content class="max-w-6xl sm:max-w-6xl">
+		<Dialog.Header>
+			<Dialog.Title>{t('projects.maintenance.editor_title')}</Dialog.Title>
+			<Dialog.Description>{t('projects.maintenance.editor_description')}</Dialog.Description>
+		</Dialog.Header>
+		<div class="grid min-w-0 gap-4 lg:grid-cols-2">
+			<ScriptEditor
+				bind:value={draft}
+				language="html"
+				height="min(65vh, 44rem)"
+				filename="maintenance.html"
+				disabled={!canWrite}
+				label={t('projects.maintenance.html_label')} />
+			{@render preview('h-[min(65vh,44rem)]')}
+		</div>
+		<Dialog.Footer>
+			{#if canWrite}
+				<Button disabled={saving || !dirty} onclick={savePage}>
+					{t('projects.maintenance.save_page')}
+				</Button>
+			{/if}
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
 
 <AlertDialog.Root
 	open={confirmEnable}
