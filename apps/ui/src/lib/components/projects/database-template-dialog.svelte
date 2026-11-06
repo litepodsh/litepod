@@ -3,19 +3,21 @@
 	import DialogScrollContent from '#lib/components/custom/dialog-scroll-content.svelte';
 	import type { ApplicationDto, ServerSummaryDto } from '#lib/clients/project-client.js';
 	import { Label } from '#lib/components/ui/label/index.js';
-	import * as Select from '#lib/components/ui/select/index.js';
+	import ServerPicker from '#lib/components/servers/server-picker.svelte';
 	import PostgresTemplateDialog from '#lib/components/projects/postgres-template-dialog.svelte';
 	import MariaDbTemplateDialog from '#lib/components/projects/mariadb-template-dialog.svelte';
 	import DragonflyDbTemplateDialog from '#lib/components/projects/dragonflydb-template-dialog.svelte';
 	import KeyDbTemplateDialog from '#lib/components/projects/keydb-template-dialog.svelte';
 	import SqlServerTemplateDialog from '#lib/components/projects/sqlserver-template-dialog.svelte';
 	import MongoDbTemplateDialog from '#lib/components/projects/mongodb-template-dialog.svelte';
+	import ClickHouseTemplateDialog from '#lib/components/projects/clickhouse-template-dialog.svelte';
 	import PostgresIcon from '#lib/components/icons/postgres-icon.svelte';
 	import MariaDbIcon from '#lib/components/icons/mariadb-icon.svelte';
 	import DragonflyDbIcon from '#lib/components/icons/dragonflydb-icon.svelte';
 	import KeyDbIcon from '#lib/components/icons/keydb-icon.svelte';
 	import SqlServerIcon from '#lib/components/icons/sqlserver-icon.svelte';
 	import MongoDbIcon from '#lib/components/icons/mongodb-icon.svelte';
+	import ClickHouseIcon from '#lib/components/icons/clickhouse-icon.svelte';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	type DatabaseTemplate =
@@ -25,7 +27,8 @@
 		| 'dragonflydb'
 		| 'keydb'
 		| 'sqlserver'
-		| 'mongodb';
+		| 'mongodb'
+		| 'clickhouse';
 	type Created = { application: ApplicationDto };
 
 	let {
@@ -40,6 +43,7 @@
 		onKeyDbCreated,
 		onSqlServerCreated,
 		onMongoDbCreated,
+		onClickHouseCreated,
 	}: {
 		open?: boolean;
 		organizationId: string;
@@ -52,17 +56,11 @@
 		onKeyDbCreated: (created: Created) => Promise<void>;
 		onSqlServerCreated: (created: Created) => Promise<void>;
 		onMongoDbCreated: (created: Created) => Promise<void>;
+		onClickHouseCreated: (created: Created) => Promise<void>;
 	} = $props();
 
 	let selected = $state<DatabaseTemplate>('catalog');
 	let serverId = $state('');
-
-	const serverTriggerLabel = $derived.by(() => {
-		const match = servers.find((server) => server.id === serverId);
-		return match
-			? `${match.name} · ${match.ingress_mode.replace('_', ' ')}`
-			: t('projects.template_common.choose_ready_server');
-	});
 
 	function close() {
 		open = false;
@@ -96,16 +94,13 @@
 			</Dialog.Header>
 			<div class="grid gap-2">
 				<Label for="database-template-server">{t('organizations.common.server')}</Label>
-				<Select.Root type="single" bind:value={serverId}>
-					<Select.Trigger id="database-template-server" class="w-full"
-						>{serverTriggerLabel}</Select.Trigger>
-					<Select.Content>
-						{#each servers as server (server.id)}
-							<Select.Item value={server.id}
-								>{server.name} · {server.ingress_mode.replace('_', ' ')}</Select.Item>
-						{/each}
-					</Select.Content>
-				</Select.Root>
+				<ServerPicker
+					{servers}
+					bind:value={serverId}
+					placeholder={t('projects.template_common.choose_ready_server')}
+					searchPlaceholder={t('organizations.common.search_servers')}
+					emptyText={t('organizations.common.no_servers_found')}
+					triggerClass="w-full" />
 				{#if servers.length === 0}<p class="text-sm text-destructive">
 						{t('projects.template_common.no_ready_servers')}
 					</p>{/if}
@@ -171,6 +166,16 @@
 							>{t('projects.template_common.document_database')}</span
 						></span
 					></button>
+				<button
+					type="button"
+					class="flex items-center gap-3 rounded-xl border p-4 text-left transition-colors hover:border-primary/50 hover:bg-accent"
+					onclick={() => (selected = 'clickhouse')}
+					><ClickHouseIcon class="size-7 text-primary" /><span
+						><span class="block font-medium">ClickHouse</span><span
+							class="text-sm text-muted-foreground"
+							>{t('projects.template_common.analytical_database')}</span
+						></span
+					></button>
 			</div>
 		{:else if selected === 'postgres'}
 			<PostgresTemplateDialog
@@ -230,6 +235,16 @@
 				{servers}
 				{serverId}
 				onCreated={onMongoDbCreated}
+				onBack={returnToCatalog}
+				onCancel={close} />
+		{:else if selected === 'clickhouse'}
+			<ClickHouseTemplateDialog
+				{organizationId}
+				{projectId}
+				{environmentId}
+				{servers}
+				{serverId}
+				onCreated={onClickHouseCreated}
 				onBack={returnToCatalog}
 				onCancel={close} />
 		{/if}
