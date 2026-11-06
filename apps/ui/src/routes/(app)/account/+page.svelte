@@ -16,8 +16,6 @@
 	import TokensTab from '#lib/components/account/tokens-tab.svelte';
 	import DeactivateAccountTab from '#lib/components/account/deactivate-account-tab.svelte';
 	import GettingStartedTab from '#lib/components/account/getting-started-tab.svelte';
-	import SegmentedSwitch from '#lib/components/custom/segmented-switch.svelte';
-	import { sidebarSide, setSidebarSide } from '#lib/state/sidebar-side.svelte.js';
 	import ThemePicker from '#lib/components/custom/theme-picker.svelte';
 	import UserIcon from '@lucide/svelte/icons/user';
 	import PaletteIcon from '@lucide/svelte/icons/palette';
@@ -93,17 +91,6 @@
 				title={t('menu.appearance.title')}
 				description={t('menu.appearance.description')}>
 				<ThemePicker />
-				<div class="mt-3 flex items-center justify-between gap-3">
-					<b class="text-sm font-medium">{t('menu.appearance.sidebar_side')}</b>
-					<SegmentedSwitch
-						label={t('menu.appearance.sidebar_side')}
-						items={[
-							{ value: 'left', label: t('menu.appearance.sidebar_left') },
-							{ value: 'right', label: t('menu.appearance.sidebar_right') },
-						]}
-						value={sidebarSide.current}
-						onchange={setSidebarSide} />
-				</div>
 			</SettingsSection>
 		{:else if activeTab === 'security'}
 			<SecurityTab />

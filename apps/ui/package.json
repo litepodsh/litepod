@@ -41,6 +41,7 @@
     "globe.gl": "^2.46.2",
     "marked": "^18.0.7",
     "monaco-editor": "^0.55.1",
+    "motion": "^14.9.1",
     "prettier": "^3.9.5",
     "qrcode": "^1.5.4",
     "satellite.js": "5.0.0",

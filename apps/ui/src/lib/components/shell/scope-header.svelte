@@ -29,6 +29,7 @@
 		setSelectedOrganizationId,
 	} from '#lib/utils/selected-organization.js';
 	import { t } from '#lib/i18n/index.svelte.js';
+	import { sidebarSide } from '#lib/state/sidebar-side.svelte.js';
 
 	let {
 		organizations = $bindable<OrganizationDto[]>([]),
@@ -101,6 +102,8 @@
 		return [{ ...section, href: tab.href }, ...below];
 	});
 
+	let right = $derived(sidebarSide.current === 'right');
+
 	onMount(async () => {
 		try {
 			const [me, version] = await Promise.all([getMe(), getSystemVersion()]);
@@ -130,8 +133,13 @@
 
 <header class="lp-groove-b sticky top-0 z-30 h-(--app-header-height) bg-background">
 	<div class="flex h-full min-w-0 items-center gap-1.5 px-3 sm:px-4">
-		<Sidebar.Trigger class="-ms-1" aria-label={t('menu.sidebar.toggle')} />
-		<Separator orientation="vertical" class="me-1 data-[orientation=vertical]:h-4" />
+		<!-- On the right the toggle moves to the far end, next to the sidebar, with its icon mirrored. -->
+		<Sidebar.Trigger
+			class={right ? 'order-last -me-1 [&_svg]:-scale-x-100' : '-ms-1'}
+			aria-label={t('menu.sidebar.toggle')} />
+		<Separator
+			orientation="vertical"
+			class={`data-[orientation=vertical]:h-4 ${right ? 'order-last ms-1' : 'me-1'}`} />
 
 		<nav aria-label={t('menu.header.scope')} class="min-w-0">
 			<ol class="flex min-w-0 items-center">

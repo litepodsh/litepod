@@ -9,6 +9,7 @@
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import * as Select from '#lib/components/ui/select/index.js';
+	import ServerPicker from '#lib/components/servers/server-picker.svelte';
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 	import DeleteConfirmControl from '#lib/components/custom/delete-confirm-control.svelte';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
@@ -975,22 +976,18 @@
 			</p>
 		</div>
 		<div class="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-			<Select.Root type="single" value={serverId} onValueChange={changeServer}>
-				<Select.Trigger class="w-full sm:w-56" aria-label={t('organizations.common.server')}>
-					{activeServer ? activeServer.name : t('organizations.common.select_server')}
-				</Select.Trigger>
-				<Select.Content>
-					{#each serverOptions as server (server.id)}
-						<Select.Item value={server.id} label={server.name}>
-							{server.name}
-							<span class="ml-2 text-xs text-muted-foreground"
-								>{server.kind === 'local'
-									? t('organizations.common.local')
-									: t('organizations.common.remote')}</span>
-						</Select.Item>
-					{/each}
-				</Select.Content>
-			</Select.Root>
+			<ServerPicker
+				servers={serverOptions}
+				bind:value={serverId}
+				placeholder={t('organizations.common.select_server')}
+				searchPlaceholder={t('organizations.common.search_servers')}
+				emptyText={t('organizations.common.no_servers_found')}
+				detailFor={(server) =>
+					server.kind === 'local'
+						? t('organizations.common.local')
+						: t('organizations.common.remote')}
+				onSelect={changeServer}
+				triggerClass="w-full sm:w-56" />
 			<Button variant="outline" onclick={loadTab} disabled={loading || actionBusy || !serverId}>
 				<RefreshCwIcon class={loading ? 'animate-spin' : ''} />{t('organizations.common.refresh')}
 			</Button>

@@ -7,6 +7,8 @@
 <script lang="ts">
 	import { setMode, userPrefersMode, mode } from 'mode-watcher';
 	import SoftSwitch from '#lib/components/custom/soft-switch.svelte';
+	import SegmentedSwitch from '#lib/components/custom/segmented-switch.svelte';
+	import { sidebarSide, setSidebarSide } from '#lib/state/sidebar-side.svelte.js';
 	import { paletteState, setPalette } from '#lib/state/palette.svelte.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { cn } from '#lib/utils.js';
@@ -71,6 +73,17 @@
 		checked={system}
 		onCheckedChange={(on) => setMode(on ? 'system' : liveMode)}
 		aria-label={t('menu.appearance.match_system')} />
+</div>
+<div class="mt-3 flex items-center justify-between gap-3">
+	<b class="text-sm font-medium">{t('menu.appearance.sidebar_side')}</b>
+	<SegmentedSwitch
+		label={t('menu.appearance.sidebar_side')}
+		items={[
+			{ value: 'left', label: t('menu.appearance.sidebar_left') },
+			{ value: 'right', label: t('menu.appearance.sidebar_right') },
+		]}
+		value={sidebarSide.current}
+		onchange={setSidebarSide} />
 </div>
 
 <style>

@@ -24,6 +24,7 @@
 	import { isNamedIcon } from '#lib/utils/organization-icons.js';
 	import OrganizationIcon from '#lib/components/organization-icon.svelte';
 	import MongoDbResourceDetail from '#lib/components/projects/mongodb-resource-detail.svelte';
+	import ClickHouseResourceDetail from '#lib/components/projects/clickhouse-resource-detail.svelte';
 	import RedeployConfirmDialog from '#lib/components/projects/redeploy-confirm-dialog.svelte';
 	import RedeployWithPullDialog from '#lib/components/projects/redeploy-with-pull-dialog.svelte';
 	import ApplicationLogsTab from '#lib/components/projects/application-logs-tab.svelte';
@@ -367,7 +368,8 @@
 			application?.template_kind === 'dragonflydb' ||
 			application?.template_kind === 'keydb' ||
 			application?.template_kind === 'sqlserver' ||
-			application?.template_kind === 'mongodb',
+			application?.template_kind === 'mongodb' ||
+			application?.template_kind === 'clickhouse',
 	);
 	// Managed databases with a backup path (SQL Server's .bak flow is excluded).
 	const isDatabaseBackupSupported = $derived(
@@ -841,7 +843,7 @@
 						.catch(() => [])
 				: [];
 			if (
-				['postgres', 'mariadb', 'dragonflydb', 'keydb', 'sqlserver', 'mongodb'].includes(
+				['postgres', 'mariadb', 'dragonflydb', 'keydb', 'sqlserver', 'mongodb', 'clickhouse'].includes(
 					app.template_kind ?? '',
 				) &&
 				activeTab === 'domains'
@@ -2449,6 +2451,26 @@
 						onComposeValidate={handleComposeValidate}
 						onComposeContentChange={(content) => (composeContent = content)}
 						onCreateRuntimeVariables={handleCreateRuntimeVariables} />
+				{:else if activeTab === 'general' && application.template_kind === 'clickhouse'}
+					<ClickHouseResourceDetail
+						{organizationId}
+						{projectId}
+						environmentId={environment.id}
+						{applicationId}
+						onDeploy={deploy}
+						onStart={start}
+						onStop={stop}
+						onRestart={restart}
+						runtimeBusy={busy}
+						deploymentStatus={deployment.status}
+						{composeContent}
+						{composePortMappings}
+						{runtimeVariableNames}
+						onComposeSave={handleComposeSave}
+						onComposeDeploy={handleComposeDeploy}
+						onComposeValidate={handleComposeValidate}
+						onComposeContentChange={(content) => (composeContent = content)}
+						onCreateRuntimeVariables={handleCreateRuntimeVariables} />
 				{:else if activeTab === 'backups' && isDatabaseBackupSupported}
 					<DatabaseBackupTab
 						{organizationId}
@@ -2613,6 +2635,27 @@
 						mode="configuration" />
 				{:else if activeTab === 'advanced' && application.template_kind === 'mongodb'}
 					<MongoDbResourceDetail
+						{organizationId}
+						{projectId}
+						environmentId={environment.id}
+						{applicationId}
+						onDeploy={deploy}
+						onStart={start}
+						onStop={stop}
+						onRestart={restart}
+						runtimeBusy={busy}
+						deploymentStatus={deployment.status}
+						{composeContent}
+						{composePortMappings}
+						{runtimeVariableNames}
+						onComposeSave={handleComposeSave}
+						onComposeDeploy={handleComposeDeploy}
+						onComposeValidate={handleComposeValidate}
+						onComposeContentChange={(content) => (composeContent = content)}
+						onCreateRuntimeVariables={handleCreateRuntimeVariables}
+						mode="configuration" />
+				{:else if activeTab === 'advanced' && application.template_kind === 'clickhouse'}
+					<ClickHouseResourceDetail
 						{organizationId}
 						{projectId}
 						environmentId={environment.id}
