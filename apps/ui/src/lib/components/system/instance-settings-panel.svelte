@@ -19,6 +19,10 @@
 		getScheduledTaskHistorySettings,
 		updateScheduledTaskHistorySettings,
 	} from '#lib/clients/scheduled-task-settings-client.js';
+	import {
+		getErrorPageSettings,
+		updateErrorPageSettings,
+	} from '#lib/clients/error-page-settings-client.js';
 	import { toast } from '#lib/utils/toast.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
@@ -44,15 +48,19 @@
 	let savingDomain = $state(false);
 	let historyRetentionDays = $state(60);
 	let savingHistoryRetention = $state(false);
+	let errorPageEnabled = $state(true);
+	let savingErrorPage = $state(false);
 	let restarting = $state<Record<InfrastructureTarget, boolean>>({ caddy: false, api: false });
 	let confirmTarget = $state<InfrastructureTarget | null>(null);
 
 	onMount(async () => {
 		try {
-			const [serverSettings, taskHistorySettings] = await Promise.all([
+			const [serverSettings, taskHistorySettings, errorPageSettings] = await Promise.all([
 				getServerDomainSettings(),
 				getScheduledTaskHistorySettings(),
+				getErrorPageSettings(),
 			]);
+			errorPageEnabled = errorPageSettings.enabled;
 			domain = serverSettings.domain ?? '';
 			email = serverSettings.email ?? '';
 			https = serverSettings.https;
@@ -105,6 +113,19 @@
 		} finally {
 			restarting[target] = false;
 			confirmTarget = null;
+		}
+	}
+
+	async function saveErrorPage(enabled: boolean) {
+		savingErrorPage = true;
+		try {
+			errorPageEnabled = (await updateErrorPageSettings(enabled)).enabled;
+			toast.success(t('account.settings.success.error_page_saved'));
+		} catch (err) {
+			errorPageEnabled = !enabled;
+			toast.error(err instanceof Error ? err.message : t('account.settings.errors.save_error_page'));
+		} finally {
+			savingErrorPage = false;
 		}
 	}
 
@@ -214,6 +235,22 @@
 					</Button>
 				</div>
 			{/each}
+		</div>
+	</SettingsSection>
+
+	<SettingsSection
+		title={t('account.settings.error_page')}
+		description={t('account.settings.error_page_description')}>
+		<div class="flex items-center justify-between gap-4">
+			<div class="min-w-0">
+				<Label for="error-page-enabled">{t('account.settings.error_page_switch')}</Label>
+				<p class="mt-1 text-xs text-muted-foreground">{t('account.settings.error_page_hint')}</p>
+			</div>
+			<SoftSwitch
+				id="error-page-enabled"
+				checked={errorPageEnabled}
+				disabled={loading || savingErrorPage}
+				onCheckedChange={saveErrorPage} />
 		</div>
 	</SettingsSection>
 

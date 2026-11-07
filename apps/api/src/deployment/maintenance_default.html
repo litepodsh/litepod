@@ -4,21 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<meta name="litepod-maintenance" content="1">
 <title>Back soon</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect x='10' y='10' width='100' height='100' rx='26' fill='%23D4410B'/%3E%3Crect x='34' y='42' width='52' height='36' rx='18' fill='%23FFFFFF' transform='rotate(-24 60 60)'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect x='10' y='10' width='100' height='100' rx='26' fill='%23FACC15'/%3E%3Crect x='34' y='42' width='52' height='36' rx='18' fill='%231A1A1A' transform='rotate(-24 60 60)'/%3E%3C/svg%3E">
 <style>
+  /* Dark unless the system asks for light. */
   :root {
-    color-scheme: light dark;
-    --ground: #fafafa;
-    --cell: #efefef;
-    --ink: #0f0f0f;
-    --muted: #5e5e5e;
-    --accent: #d4410b;
-    --cell-size: 24px;
-    --gap: 3px;
+    color-scheme: dark;
+    --ground: #0a0a0a;
+    --cell: #1a1a1a;
+    --ink: #fff;
+    --muted: #b0b0b0;
+    --accent: #ff6a1f;
+    --cell-size: 10px;
+    --gap: 1px;
   }
-  @media (prefers-color-scheme: dark) {
-    :root { --ground: #000; --cell: #141414; --ink: #fff; --muted: #b0b0b0; --accent: #ff6a1f; }
+  @media (prefers-color-scheme: light) {
+    :root { color-scheme: light; --ground: #fafafa; --cell: #efefef; --ink: #0f0f0f; --muted: #5e5e5e; --accent: #d4410b; }
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -32,19 +34,63 @@
     overflow-x: hidden;
   }
   /* The pixel field: drawn with CSS so it shows even where scripts do not run. */
-  .board {
-    position: fixed;
-    inset: 0 0 auto 0;
-    height: 64vh;
+  /* Covers the whole viewport; `--play` (set by the script) is where the game ends
+     and the grid fades out behind the text. */
+  .board { position: fixed; inset: 0; touch-action: none; }
+  /* Only the grid fades; what the game draws stays visible down to the black. */
+  .board::before {
+    content: "";
+    position: absolute;
+    inset: 0;
     background-color: var(--cell);
     background-image:
       linear-gradient(to right, var(--ground) var(--gap), transparent var(--gap)),
       linear-gradient(to bottom, var(--ground) var(--gap), transparent var(--gap));
     background-size: var(--cell-size) var(--cell-size);
-    -webkit-mask-image: linear-gradient(#000 45%, transparent);
-    mask-image: linear-gradient(#000 45%, transparent);
-    touch-action: none;
+    -webkit-mask-image: linear-gradient(#000 var(--play, 62vh), transparent calc(var(--play, 62vh) + 9rem));
+    mask-image: linear-gradient(#000 var(--play, 62vh), transparent calc(var(--play, 62vh) + 9rem));
   }
+  .board canvas { position: relative; }
+  .hud {
+    position: fixed;
+    inset: 0 0 auto 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .9rem clamp(1rem, 3vw, 1.5rem);
+    font: 500 .75rem/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .hud p { margin: 0; }
+  .back {
+    position: fixed;
+    top: 3.25rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .6rem .6rem .6rem 1rem;
+    border: 1px solid color-mix(in oklab, var(--ink) 16%, transparent);
+    border-radius: .5rem;
+    background: var(--ground);
+    font: 500 .8rem/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .back[hidden] { display: none; }
+  .back .pulse { flex: none; }
+  .back button {
+    padding: .35rem .7rem;
+    border: 1px solid color-mix(in oklab, var(--ink) 16%, transparent);
+    border-radius: .35rem;
+    background: transparent;
+    font: inherit;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .back button.go { border-color: var(--accent); background: var(--accent); color: #fff; }
   .board canvas { display: block; width: 100%; height: 100%; }
   main {
     position: relative;
@@ -77,8 +123,8 @@
   @keyframes pulse { 50% { opacity: .25; } }
   h1 {
     margin: 0;
-    max-width: 14ch;
-    font-size: clamp(2.4rem, 6.5vw, 4.5rem);
+    max-width: 18ch;
+    font-size: clamp(2rem, 5vw, 3.75rem);
     line-height: .98;
     font-weight: 600;
     letter-spacing: -.045em;
@@ -114,7 +160,8 @@
   }
   .score { color: var(--ink); font-variant-numeric: tabular-nums; }
   .score span { color: var(--muted); }
-  .brand { display: inline-flex; align-items: center; gap: .5rem; }
+  .brand { display: inline-flex; align-items: center; gap: .5rem; color: inherit; text-decoration: none; }
+  .brand:hover { color: var(--ink); }
   .brand svg { width: 1rem; height: 1rem; }
   .noscript-hidden { display: none; }
   @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
@@ -122,6 +169,16 @@
 </head>
 <body>
 <div class="board" aria-hidden="true"><canvas></canvas></div>
+<div class="hud noscript-hidden">
+  <p class="score" id="score"><span data-i18n="score">Score</span> <b id="points">0</b> &nbsp;<span data-i18n="best">Best</span> <b id="best">0</b></p>
+  <p class="hint" id="hint"><span id="hint-text"></span> <span id="hint-keys"></span></p>
+</div>
+<div class="back" id="back" role="status" hidden>
+  <span class="pulse"></span>
+  <span id="back-text"></span>
+  <button type="button" class="go" id="back-go"></button>
+  <button type="button" id="back-cancel"></button>
+</div>
 <main>
   <section>
     <p class="eyebrow"><span class="pulse"></span><span data-i18n="eyebrow">503 · Maintenance</span></p>
@@ -129,12 +186,10 @@
     <p class="lede" data-i18n="lede">This site is getting some maintenance and will be back in a few minutes. Nothing to do on your side: just refresh in a bit.</p>
   </section>
   <footer>
-    <p class="hint noscript-hidden" style="margin:0" id="hint"><span id="hint-text"></span> <span id="hint-keys"></span></p>
-    <p class="score noscript-hidden" style="margin:0" id="score"><span data-i18n="score">Score</span> <b id="points">0</b> &nbsp;<span data-i18n="best">Best</span> <b id="best">0</b></p>
-    <span class="brand">
+    <a class="brand" href="https://litepod.sh" target="_blank" rel="noopener">
       <svg viewBox="0 0 120 120" aria-hidden="true"><rect x="10" y="10" width="100" height="100" rx="26" fill="var(--accent)"/><rect x="34" y="42" width="52" height="36" rx="18" fill="#fff" transform="rotate(-24 60 60)"/></svg>
       <span data-i18n="brand">Served by Litepod</span>
-    </span>
+    </a>
   </footer>
 </main>
 <script>
@@ -162,23 +217,45 @@
   const ctx = canvas.getContext('2d');
   const pointsEl = document.getElementById('points');
   const bestEl = document.getElementById('best');
-  const SIZE = 24, GAP = 3;
+  // SIZE matches --cell-size. A game cell is `game.unit` x `game.unit` of these
+  // small squares, so every game is drawn on the same fine grid.
+  const SIZE = 10, GAP = 1;
   const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
   const rand = (n) => Math.floor(Math.random() * n);
   const opposite = (a, b) => DIRS[a][0] === -DIRS[b][0] && DIRS[a][1] === -DIRS[b][1];
 
-  let cols, rows, colors, game, playing = false, dead = 0, points = 0, best = 0, last = 0, running = false;
+  let cols, rows, U, colors, game, playing = false, dead = 0, points = 0, best = 0, last = 0, running = false;
 
   function cell(x, y, color, alpha = 1, grow = 0) {
     ctx.globalAlpha = alpha;
     ctx.fillStyle = color;
-    ctx.fillRect(x * SIZE + GAP - grow, y * SIZE + GAP - grow, SIZE - GAP + grow * 2, SIZE - GAP + grow * 2);
+    for (let i = 0; i < game.unit; i++) for (let j = 0; j < game.unit; j++) {
+      const px = (x * game.unit + i) * SIZE, py = (y * game.unit + j) * SIZE;
+      ctx.fillRect(px + GAP - grow, py + GAP - grow, SIZE - GAP + grow * 2, SIZE - GAP + grow * 2);
+    }
   }
   function dot(x, y, color, alpha, size) {
     ctx.globalAlpha = alpha;
     ctx.fillStyle = color;
-    const o = GAP + (SIZE - GAP - size) / 2;
-    ctx.fillRect(x * SIZE + o, y * SIZE + o, size, size);
+    const o = GAP + (U - GAP - size) / 2;
+    ctx.fillRect(x * U + o, y * U + o, size, size);
+  }
+  // The Litepod logo over `span` x `span` cells: an orange tile with a tilted white capsule.
+  function logo(x, y, alpha, span = 1) {
+    const s = span * U - GAP, cx = x * U + GAP + s / 2, cy = y * U + GAP + s / 2;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = colors.accent;
+    ctx.beginPath();
+    ctx.roundRect(cx - s / 2, cy - s / 2, s, s, s * 0.26);
+    ctx.fill();
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((-24 * Math.PI) / 180);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.roundRect(-s * 0.26, -s * 0.18, s * 0.52, s * 0.36, s * 0.18);
+    ctx.fill();
+    ctx.restore();
   }
   function score(n = 1) {
     if (!playing) return;
@@ -191,38 +268,53 @@
   }
   const die = () => { dead = 8; };
 
-  // ---- Snake: eat the orange cell, do not bite yourself. The edges wrap around.
+  // ---- Snake: eat the orange squares, do not bite yourself. Now and then a
+  // Litepod logo shows up for 16 seconds: a bonus worth more squares and points.
+  // The edges wrap around.
   const snake = (() => {
-    let body, dir, queue, food, sparks;
+    const FOODS = 2, BONUS_CHANCE = 1 / 250, BONUS_GROW = 5, BONUS_MS = 16000;
+    let body, dir, queue, foods, bonus, sparks, grow;
     const occupied = (x, y) => body.some(([bx, by]) => bx === x && by === y);
     const wrap = (x, y) => [(x + cols) % cols, (y + rows) % rows];
+    // A piece covers `size` x `size` cells from its top-left corner.
+    const covers = (f, x, y) => x >= f.x && x < f.x + f.size && y >= f.y && y < f.y + f.size;
+    const taken = (f) => [...foods, ...(bonus ? [bonus] : [])].some((o) => f.x < o.x + o.size + 1 && o.x < f.x + f.size + 1 && f.y < o.y + o.size + 1 && o.y < f.y + f.size + 1);
     // Distance on a board whose edges meet.
     const span = (a, b, n) => Math.min(Math.abs(a - b), n - Math.abs(a - b));
-    function placeFood() {
-      do food = [rand(cols), rand(rows)]; while (occupied(food[0], food[1]));
+    function spot(size) {
+      let f;
+      do f = { x: rand(cols - size + 1), y: rand(rows - size + 1), size };
+      while (body.some(([x, y]) => covers(f, x, y)) || taken(f));
+      return f;
     }
     function autopilot() {
       const [hx, hy] = body[0];
+      const targets = bonus ? [...foods, bonus] : foods;
       const best = Object.keys(DIRS).filter((d) => !opposite(d, dir)).map((d) => {
         const [nx, ny] = wrap(hx + DIRS[d][0], hy + DIRS[d][1]);
         const safe = !occupied(nx, ny);
         const room = safe ? Object.values(DIRS).filter(([dx, dy]) => !occupied(...wrap(nx + dx, ny + dy))).length : 0;
-        return { d, score: safe ? span(nx, food[0], cols) + span(ny, food[1], rows) - room * 0.5 : Infinity };
+        const near = Math.min(...targets.map((f) => span(nx, f.x, cols) + span(ny, f.y, rows) - (f === bonus ? 6 : 0)));
+        return { d, score: safe ? near - room * 0.5 : Infinity };
       }).sort((a, b) => a.score - b.score)[0];
       if (best.score !== Infinity) dir = best.d;
     }
     return {
       name: 'snake',
+      unit: 1,
       keys: 'arrows',
       accepts: (a) => a in DIRS,
-      interval: () => (playing ? 95 : 130),
+      interval: () => (playing ? 55 : 70),
       reset() {
         const y = Math.floor(rows / 2), x = Math.floor(cols / 3);
-        body = [[x, y], [x - 1, y], [x - 2, y], [x - 3, y]];
+        body = Array.from({ length: 8 }, (_, i) => [x - i, y]);
         dir = 'right';
         queue = [];
         sparks = [];
-        placeFood();
+        foods = [];
+        bonus = null;
+        grow = 0;
+        for (let i = 0; i < FOODS; i++) foods.push(spot(1));
       },
       input(next) {
         const lastDir = queue.length ? queue[queue.length - 1] : dir;
@@ -234,18 +326,33 @@
         const head = wrap(body[0][0] + DIRS[dir][0], body[0][1] + DIRS[dir][1]);
         if (occupied(...head)) return die();
         body.unshift(head);
-        if (head[0] === food[0] && head[1] === food[1]) {
-          sparks.push({ x: food[0], y: food[1], life: 1 });
-          placeFood();
+        const hit = foods.findIndex((f) => covers(f, head[0], head[1]));
+        if (hit >= 0) {
+          const [f] = foods.splice(hit, 1);
+          sparks.push({ ...f, life: 1 });
+          grow += 1;
+          foods.push(spot(1));
           score();
-        } else {
-          body.pop();
+        } else if (bonus && covers(bonus, head[0], head[1])) {
+          sparks.push({ ...bonus, life: 1 });
+          grow += BONUS_GROW;
+          score(BONUS_GROW);
+          bonus = null;
         }
+        if (bonus && performance.now() > bonus.until) bonus = null;
+        // About one step in 250 (roughly every 15 to 20 seconds) a bonus shows up.
+        if (!bonus && Math.random() < BONUS_CHANCE) bonus = { ...spot(2), until: performance.now() + BONUS_MS };
+        if (grow > 0) grow--;
+        else body.pop();
       },
       draw(time, hidden) {
-        cell(food[0], food[1], colors.accent, 0.65 + 0.35 * Math.sin(time / 220));
+        foods.forEach((f, i) => cell(f.x, f.y, colors.accent, 0.7 + 0.3 * Math.sin(time / 220 + i)));
+        // The bonus blinks in its last three seconds.
+        if (bonus && (bonus.until - performance.now() > 3000 || Math.floor(time / 120) % 2)) logo(bonus.x, bonus.y, 1, 2);
         sparks = sparks.filter((s) => (s.life -= 0.06) > 0);
-        for (const s of sparks) cell(s.x, s.y, colors.accent, s.life * 0.5, (1 - s.life) * 8);
+        for (const s of sparks) {
+          for (let i = 0; i < s.size; i++) for (let j = 0; j < s.size; j++) cell(s.x + i, s.y + j, colors.accent, s.life * 0.5, (1 - s.life) * 6);
+        }
         if (hidden) return;
         body.forEach(([x, y], i) => {
           cell(x, y, i === 0 ? colors.accent : colors.ink, (playing ? 1 : 0.55) * (1 - (i / body.length) * 0.6));
@@ -255,10 +362,11 @@
   })();
 
   // ---- Chomp: a maze carved out of the grid. Clear every dot, keep away from the blocks.
-  // A Litepod logo turns the tables for a while: the blocks run, and you can eat them.
+  // A Litepod logo turns the tables for a while: the blocks turn blue and run, and
+  // eating one freezes the game on its points while its eyes head back home.
   const chomp = (() => {
-    const POWER = 45;
-    let open, dots, pods, me, dir, want, chasers, tick, power;
+    const POWER = 45, SCARED = '#3b6cff';
+    let open, dots, pods, me, dir, want, chasers, tick, power, combo, freeze, pops;
     const key = (x, y) => y * cols + x;
     const isOpen = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows && open[key(x, y)];
     // Breadth-first search; returns the first step toward the nearest cell `goal` accepts.
@@ -302,8 +410,9 @@
       }
       dots = new Set();
       for (let i = 0; i < open.length; i++) if (open[i]) dots.add(i);
-      me = [1, 1];
-      dots.delete(key(1, 1));
+      // Start in the middle: cells with odd coordinates are always carved out.
+      me = [Math.floor(maxX / 2) | 1, Math.floor(maxY / 2) | 1];
+      dots.delete(key(...me));
       // One logo in each quarter of the maze, on the open cell closest to its centre.
       pods = new Set();
       for (const [fx, fy] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
@@ -317,25 +426,40 @@
       }
       dir = want = 'right';
       const corners = [[maxX, maxY], [maxX, 1], [1, maxY]];
-      chasers = corners.slice(0, cols > 30 ? 3 : 2).map(([x, y]) => ({ x, y, home: [x, y], dir: 'left' }));
+      chasers = corners.slice(0, cols > 30 ? 3 : 2).map(([x, y]) => ({ x, y, home: [x, y], dir: 'left', scared: false, eyes: false }));
       tick = 0;
       power = 0;
+      freeze = 0;
+      pops = [];
     }
-    const near = (x, y, r) => chasers.some((c) => Math.abs(c.x - x) + Math.abs(c.y - y) <= r);
-    // Meeting a block either ends the run or, with a logo active, sends it home for points.
+    const near = (x, y, r, which) => chasers.some((c) => which(c) && Math.abs(c.x - x) + Math.abs(c.y - y) <= r);
+    const hunting = (c) => !c.eyes && !c.scared;
+    // Meeting a block ends the run; a scared one is eaten instead: each one in the
+    // same logo is worth double, and the game holds still on its points for a moment.
     function meet() {
       for (const c of chasers) {
-        if (c.x !== me[0] || c.y !== me[1]) continue;
-        if (!power) return true;
-        [c.x, c.y] = c.home;
-        score(10);
+        if (c.eyes || c.x !== me[0] || c.y !== me[1]) continue;
+        if (!c.scared) return true;
+        c.scared = false;
+        c.eyes = true;
+        combo *= 2;
+        score(combo);
+        pops.push({ x: c.x, y: c.y, text: combo, life: 1 });
+        freeze = 5;
       }
       return false;
     }
     function moveChaser(c) {
+      if (c.eyes) {
+        // Eyes go straight home, then the block comes back to life.
+        if (c.x === c.home[0] && c.y === c.home[1]) return void (c.eyes = false);
+        const d = route([c.x, c.y], (x, y) => x === c.home[0] && y === c.home[1], () => false);
+        if (d) { c.dir = d; c.x += DIRS[d][0]; c.y += DIRS[d][1]; }
+        return;
+      }
       const choices = Object.keys(DIRS).filter((d) => !opposite(d, c.dir) && isOpen(c.x + DIRS[d][0], c.y + DIRS[d][1]));
       let d = null;
-      if (power) {
+      if (c.scared) {
         // Running scared: the open step that ends farthest from you.
         d = choices.sort((a, b) => {
           const far = (k) => Math.abs(c.x + DIRS[k][0] - me[0]) + Math.abs(c.y + DIRS[k][1] - me[1]);
@@ -349,35 +473,20 @@
       c.x += DIRS[d][0];
       c.y += DIRS[d][1];
     }
-    // The Litepod logo, fitted to one cell: an orange tile with a tilted white capsule.
-    function logo(x, y, alpha) {
-      const s = SIZE - GAP, cx = x * SIZE + GAP + s / 2, cy = y * SIZE + GAP + s / 2;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = colors.accent;
-      ctx.beginPath();
-      ctx.roundRect(cx - s / 2, cy - s / 2, s, s, s * 0.26);
-      ctx.fill();
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate((-24 * Math.PI) / 180);
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.roundRect(-s * 0.26, -s * 0.18, s * 0.52, s * 0.36, s * 0.18);
-      ctx.fill();
-      ctx.restore();
-    }
     return {
       name: 'chomp',
+      unit: 2,
       keys: 'arrows',
       accepts: (a) => a in DIRS,
       interval: () => (playing ? 120 : 150),
       reset: maze,
       input(next) { want = next; },
       step() {
+        if (freeze) return void freeze--;
         if (!playing) {
           const food = (x, y) => dots.has(key(x, y)) || pods.has(key(x, y));
-          want = (power > 8 && route(me, (x, y) => near(x, y, 0), () => false))
-            || route(me, food, (x, y) => !power && near(x, y, 1))
+          want = (power > 8 && route(me, (x, y) => near(x, y, 0, (c) => c.scared), () => false))
+            || route(me, food, (x, y) => near(x, y, 1, hunting))
             || route(me, food, () => false) || dir;
         }
         if (isOpen(me[0] + DIRS[want][0], me[1] + DIRS[want][1])) dir = want;
@@ -385,13 +494,19 @@
           me = [me[0] + DIRS[dir][0], me[1] + DIRS[dir][1]];
         }
         if (dots.delete(key(...me))) score();
-        if (pods.delete(key(...me))) { power = POWER; score(5); }
+        if (pods.delete(key(...me))) {
+          power = POWER;
+          combo = 5;
+          chasers.forEach((c) => { c.scared = !c.eyes; });
+          score(5);
+        }
         if (meet()) return die();
-        // The blocks move two steps out of three, and only every other step while scared.
+        // The blocks move two steps out of three, only every other step while scared,
+        // and their eyes on every step.
         tick++;
-        if (power ? tick % 2 : tick % 3) chasers.forEach(moveChaser);
+        for (const c of chasers) if (c.eyes || (c.scared ? tick % 2 : tick % 3)) moveChaser(c);
         if (meet()) return die();
-        if (power) power--;
+        if (power && --power === 0) chasers.forEach((c) => { c.scared = false; });
         if (!dots.size) { score(10); maze(); }
       },
       draw(time, hidden) {
@@ -399,14 +514,32 @@
         ctx.globalAlpha = 1;
         ctx.fillStyle = colors.ground;
         for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-          if (open[key(x, y)]) ctx.fillRect(x * SIZE, y * SIZE, SIZE + GAP, SIZE + GAP);
+          if (open[key(x, y)]) ctx.fillRect(x * U, y * U, U + GAP, U + GAP);
         }
         for (const k of dots) dot(k % cols, Math.floor(k / cols), colors.ink, 0.3, 4);
         for (const k of pods) logo(k % cols, Math.floor(k / cols), 0.7 + 0.3 * Math.sin(time / 200));
-        // Scared blocks fade, and flicker when the logo is about to wear off.
-        const scared = power && (power > 10 || Math.floor(time / 150) % 2) ? 0.25 : 0.85;
-        for (const c of chasers) cell(c.x, c.y, colors.ink, scared);
-        if (hidden) return;
+        // Scared blocks turn blue and flash white when the logo is about to wear off;
+        // eaten ones are just a pair of eyes on their way home.
+        const flash = power <= 10 && Math.floor(time / 150) % 2;
+        for (const c of chasers) {
+          if (c.eyes) {
+            dot(c.x - 0.2, c.y - 0.1, colors.ink, 0.9, 4);
+            dot(c.x + 0.2, c.y - 0.1, colors.ink, 0.9, 4);
+          } else if (c.scared) cell(c.x, c.y, flash ? colors.ink : SCARED, 0.9);
+          else cell(c.x, c.y, colors.ink, 0.85);
+        }
+        // The points of an eaten block float up where it was.
+        pops = pops.filter((p) => (p.life -= 0.015) > 0);
+        ctx.font = '700 11px ui-monospace, "SF Mono", Menlo, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (const p of pops) {
+          ctx.globalAlpha = Math.min(1, p.life * 2);
+          ctx.fillStyle = SCARED;
+          ctx.fillText(p.text, (p.x + 0.5) * U, (p.y + 0.5) * U - (1 - p.life) * U);
+        }
+        // Like the arcade, you vanish while the game holds on the points.
+        if (hidden || freeze) return;
         // While a logo is active you are the logo.
         if (power) logo(me[0], me[1], 1);
         else cell(me[0], me[1], colors.accent, 0.75 + 0.25 * Math.sin(time / 120));
@@ -442,6 +575,7 @@
     }
     return {
       name: 'runner',
+      unit: 2,
       keys: 'jump',
       accepts: (a) => a === 'jump' || a === 'up',
       interval: () => (playing ? Math.max(42, 80 - passed * 1.5) : 80),
@@ -521,8 +655,13 @@
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // Only the rows above the fade are playable.
-    const next = [Math.floor(width / SIZE), Math.max(9, Math.floor((height * 0.72) / SIZE))];
+    // The game takes everything above the text; below it the grid fades out.
+    U = SIZE * game.unit;
+    const play = Math.max(9 * U, document.querySelector('main section').getBoundingClientRect().top - 24);
+    board.style.setProperty('--play', `${play}px`);
+    // Snake also roams the faded band, down to where the grid turns black (+9rem, as in the CSS mask).
+    const fade = game.name === 'snake' ? 9 * parseFloat(getComputedStyle(document.documentElement).fontSize) : 0;
+    const next = [Math.floor(width / U), Math.floor((play + fade) / U)];
     // A phone's toolbar resizes the page while scrolling; a game in progress survives that.
     if (next[0] !== cols || next[1] !== rows) {
       [cols, rows] = next;
@@ -572,6 +711,42 @@
     if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return void input('jump');
     input(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
   });
+
+  // Every 10 seconds ask for this same address again. Litepod serves this page for
+  // as long as maintenance is on, so an answer without the litepod-maintenance meta
+  // (whatever its status) means it was turned off: offer to go there, and go on our
+  // own after 5 seconds unless cancelled.
+  const back = document.getElementById('back');
+  const backText = document.getElementById('back-text');
+  const backGo = document.getElementById('back-go');
+  const backCancel = document.getElementById('back-cancel');
+  backGo.textContent = es ? 'Ir ahora' : 'Go now';
+  backCancel.textContent = es ? 'Seguir jugando' : 'Keep playing';
+  let checking = true, countdown = null;
+  function announce(seconds) {
+    backText.textContent = es ? `El sitio ya volvió. Te llevamos en ${seconds} s` : `The site is back. Taking you there in ${seconds}s`;
+  }
+  async function check() {
+    if (!checking || document.hidden) return;
+    try {
+      const res = await fetch(location.href, { cache: 'no-store', credentials: 'same-origin' });
+      if (!checking || (await res.text()).includes('name="litepod-maintenance"')) return;
+    } catch { return; }
+    checking = false;
+    let left = 5;
+    announce(left);
+    back.hidden = false;
+    countdown = setInterval(() => {
+      if (--left <= 0) location.reload();
+      else announce(left);
+    }, 1000);
+  }
+  backGo.addEventListener('click', () => location.reload());
+  backCancel.addEventListener('click', () => {
+    clearInterval(countdown);
+    back.hidden = true;
+  });
+  setInterval(check, 10000);
 
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
   addEventListener('resize', resize);

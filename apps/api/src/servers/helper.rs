@@ -12,7 +12,7 @@ use crate::servers::{repository::ServerRecord, setup};
 pub const HELPER_PATH: &str = "/usr/local/lib/litepod/serverctl";
 
 /// The version the script in this build reports. Keep in step with `helper_version=` in it.
-pub const HELPER_VERSION: u32 = 2;
+pub const HELPER_VERSION: u32 = 3;
 
 pub struct HelperRelease {
     pub version: u32,
@@ -37,6 +37,12 @@ pub const CHANGELOG: &[HelperRelease] = &[
         summary: "Maintenance mode on public-edge servers",
         changes: &["Serves a 503 maintenance page in place of the app (`maintenance-check`)"],
         script_sha256: "28cade95a3e28d65aa0e8f48e26a1bf3209aae828bd3a7576aca7b05bd6a480d",
+    },
+    HelperRelease {
+        version: 3,
+        summary: "Error page on public-edge servers",
+        changes: &["Serves a page when the app does not answer (502/503/504) (`error-page-check`)"],
+        script_sha256: "12e612c0cd945fc0846fb2b0d253aad324e1747a35b2128a57544359bb6338cd",
     },
 ];
 

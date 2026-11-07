@@ -607,6 +607,41 @@ pub async fn update_maintenance_handler(
     Ok(ok(maintenance))
 }
 
+pub async fn get_error_page_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppRead>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(deployment::error_page::get(&state, &app.application_id).await?))
+}
+
+pub async fn update_error_page_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    Json(request): Json<deployment::error_page::UpdateErrorPageRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let page_changed = request.page_html.is_some();
+    let page = deployment::error_page::update(&state, &app.application_id, request).await?;
+    // The page body is not logged: only whether it is on and whether it changed.
+    let metadata =
+        serde_json::json!({ "enabled": page.enabled, "page_changed": page_changed }).to_string();
+    audit_log::record(
+        &state,
+        &app.organization_id,
+        &app.user,
+        "error_page.updated",
+        Some("application"),
+        Some(&app.application_id),
+        Some(&app.application_name),
+        Some(&metadata),
+        None,
+        None,
+        None,
+    )
+    .await
+    .ok();
+    Ok(ok(page))
+}
+
 pub async fn list_domains_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::AppRead>,

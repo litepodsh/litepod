@@ -7,6 +7,7 @@ pub mod compose_standalone;
 pub mod deploy_hook;
 pub mod dns_validation;
 pub mod domains;
+pub mod error_page;
 pub mod git;
 pub mod history;
 

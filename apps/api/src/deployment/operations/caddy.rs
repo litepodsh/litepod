@@ -197,8 +197,17 @@ where
         .json()
         .await
         .map_err(|e| AppError::InternalError(format!("Invalid Caddy configuration: {e}")))?;
+    // Read before the edit; if it fails the error pages stay as they are rather
+    // than blocking a route change.
+    let error_pages = crate::deployment::error_page::load(state)
+        .await
+        .inspect_err(|error| tracing::warn!(%error, "could not read error page settings"))
+        .ok();
     let previous = config.clone();
     mutate(&mut config)?;
+    if let Some(pages) = &error_pages {
+        crate::deployment::error_page::sync(&mut config, pages);
+    }
     // Request analytics; this round trip runs every 30s (route recovery), so a restarted
     // Caddy gets its access log back without a separate job.
     if let Some(dial) = crate::metrics_history::requests::access_log_dial() {

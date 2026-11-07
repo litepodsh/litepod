@@ -514,11 +514,13 @@ pub(crate) async fn load_payload_for_domain(
 }
 
 /// Caddy expands `{...}` placeholders in a `static_response` body, which would
-/// eat CSS rules and script blocks of a custom page. A backslash makes them literal.
-fn escape_placeholders(html: &str) -> String {
+/// eat CSS rules and script blocks of a custom page. A backslash makes a brace
+/// literal. Backslashes themselves stay as they are: Caddy only unescapes `\{`
+/// and `\}`, so doubling them would serve `\\b` for a script's `\b`.
+pub(crate) fn escape_placeholders(html: &str) -> String {
     let mut escaped = String::with_capacity(html.len());
     for ch in html.chars() {
-        if matches!(ch, '{' | '}' | '\\') {
+        if matches!(ch, '{' | '}') {
             escaped.push('\\');
         }
         escaped.push(ch);
@@ -768,10 +770,10 @@ mod tests {
     }
 
     #[test]
-    fn braces_and_backslashes_are_escaped_so_caddy_keeps_them_literal() {
+    fn braces_are_escaped_and_backslashes_kept_so_caddy_serves_the_page_as_written() {
         assert_eq!(
-            escape_placeholders("body { color: red } a\\b {http.request.host}"),
-            "body \\{ color: red \\} a\\\\b \\{http.request.host\\}"
+            escape_placeholders(r"body { color: red } /^es\b/ /\{/ {http.request.host}"),
+            r"body \{ color: red \} /^es\b/ /\\{/ \{http.request.host\}"
         );
     }
 

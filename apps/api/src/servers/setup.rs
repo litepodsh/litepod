@@ -109,7 +109,7 @@ pub(crate) fn credentials(server: &ServerRecord) -> Result<(&str, &str, Option<&
 pub(crate) const CADDY_HELPER: &str = r#"#!/bin/sh
 set -eu
 
-helper_version=2
+helper_version=3
 
 routes=/etc/litepod/caddy/routes.d
 caddyfile=/etc/caddy/Caddyfile
@@ -224,7 +224,7 @@ sync_routes() {
 
     # Render every desired fragment into a scratch dir first. Any malformed
     # token aborts here, before the live directory is touched at all.
-    while read -r id host port https provider certificate auth maint rest; do
+    while read -r id host port https provider certificate auth maint errpage rest; do
         [ -n "$id" ] || continue
         case "$id" in ''|*[!0-9a-f-]*) exit 64 ;; esac
         case "$host" in ''|*[!A-Za-z0-9.:-]*) exit 64 ;; esac
@@ -268,6 +268,17 @@ sync_routes() {
                 [ -n "$maint_html" ] || exit 64
                 ;;
         esac
+        # Optional base64 error page: what visitors get when the proxy cannot reach
+        # the app (502/503/504). Errors the app answers itself pass through.
+        error_html=''
+        case "${errpage:--}" in
+            -) ;;
+            *[!A-Za-z0-9+/=]*) exit 64 ;;
+            *)
+                error_html=$(printf '%s' "$errpage" | base64 -d) || exit 64
+                [ -n "$error_html" ] || exit 64
+                ;;
+        esac
         {
             printf '%s {\n%b%b' "$host" "$tls" "$log_block"
             if [ -n "$maint_html" ]; then
@@ -276,7 +287,14 @@ sync_routes() {
                 printf '\trespond <<LITEPOD_MAINTENANCE_EOF\n%s\nLITEPOD_MAINTENANCE_EOF 503\n}\n' "$maint_html"
             else
                 if [ -n "$auth_block" ]; then printf '%s\n' "$auth_block"; fi
-                printf '\treverse_proxy 127.0.0.1:%s\n}\n' "$port"
+                printf '\treverse_proxy 127.0.0.1:%s\n' "$port"
+                if [ -n "$error_html" ]; then
+                    printf '\thandle_errors {\n\t\t@litepod_down expression `{http.error.status_code} in [502, 503, 504]`\n\t\thandle @litepod_down {\n'
+                    printf '\t\t\theader Cache-Control no-store\n\t\t\theader Retry-After 10\n\t\t\theader X-Robots-Tag noindex\n'
+                    printf '\t\t\theader Content-Type "text/html; charset=utf-8"\n'
+                    printf '\t\t\trespond <<LITEPOD_ERROR_EOF\n%s\nLITEPOD_ERROR_EOF {http.error.status_code}\n\t\t}\n\t}\n' "$error_html"
+                fi
+                printf '}\n'
             fi
         } > "$staging/$id.caddy"
     done < "$manifest"
@@ -371,6 +389,7 @@ case "${1:-}" in
     certificates-check) exit 0 ;;
     basic-auth-check) exit 0 ;;
     maintenance-check) exit 0 ;;
+    error-page-check) exit 0 ;;
     version) [ "$#" -eq 1 ] || exit 64; echo "$helper_version" ;;
     install-certificate) [ "$#" -eq 3 ] || exit 64; install_certificate "$2" "$3" ;;
     health) caddy validate --config "$caddyfile" --adapter caddyfile; systemctl is-active --quiet caddy ;;
@@ -1974,6 +1993,38 @@ mod tests {
         assert!(fragment.contains("<h1>Back soon</h1>"), "{fragment}");
         assert!(fragment.contains("LITEPOD_MAINTENANCE_EOF 503"), "{fragment}");
         assert!(!fragment.contains("reverse_proxy"), "{fragment}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_routes_adds_an_error_page_behind_the_proxy() {
+        use base64::Engine;
+        let dir =
+            std::env::temp_dir().join(format!("litepod-serverctl-error-{}", uuid::Uuid::now_v7()));
+        let page = base64::engine::general_purpose::STANDARD.encode("<h1>Down</h1>");
+        let auth = base64::engine::general_purpose::STANDARD.encode("\tbasic_auth {\n\t}\n");
+        let out = run_sync(
+            &dir,
+            0,
+            &format!(
+                "aaaa api.example.com 42000 true automatic - - - {page}\n\
+                 bbbb auth.example.com 42001 true automatic - {auth} - {page}\n\
+                 cccc maint.example.com 42002 true automatic - - {page} {page}\n"
+            ),
+        );
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let fragment = std::fs::read_to_string(dir.join("routes.d/aaaa.caddy")).unwrap();
+        assert!(fragment.contains("reverse_proxy 127.0.0.1:42000"), "{fragment}");
+        assert!(fragment.contains("{http.error.status_code} in [502, 503, 504]"), "{fragment}");
+        assert!(fragment.contains("<h1>Down</h1>\nLITEPOD_ERROR_EOF {http.error.status_code}"), "{fragment}");
+        assert!(fragment.find("reverse_proxy").unwrap() < fragment.find("handle_errors").unwrap());
+        let protected = std::fs::read_to_string(dir.join("routes.d/bbbb.caddy")).unwrap();
+        assert!(protected.contains("basic_auth") && protected.contains("handle_errors"), "{protected}");
+        // In maintenance nothing is proxied, so there is no error page to add.
+        let maintenance = std::fs::read_to_string(dir.join("routes.d/cccc.caddy")).unwrap();
+        assert!(!maintenance.contains("handle_errors"), "{maintenance}");
+        let failed = run_sync(&dir, 0, "aaaa api.example.com 42000 true automatic - - - not*base64\n");
+        assert!(!failed.status.success());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

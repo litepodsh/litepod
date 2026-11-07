@@ -76,7 +76,7 @@
 		<OrganizationIcon
 			icon={organization.icon}
 			bg={organization.icon_bg}
-			class={large ? 'size-4' : 'size-3.5'} />
+			class={large ? 'size-7' : 'size-5'} />
 	</span>
 {/snippet}
 

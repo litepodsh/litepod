@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import LitepodMark from '#lib/components/custom/litepod-mark.svelte';
 	import { branding, brandName } from '#lib/ee/branding/branding.svelte.js';
 	import {
@@ -63,6 +63,8 @@
 	let totpChallenge = $state<string | null>(null);
 	let totpCode = $state('');
 	let totpInput = $state<HTMLInputElement | null>(null);
+	// Plain (non-reactive): a complete code auto-submits only once per challenge; retries go through the button.
+	let totpAutoSubmitted = false;
 
 	onMount(async () => {
 		// The SSO callback lands here with the reason when sign-in failed.
@@ -140,6 +142,7 @@
 			const result = await login(email, password, turnstileToken);
 			if (isTotpChallenge(result)) {
 				totpChallenge = result.challenge_token;
+				totpAutoSubmitted = false;
 				error = '';
 				// The code may already be on the clipboard from the authenticator app.
 				detectClipboardCode();
@@ -175,12 +178,13 @@
 			await completeTotpLogin(totpChallenge, code);
 			afterLogin();
 		} catch (err) {
+			// Keep the code in the field so the user can fix it and press submit.
 			error = err instanceof Error ? err.message : t('auth.login.invalid_code');
-			totpCode = '';
 			// A spent or expired challenge cannot be retried — send the user back
 			// to the password step rather than leaving them on a dead form.
 			if (err instanceof ApiError && err.status === 401) {
 				totpChallenge = null;
+				totpCode = '';
 				password = '';
 				error = t('auth.login.too_long');
 			}
@@ -199,13 +203,15 @@
 	}
 
 	// Keep the code field to alphanumerics, uppercase, and at most eight characters.
-	// A complete TOTP (six digits) or recovery code (eight chars) submits itself.
+	// The first complete TOTP (six digits) or recovery code (eight chars) submits itself.
 	$effect(() => {
 		const cleaned = totpCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 		if (cleaned !== totpCode) {
 			totpCode = cleaned;
-		} else if (isCompleteCode(cleaned)) {
-			void submitTotp();
+		} else if (isCompleteCode(cleaned) && !totpAutoSubmitted) {
+			totpAutoSubmitted = true;
+			// untrack: otherwise `loading`/`totpChallenge` become deps and a success re-submits the spent challenge (401).
+			untrack(() => void submitTotp());
 		}
 	});
 

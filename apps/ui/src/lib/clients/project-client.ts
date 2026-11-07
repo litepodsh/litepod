@@ -2576,6 +2576,44 @@ export async function updateMaintenance(
 	return response.data!;
 }
 
+export type ErrorPageDto = {
+	/** False shows Caddy's bare error for this application. */
+	enabled: boolean;
+	/** The application's own page; `null` means the default page. */
+	page_html: string | null;
+	/** The default page, for previewing. */
+	default_html: string;
+	/** Whether the instance serves the default page at all. */
+	default_enabled: boolean;
+};
+
+export async function getErrorPage(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): Promise<ErrorPageDto> {
+	const response = await api<ErrorPageDto>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'error-page'),
+	);
+	return response.data!;
+}
+
+/** Absent keys are left unchanged; a blank `page_html` goes back to the default. */
+export async function updateErrorPage(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	input: { enabled?: boolean; page_html?: string },
+): Promise<ErrorPageDto> {
+	const response = await api<ErrorPageDto>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'error-page'),
+		{ method: 'PUT', body: JSON.stringify(input) },
+	);
+	return response.data!;
+}
+
 export async function addBasicAuthUser(
 	organizationId: string,
 	projectId: string,

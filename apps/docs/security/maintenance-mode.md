@@ -20,7 +20,10 @@ Se configura en la aplicación: **Avanzado → Modo mantenimiento**.
 
 Hay dos opciones:
 
-- **Página por defecto**: un aviso sencillo ("We'll be right back / Volvemos en unos minutos").
+- **Página por defecto**: un aviso ("We'll be right back / Volvemos enseguida") con un minijuego
+  de fondo (snake, laberinto o saltos). Cada 10 segundos revisa si el mantenimiento sigue
+  activo; cuando lo apagas, avisa al visitante y lo lleva al sitio en 5 segundos, salvo que
+  elija seguir jugando.
 - **HTML propio**: lo pegas, o cargas un archivo `.html`. Máximo **512 KiB**.
 
 - **Sitio en ZIP**: un ZIP con un `index.html` en su raíz (o dentro de su única carpeta

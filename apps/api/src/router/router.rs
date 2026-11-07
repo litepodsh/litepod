@@ -464,6 +464,7 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/settings/server-domain", get(settings::get_server_domain_handler).put(settings::update_server_domain_handler))
         .route("/api/v1/settings/build-configuration", get(settings::get_build_configuration_handler).patch(settings::update_build_configuration_handler))
         .route("/api/v1/settings/scheduled-task-history", get(settings::get_scheduled_task_history_handler).patch(settings::update_scheduled_task_history_handler))
+        .route("/api/v1/settings/error-page", get(settings::get_error_page_handler).patch(settings::update_error_page_handler))
         .route("/api/v1/settings/rate-limit", get(settings::get_rate_limit_handler).patch(settings::update_rate_limit_handler))
         .route("/api/v1/settings/telemetry", get(crate::telemetry::get_handler).patch(crate::telemetry::update_handler))
         .route("/api/v1/settings/infrastructure/{target}/restart", post(settings::restart_infrastructure_handler))
@@ -956,6 +957,10 @@ pub fn create_router(state: SharedState) -> Router {
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/maintenance",
             get(deployments::get_maintenance_handler).put(deployments::update_maintenance_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/error-page",
+            get(deployments::get_error_page_handler).put(deployments::update_error_page_handler),
         )
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/maintenance/site",

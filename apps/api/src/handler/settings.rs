@@ -91,6 +91,43 @@ pub async fn update_build_configuration_handler(
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ErrorPageSettings {
+    pub enabled: bool,
+}
+
+pub async fn get_error_page_handler(
+    State(state): State<SharedState>,
+    Extension(user): Extension<AuthUser>,
+) -> Result<impl IntoResponse, AppError> {
+    if !user.is_sysadmin {
+        return Err(AppError::InsufficientPermissions);
+    }
+    Ok(ok(ErrorPageSettings {
+        enabled: crate::deployment::error_page::load_enabled(&state).await?,
+    }))
+}
+
+pub async fn update_error_page_handler(
+    State(state): State<SharedState>,
+    Extension(user): Extension<AuthUser>,
+    Json(request): Json<ErrorPageSettings>,
+) -> Result<impl IntoResponse, AppError> {
+    if !user.is_sysadmin {
+        return Err(AppError::InsufficientPermissions);
+    }
+    crate::deployment::error_page::set_enabled(&state, request.enabled).await?;
+    let _ = crate::security::security_events::record(
+        &state,
+        None,
+        &user,
+        "settings.error_page_updated",
+        Some(if request.enabled { "enabled" } else { "disabled" }),
+    )
+    .await;
+    get_error_page_handler(State(state), Extension(user)).await
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ScheduledTaskHistorySettings {
     pub history_retention_days: i64,
 }

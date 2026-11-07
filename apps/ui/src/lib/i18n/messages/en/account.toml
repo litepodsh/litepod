@@ -322,6 +322,10 @@ rate_limit_description = "Throttle request volume and ban IPs after repeated fai
 requests_per_second = "Requests per second"
 restart = "Restart"
 restart_confirm_title = "Restart {target}?"
+error_page = "Error page"
+error_page_description = "What visitors see when an application's domain exists but the application does not answer (502, 503 or 504)."
+error_page_hint = "Each application can use its own HTML or turn it off in its settings."
+error_page_switch = "Show Litepod's page"
 restarting = "Restarting…"
 server_domain = "Server domain"
 server_domain_description = "Add the public domain for this litepod server."
@@ -340,6 +344,7 @@ save_builds = "Could not save build concurrency"
 save_domain = "Could not save server domain"
 save_rate_limit = "Could not save rate limit settings"
 save_task_history = "Could not save the task history retention"
+save_error_page = "Could not save the error page"
 
 [settings.success]
 builds_saved = "Build concurrency saved"
@@ -347,6 +352,7 @@ domain_saved = "Server domain saved and applied to Caddy"
 rate_limit_saved = "Rate limit settings saved"
 restart_triggered = "{target} restart triggered"
 task_history_saved = "Task history retention saved"
+error_page_saved = "Error page saved"
 
 [settings.tabs]
 branding = "Branding"
