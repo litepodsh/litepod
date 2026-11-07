@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import LitepodMark from '#lib/components/custom/litepod-mark.svelte';
 	import { branding, brandName } from '#lib/ee/branding/branding.svelte.js';
 	import {
@@ -205,7 +205,8 @@
 		if (cleaned !== totpCode) {
 			totpCode = cleaned;
 		} else if (isCompleteCode(cleaned)) {
-			void submitTotp();
+			// untrack: otherwise `loading`/`totpChallenge` become deps and a success re-submits the spent challenge (401).
+			untrack(() => void submitTotp());
 		}
 	});
 
