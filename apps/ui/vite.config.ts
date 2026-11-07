@@ -16,6 +16,20 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true,
 			},
 
+			// Enforced through a <meta http-equiv> in each page (prerendered and the 404.html
+			// SPA shell): SvelteKit adds the hash of its inline hydration script on every build.
+			csp: {
+				mode: 'hash',
+				directives: {
+					// Turnstile loads its script from Cloudflare.
+					'script-src': ['self', 'https://challenges.cloudflare.com'],
+					// Monaco's language workers.
+					'worker-src': ['self', 'blob:'],
+					'object-src': ['none'],
+					'base-uri': ['self'],
+				},
+			},
+
 			adapter: adapter({
 				fallback: '404.html',
 				// Emit .br/.gz next to each asset; the API serves them via ServeDir::precompressed_*.

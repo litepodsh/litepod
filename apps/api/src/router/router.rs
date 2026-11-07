@@ -50,7 +50,6 @@ const METRICS_ALLOWED_PATHS: &[&str] = &[
     "/api/v1/{*path}",
     "/deploy/{*path}",
     "/health",
-    "/exception",
     "/docs",
 ];
 
@@ -1346,7 +1345,6 @@ pub fn create_router(state: SharedState) -> Router {
 
     let app = Router::new()
         .route("/health", get(health_check))
-        .route("/exception", get(exception_handler))
         .merge(metrics_routes)
         .merge(docs_route)
         // .merge(debug_route)
@@ -1629,10 +1627,10 @@ pub(crate) async fn ui_fallback(req: Request<Body>) -> impl IntoResponse {
     // touching script/style loading: `base-uri` stops an injected <base> from
     // repointing every relative URL, `object-src` kills plugin vectors.
     //
-    // A strict `script-src` is deliberately NOT set here: the SvelteKit shell
-    // runs one inline hydration script whose content (and hash) changes every
-    // build, so locking it down needs build-time CSP hashes in the UI plus
-    // browser testing of Turnstile and the Monaco editor. Tracked separately.
+    // `script-src` is not set here: the SvelteKit shell runs one inline hydration
+    // script whose hash changes every build, so the UI build writes it, with
+    // `script-src` and `worker-src`, in a <meta http-equiv> of each page
+    // (`kit.csp` in `ui/vite.config.ts`). The browser enforces both policies.
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         header::HeaderValue::from_static(
@@ -1712,14 +1710,6 @@ async fn health_check(State(state): State<SharedState>) -> impl IntoResponse {
     })
 }
 
-async fn exception_handler() -> impl IntoResponse {
-    sentry::capture_message("Something went wrong", sentry::Level::Info);
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "exception handler".to_string(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use axum::{
@@ -1761,7 +1751,6 @@ mod tests {
                 "/api/v1/{*path}",
                 "/deploy/{*path}",
                 "/health",
-                "/exception",
                 "/docs",
             ],
         );
