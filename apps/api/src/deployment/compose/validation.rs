@@ -39,6 +39,13 @@ pub fn validate_tenant_compose(content: &str, allow_privileged: bool) -> Result<
             files.join(", ")
         ));
     }
+    let networks = control_networks_in_compose(content);
+    if !networks.is_empty() {
+        return Err(format!(
+            "`{CONTROL_NETWORK}` is litepod's internal network and cannot be joined: {}",
+            networks.join(", ")
+        ));
+    }
     let volumes = foreign_volumes_in_compose(content);
     if !volumes.is_empty() {
         return Err(format!(
@@ -61,6 +68,40 @@ pub fn validate_tenant_compose(content: &str, allow_privileged: bool) -> Result<
         }
     }
     Ok(())
+}
+
+/// The internal network of the control plane (API, Dragonfly, Caddy), kept apart
+/// from `litepod-network` so applications cannot reach Dragonfly.
+pub const CONTROL_NETWORK: &str = "litepod-control";
+
+/// Top-level networks that resolve to `CONTROL_NETWORK`: by `name:`, by
+/// `external: { name: }` (Compose v2 syntax) or by the key of an external network.
+pub fn control_networks_in_compose(content: &str) -> Vec<String> {
+    let Some(document) = parse(content) else {
+        return Vec::new();
+    };
+    let Some(networks) = document
+        .get("networks")
+        .and_then(serde_yaml::Value::as_mapping)
+    else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for (key, config) in networks {
+        let key = key.as_str().unwrap_or_default();
+        let name = config.get("name").and_then(serde_yaml::Value::as_str);
+        let external = config.get("external");
+        let external_name = external
+            .and_then(|external| external.get("name"))
+            .and_then(serde_yaml::Value::as_str);
+        let resolved = name
+            .or(external_name)
+            .or_else(|| external.is_some().then_some(key));
+        if resolved == Some(CONTROL_NETWORK) {
+            found.push(key.to_owned());
+        }
+    }
+    found
 }
 
 /// Top-level volumes that are not a plain litepod-owned volume. `driver_opts`
@@ -457,6 +498,26 @@ mod tests {
             .is_ok()
         );
         assert!(validate_tenant_compose("services:\n  caddy:\n    image: x\n", true).is_err());
+    }
+
+    #[test]
+    fn the_control_network_is_refused_for_everyone() {
+        for networks in [
+            "  cp:\n    external: true\n    name: litepod-control\n",
+            "  cp:\n    name: litepod-control\n",
+            "  cp:\n    external:\n      name: litepod-control\n",
+            "  litepod-control:\n    external: true\n",
+        ] {
+            let compose = format!("services:\n  web:\n    image: x\n    networks: [cp, litepod-control]\nnetworks:\n{networks}");
+            assert!(
+                validate_tenant_compose(&compose, true)
+                    .unwrap_err()
+                    .contains("litepod-control"),
+                "{compose}"
+            );
+        }
+        let shared = "services:\n  web:\n    image: x\nnetworks:\n  default:\n    external: true\n    name: litepod-network\n  own: {}\n";
+        assert!(control_networks_in_compose(shared).is_empty());
     }
 
     #[test]

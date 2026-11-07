@@ -19,6 +19,8 @@ services:
     restart: unless-stopped
     environment:
       DFLY_requirepass: ${DFLY_PASSWORD:?Set DFLY_PASSWORD in apps/.env}
+    # Only on the internal network: applications on litepod-network cannot reach it.
+    networks: [control]
 
   app:
     container_name: litepod-api
@@ -72,6 +74,7 @@ services:
       - ./:/etc/litepod-stack:rw
       - /opt/litepod-staging-host-console/id_ed25519:/run/litepod-host-ssh/id_ed25519:ro
       - /opt/litepod-staging-host-console/known_hosts:/run/litepod-host-ssh/known_hosts:ro
+    networks: [default, control]
     depends_on:
       - caddy
       - dragonfly
@@ -91,3 +94,8 @@ networks:
   default:
     external: true
     name: litepod-network
+  # API and Dragonfly only, no outbound access. Tenant Compose files may not join
+  # it (`compose/validation.rs`).
+  control:
+    name: litepod-control
+    internal: true
