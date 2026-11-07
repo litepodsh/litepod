@@ -41,6 +41,7 @@
 	import ApplicationAdvancedTab from '#lib/components/projects/application-advanced-tab.svelte';
 	import ApplicationBootPolicyCard from '#lib/components/projects/application-boot-policy-card.svelte';
 	import ApplicationMaintenanceCard from '#lib/components/projects/application-maintenance-card.svelte';
+	import ApplicationErrorPageCard from '#lib/components/projects/application-error-page-card.svelte';
 	import DatabaseBackupTab from '#lib/components/projects/database-backup-tab.svelte';
 	import ApplicationFormDialog from '#lib/components/projects/application-form-dialog.svelte';
 	import DeleteResourceDialog from '#lib/components/projects/delete-resource-dialog.svelte';
@@ -2703,6 +2704,15 @@
 									environmentId={environment.id}
 									{applicationId}
 									onChange={(enabled) => (maintenanceEnabled = enabled)}
+									canWrite={allowed('app.update', {
+										projectId,
+										environmentId: environment.id,
+									})} />
+								<ApplicationErrorPageCard
+									{organizationId}
+									{projectId}
+									environmentId={environment.id}
+									{applicationId}
 									canWrite={allowed('app.update', {
 										projectId,
 										environmentId: environment.id,
