@@ -1,12 +1,13 @@
 //! Keyless deploy hook.
 //!
 //! `POST /deploy/<token>` triggers a deploy with no session and no API key — the unguessable
-//! token in the URL is the credential. It is stored per application, created on demand, and
-//! rotatable so a leaked URL can be revoked.
+//! token in the URL is the credential. Only its SHA-256 digest is stored, so the URL is shown
+//! once, when it is created or rotated; rotating revokes a leaked URL.
 
 use chrono::Utc;
 use sqlx::Row;
 
+use crate::utils::security::digest_token as digest;
 use crate::{dtos::response::AppError, state::state::SharedState};
 
 fn now_ms() -> i64 {
@@ -26,39 +27,36 @@ pub fn hook_url(public_url: &str, token: &str) -> String {
     format!("{}/deploy/{token}", public_url.trim_end_matches('/'))
 }
 
-/// Existing token, creating one on first use so the URL only exists once someone asks for it.
-pub async fn ensure_token(state: &SharedState, application_id: &str) -> Result<String, AppError> {
+/// Whether the application has a deploy URL. Only its digest is stored, so the URL
+/// itself is shown once, by `rotate_token`.
+pub async fn has_token(state: &SharedState, application_id: &str) -> Result<bool, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let existing: Option<String> = {
-        let row = sqlx::query("SELECT deploy_token FROM applications WHERE id = ?1")
-            .bind(application_id)
-            .fetch_optional(&conn)
-            .await
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?
-            .ok_or(AppError::ApplicationNotFound)?;
-        row.try_get(0)
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?
-    };
-    if let Some(token) = existing.filter(|t| !t.is_empty()) {
-        return Ok(token);
-    }
-    drop(conn);
-    rotate_token(state, application_id).await
+    let row = sqlx::query("SELECT deploy_token_digest IS NOT NULL FROM applications WHERE id = ?1")
+        .bind(application_id)
+        .fetch_optional(&conn)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or(AppError::ApplicationNotFound)?;
+    row.try_get(0)
+        .map_err(|e| AppError::DatabaseError(e.to_string()))
 }
 
+/// New token, invalidating the previous one. Returned once: only its digest is kept.
 pub async fn rotate_token(state: &SharedState, application_id: &str) -> Result<String, AppError> {
     let token = generate_token();
+    let token_digest = digest(&token);
     crate::git::repositories::db::retry_on_stale_snapshot(|| async {
         let conn = crate::git::repositories::db::get_conn(state).await;
-        let changed =
-            sqlx::query("UPDATE applications SET deploy_token = ?1, updated_at = ?2 WHERE id = ?3")
-                .bind(token.clone())
-                .bind(now_ms())
-                .bind(application_id)
-                .execute(&conn)
-                .await
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?
-                .rows_affected();
+        let changed = sqlx::query(
+            "UPDATE applications SET deploy_token_digest = ?1, deploy_token = NULL, updated_at = ?2 WHERE id = ?3",
+        )
+        .bind(token_digest.clone())
+        .bind(now_ms())
+        .bind(application_id)
+        .execute(&conn)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .rows_affected();
         if changed == 0 {
             return Err(AppError::ApplicationNotFound);
         }
@@ -75,14 +73,37 @@ pub async fn application_for_token(state: &SharedState, token: &str) -> Result<S
         return Err(AppError::ApplicationNotFound);
     }
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query("SELECT id FROM applications WHERE deploy_token = ?1")
-        .bind(token)
+    let row = sqlx::query("SELECT id FROM applications WHERE deploy_token_digest = ?1")
+        .bind(digest(token))
         .fetch_optional(&conn)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or(AppError::ApplicationNotFound)?;
     row.try_get(0)
         .map_err(|e| AppError::DatabaseError(e.to_string()))
+}
+
+/// Hashes tokens stored in the clear before migration 0091, so existing deploy URLs
+/// keep working. Runs at boot; once done it finds nothing.
+pub async fn hash_legacy_tokens(pool: &sqlx::SqlitePool) -> Result<u64, sqlx::Error> {
+    let rows = sqlx::query("SELECT id, deploy_token FROM applications WHERE deploy_token IS NOT NULL")
+        .fetch_all(pool)
+        .await?;
+    let mut hashed = 0;
+    for row in rows {
+        let id: String = row.try_get(0)?;
+        let token: String = row.try_get(1)?;
+        let token_digest = (!token.is_empty()).then(|| digest(&token));
+        hashed += sqlx::query(
+            "UPDATE applications SET deploy_token_digest = ?1, deploy_token = NULL WHERE id = ?2",
+        )
+        .bind(token_digest)
+        .bind(id)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    }
+    Ok(hashed)
 }
 
 /// Queues a deploy for any application regardless of `deploy_type`. The queue

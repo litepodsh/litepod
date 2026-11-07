@@ -134,6 +134,43 @@ pub async fn get_session_by_token_result(
     }))
 }
 
+/// The session's `expires_at` and its user, in one query: this runs on every request.
+pub async fn get_session_identity_result(
+    state: &SharedState,
+    token: &str,
+) -> Result<
+    Option<(String, crate::git::repositories::user::Identity)>,
+    crate::dtos::response::AppError,
+> {
+    use crate::git::repositories::user::{IDENTITY_COLUMNS, identity_from};
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let sql = format!(
+        "SELECT s.expires_at, {IDENTITY_COLUMNS} FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_digest = ?1"
+    );
+    let row = sqlx::query(&sql)
+        .bind(digest(token))
+        .fetch_optional(&conn)
+        .await
+        .map_err(|e| crate::dtos::response::AppError::DatabaseError(e.to_string()))?;
+
+    Ok(row.map(|row| (row.try_get(0).unwrap(), identity_from(state, &row, 1))))
+}
+
+/// Days an expired session is kept before the daily purge deletes it.
+const EXPIRED_SESSION_RETENTION_DAYS: i64 = 10;
+
+/// Deletes sessions expired more than `EXPIRED_SESSION_RETENTION_DAYS` ago. Otherwise a
+/// session is only removed when its token is used again, and the table grows forever.
+pub async fn purge_expired(state: &SharedState) -> Result<u64, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let result = sqlx::query("DELETE FROM sessions WHERE expires_at < datetime('now', ?1)")
+        .bind(format!("-{EXPIRED_SESSION_RETENTION_DAYS} days"))
+        .execute(&conn)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(result.rows_affected())
+}
+
 pub async fn revoke_session(state: &SharedState, token: &str) -> Result<(), String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     sqlx::query("DELETE FROM sessions WHERE token_digest = ?1")
@@ -301,6 +338,27 @@ mod tests {
         // And the digest is still what a lookup resolves by.
         let found = get_session_by_token_result(&state, &token).await.unwrap();
         assert_eq!(found.map(|row| row.user_id).as_deref(), Some("editor"));
+
+        cleanup_database(&path);
+    }
+
+    #[tokio::test]
+    async fn purge_keeps_sessions_expired_less_than_ten_days_ago() {
+        let (state, path) = test_state().await;
+        let ago = |days: i64| {
+            (chrono::Utc::now() - chrono::Duration::days(days))
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string()
+        };
+        let (old, recent, live) = (generate_token(), generate_token(), generate_token());
+        create_session(&state, "old", "editor", &old, &ago(11), None).await.unwrap();
+        create_session(&state, "recent", "editor", &recent, &ago(9), None).await.unwrap();
+        create_session(&state, "live", "editor", &live, &ago(-1), None).await.unwrap();
+
+        assert_eq!(purge_expired(&state).await.unwrap(), 1);
+        assert!(get_session_by_token_result(&state, &old).await.unwrap().is_none());
+        assert!(get_session_by_token_result(&state, &recent).await.unwrap().is_some());
+        assert!(get_session_by_token_result(&state, &live).await.unwrap().is_some());
 
         cleanup_database(&path);
     }

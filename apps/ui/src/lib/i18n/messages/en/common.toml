@@ -331,13 +331,14 @@ backing_up = "Backing up before updating. The update starts when the backup fini
 checking_in = "Checking the server in"
 core_targets_incomplete = "The shown core-service targets are incomplete. Check again before installing."
 install_failed = "Install failed"
-installing = "Installing update. This container will recreate shortly (~10s downtime)."
+installing = "Installing update. Only the control plane restarts (~10s); your deployed apps keep running."
 none_pending = "No update is pending right now. Run a check and try again."
 preparing = "Preparing update…"
 preparing_hint = "Confirming the install target with the server"
 state_read_failed = "Could not read update state"
 target_incomplete = "The shown update target is incomplete. Check again before installing."
-waiting = "The server is in progress, please wait…"
+waiting = "Updating… waiting for the new version to come online"
+waiting_hint = "Only the litepod control plane restarts — your deployed apps keep running. This can take a few minutes (backup, image download, container restart). The page reloads automatically once the new version is live."
 
 [upload]
 choose_file = "Choose file"

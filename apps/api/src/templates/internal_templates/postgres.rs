@@ -124,7 +124,7 @@ fn generate_password() -> String {
 
 fn compose(image: &str, volume: &str, application_id: &str) -> String {
     format!(
-        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    environment:\n      POSTGRES_DB: ${{POSTGRES_DB}}\n      POSTGRES_USER: ${{POSTGRES_USER}}\n      POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD}}\n    volumes:\n      - {volume}:{POSTGRES_DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
+        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    environment:\n      POSTGRES_DB: ${{POSTGRES_DB}}\n      POSTGRES_USER: ${{POSTGRES_USER}}\n      POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD}}\n    # By default this database is reachable only from apps linked to it in the\n    # same project. To reach it from another app in this litepod that is NOT\n    # linked (different project/environment), publish the port and connect via\n    # the server public IP or the podman host gateway. Uncomment:\n    #   ports:\n    #     - \"5432:5432\"\n    volumes:\n      - {volume}:{POSTGRES_DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
         service_networks = crate::templates::resource_service_networks(application_id),
         networks = crate::templates::resource_network_compose(application_id),
     )

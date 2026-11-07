@@ -21,12 +21,13 @@
 		type SystemVersion,
 	} from '#lib/clients/system-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
+	import { pollWhileVisible } from '#lib/utils/poll.js';
 
 	let info = $state<SystemVersion | null>(null);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let checking = $state(false);
-	let pollTimer: ReturnType<typeof setInterval> | null = null;
+	let stopPoll: (() => void) | null = null;
 	const channelLabel = $derived(info?.state.channel === 'alpha' ? 'Alpha' : 'Stable');
 	const runningVersion = $derived(info?.version ?? '');
 	const updateReady = $derived(isInstallableUpdate(info));
@@ -99,7 +100,7 @@
 	}
 
 	function startPolling() {
-		pollTimer = setInterval(load, 60_000);
+		stopPoll = pollWhileVisible(load, 60_000);
 		clockTimer = setInterval(() => (now = Date.now()), 1_000);
 	}
 
@@ -110,7 +111,7 @@
 	});
 
 	onDestroy(() => {
-		if (pollTimer) clearInterval(pollTimer);
+		stopPoll?.();
 		if (clockTimer) clearInterval(clockTimer);
 	});
 </script>

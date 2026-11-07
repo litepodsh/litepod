@@ -775,27 +775,44 @@
 		{#if deployHook}
 			<div class="mt-3 mb-1 grid gap-2 rounded-lg bg-muted/50 p-2.5 text-sm">
 				<p class="text-xs text-muted-foreground">{t('projects.application_general.deploy_url')}</p>
-				<div class="flex flex-wrap gap-2">
-					<Input
-						readonly
-						value={deployHook.url}
-						class="font-mono text-xs"
-						aria-label={t('projects.application_general.deploy_url')} />
-					<CopyButton
-						value={deployHook.url}
-						label={null}
-						revealOnHover={false}
-						errorMessage={t('projects.application_general.copy_deploy_url_failed')}
-						class="inline-flex size-9 shrink-0 items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
-						iconClass="size-4" />
-					<Button
-						variant="outline"
-						size="icon"
-						disabled={busy}
-						onclick={() => void onRotateDeployHook()}
-						aria-label={t('projects.application_general.rotate_deploy_url')}
-						><RefreshCwIcon class="size-4" /></Button>
-				</div>
+				{#if deployHook.url}
+					<div class="flex flex-wrap gap-2">
+						<Input
+							readonly
+							value={deployHook.url}
+							class="font-mono text-xs"
+							aria-label={t('projects.application_general.deploy_url')} />
+						<CopyButton
+							value={deployHook.url}
+							label={null}
+							revealOnHover={false}
+							errorMessage={t('projects.application_general.copy_deploy_url_failed')}
+							class="inline-flex size-9 shrink-0 items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
+							iconClass="size-4" />
+						<Button
+							variant="outline"
+							size="icon"
+							disabled={busy}
+							onclick={() => void onRotateDeployHook()}
+							aria-label={t('projects.application_general.rotate_deploy_url')}
+							><RefreshCwIcon class="size-4" /></Button>
+					</div>
+					<p class="text-xs font-medium">{t('projects.application_general.deploy_url_shown_once')}</p>
+				{:else}
+					<div class="flex flex-wrap items-center gap-2">
+						<p class="text-xs text-muted-foreground">
+							{deployHook.configured
+								? t('projects.application_general.deploy_url_configured')
+								: t('projects.application_general.deploy_url_none')}
+						</p>
+						<Button variant="outline" size="sm" disabled={busy} onclick={() => void onRotateDeployHook()}>
+							<RefreshCwIcon class="size-4" />
+							{deployHook.configured
+								? t('projects.application_general.rotate_deploy_url')
+								: t('projects.application_general.generate_deploy_url')}
+						</Button>
+					</div>
+				{/if}
 				<p class="text-xs text-muted-foreground">
 					{t('projects.application_general.deploy_hook_hint')}
 				</p>

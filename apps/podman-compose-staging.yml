@@ -10,6 +10,7 @@ services:
       - ./Caddyfile/Caddyfile.staging:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - caddy_admin:/run/caddy-admin
     restart: unless-stopped
 
   dragonfly:
@@ -18,6 +19,8 @@ services:
     restart: unless-stopped
     environment:
       DFLY_requirepass: ${DFLY_PASSWORD:?Set DFLY_PASSWORD in apps/.env}
+    # Only on the internal network: applications on litepod-network cannot reach it.
+    networks: [control]
 
   app:
     container_name: litepod-api
@@ -40,8 +43,9 @@ services:
       # Optional one-time setup token; when set, /auth/setup requires it.
       SETUP_TOKEN: ${SETUP_TOKEN:-}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
-      CADDY_URL: http://litepod-caddy:2019
-      CADDY_ADMIN_URL: http://litepod-caddy:2019
+      # Only its host is used, to trust Caddy's address for forwarded headers.
+      CADDY_URL: http://litepod-caddy:80
+      CADDY_ADMIN_URL: unix:///run/caddy-admin/admin.sock
       DRAGONFLY_URL: redis://:${DFLY_PASSWORD:?Set DFLY_PASSWORD in apps/.env}@litepod-dragonfly:6379
       PODMAN_SOCKET: ${LITEPOD_PODMAN_SOCKET:?Set by scripts/install-staging.sh}
       LITEPOD_DATA_DIR: /var/lib/litepod
@@ -66,9 +70,11 @@ services:
     volumes:
       - ${LITEPOD_PODMAN_SOCKET_PATH:?Set by scripts/install-staging.sh}:${LITEPOD_PODMAN_SOCKET_PATH:?Set by scripts/install-staging.sh}
       - litepod_data:/var/lib/litepod
+      - caddy_admin:/run/caddy-admin
       - ./:/etc/litepod-stack:rw
       - /opt/litepod-staging-host-console/id_ed25519:/run/litepod-host-ssh/id_ed25519:ro
       - /opt/litepod-staging-host-console/known_hosts:/run/litepod-host-ssh/known_hosts:ro
+    networks: [default, control]
     depends_on:
       - caddy
       - dragonfly
@@ -77,6 +83,8 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  caddy_admin:
+    name: litepod_caddy_admin
   litepod_data:
     name: litepod_data
 
@@ -86,3 +94,8 @@ networks:
   default:
     external: true
     name: litepod-network
+  # API and Dragonfly only, no outbound access. Tenant Compose files may not join
+  # it (`compose/validation.rs`).
+  control:
+    name: litepod-control
+    internal: true

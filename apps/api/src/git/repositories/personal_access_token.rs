@@ -81,6 +81,7 @@ pub async fn list_for_user(
 
 /// Excludes revoked and expired tokens — an expired token is treated exactly
 /// like an invalid one, same as a session past `expires_at`.
+#[cfg(test)]
 pub async fn find_active_by_digest(
     state: &SharedState,
     token: &str,
@@ -101,6 +102,40 @@ pub async fn find_active_by_digest(
         scopes: row.try_get(3).unwrap(),
         expires_at: row.try_get(4).unwrap(),
         mcp_organization_id: row.try_get(5).unwrap(),
+    }))
+}
+
+/// `find_active_by_digest` plus the token's user, in one query: this runs on every request.
+pub async fn find_active_identity_by_digest(
+    state: &SharedState,
+    token: &str,
+) -> Result<
+    Option<(TokenRow, crate::git::repositories::user::Identity)>,
+    crate::dtos::response::AppError,
+> {
+    use crate::git::repositories::user::{IDENTITY_COLUMNS, identity_from};
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let sql = format!(
+        "SELECT t.id, t.user_id, t.name, t.scopes, t.expires_at, t.mcp_organization_id, {IDENTITY_COLUMNS} \
+         FROM personal_access_tokens t JOIN users u ON u.id = t.user_id \
+         WHERE t.token_digest = ?1 AND t.revoked_at IS NULL"
+    );
+    let row = sqlx::query(&sql)
+        .bind(digest(token))
+        .fetch_optional(&conn)
+        .await
+        .map_err(|e| crate::dtos::response::AppError::DatabaseError(e.to_string()))?;
+
+    Ok(row.map(|row| {
+        let token = TokenRow {
+            id: row.try_get(0).unwrap(),
+            user_id: row.try_get(1).unwrap(),
+            name: row.try_get(2).unwrap(),
+            scopes: row.try_get(3).unwrap(),
+            expires_at: row.try_get(4).unwrap(),
+            mcp_organization_id: row.try_get(5).unwrap(),
+        };
+        (token, identity_from(state, &row, 6))
     }))
 }
 

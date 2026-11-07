@@ -4,7 +4,7 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use chrono::Utc;
 
-use crate::git::repositories::{personal_access_token, session, user};
+use crate::git::repositories::{personal_access_token, session};
 use crate::state::state::SharedState;
 
 #[derive(Clone, Debug)]
@@ -34,54 +34,47 @@ pub async fn auth_middleware(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let token = jar.get("session_token").map(|c| c.value().to_string());
+    let token = crate::utils::cookie::session_token(&jar);
 
     let (auth_user, token_scopes) = if let Some(token) = token {
-        // All three lookups can fail with a database error if maintenance makes
-        // the local file briefly unavailable.
-        // window of a backup snapshot. Map those to 503 so the client doesn't
-        // mistake them for a missing/invalid session and log the user out.
-        let session_row = session::get_session_by_token_result(&state, &token)
+        // The lookup can fail with a database error if maintenance makes the local
+        // file briefly unavailable (the window of a backup snapshot). Map that to 503
+        // so the client doesn't mistake it for a missing/invalid session and log the
+        // user out.
+        let (expires_at, user_row) = session::get_session_identity_result(&state, &token)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .ok_or(StatusCode::UNAUTHORIZED)?;
 
         let now = Utc::now().naive_utc();
-        let expires =
-            chrono::NaiveDateTime::parse_from_str(&session_row.expires_at, "%Y-%m-%d %H:%M:%S")
-                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let expires = chrono::NaiveDateTime::parse_from_str(&expires_at, "%Y-%m-%d %H:%M:%S")
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         if now > expires {
             let _ = session::revoke_session(&state, &token).await;
             return Err(StatusCode::UNAUTHORIZED);
         }
 
-        let user_row = user::get_user_by_id_result(&state, &session_row.user_id)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-            .ok_or(StatusCode::UNAUTHORIZED)?;
-
-        if !user::is_active(&user_row) {
+        if !user_row.is_active {
             return Err(StatusCode::UNAUTHORIZED);
         }
-
-        let is_sysadmin = user::is_sysadmin(&state, &user_row.id).await;
 
         (
             AuthUser {
                 user_id: user_row.id,
                 email: user_row.email,
                 name: user_row.name,
-                is_sysadmin,
+                is_sysadmin: user_row.is_sysadmin,
                 token_id: None,
                 token_name: None,
             },
             None,
         )
     } else if let Some(bearer) = bearer_token(&request) {
-        let token_row = personal_access_token::find_active_by_digest(&state, &bearer)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-            .ok_or(StatusCode::UNAUTHORIZED)?;
+        let (token_row, user_row) =
+            personal_access_token::find_active_identity_by_digest(&state, &bearer)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+                .ok_or(StatusCode::UNAUTHORIZED)?;
 
         if let Some(expires_at) = &token_row.expires_at {
             let now = Utc::now().naive_utc();
@@ -101,16 +94,10 @@ pub async fn auth_middleware(
             return Err(StatusCode::UNAUTHORIZED);
         }
 
-        let user_row = user::get_user_by_id_result(&state, &token_row.user_id)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-            .ok_or(StatusCode::UNAUTHORIZED)?;
-
-        if !user::is_active(&user_row) {
+        if !user_row.is_active {
             return Err(StatusCode::UNAUTHORIZED);
         }
 
-        let is_sysadmin = user::is_sysadmin(&state, &user_row.id).await;
         let scopes: Vec<String> = serde_json::from_str(&token_row.scopes).unwrap_or_default();
 
         personal_access_token::touch_last_used(&state, &token_row.id).await;
@@ -120,7 +107,7 @@ pub async fn auth_middleware(
                 user_id: user_row.id,
                 email: user_row.email,
                 name: user_row.name,
-                is_sysadmin,
+                is_sysadmin: user_row.is_sysadmin,
                 token_id: Some(token_row.id),
                 token_name: Some(token_row.name),
             },

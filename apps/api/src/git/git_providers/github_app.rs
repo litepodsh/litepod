@@ -55,6 +55,9 @@ struct StateEntry {
 fn client() -> Result<reqwest::Client, AppError> {
     reqwest::Client::builder()
         .user_agent("litepod")
+        // Idle limits, not a total one: archives and paged listings can take a while.
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .read_timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|e| AppError::InternalError(format!("HTTP client build failed: {e}")))
 }

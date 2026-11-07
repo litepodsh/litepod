@@ -128,7 +128,7 @@ pub(crate) async fn deliver(
         .ok()
         .filter(|key| !key.trim().is_empty())
         .ok_or(())?;
-    let response = reqwest::Client::new()
+    let response = crate::utils::http::client()
         .post("https://api.resend.com/emails")
         .bearer_auth(key)
         .json(&serde_json::json!({

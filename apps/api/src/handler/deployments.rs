@@ -177,7 +177,8 @@ pub async fn update_boot_policy_handler(
     .await?))
 }
 
-/// The keyless deploy URL for this application, created on first request.
+/// Whether this application has a keyless deploy URL. The URL itself is only
+/// returned by the rotate endpoint, once: the server keeps its digest.
 ///
 /// Editor, not Viewer: `POST /deploy/{token}` is unauthenticated, so whoever can
 /// read this token can trigger deploys. Handing it to a read-only member would
@@ -186,14 +187,14 @@ pub async fn get_deploy_hook_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::AppUpdate>,
 ) -> Result<impl IntoResponse, AppError> {
-    let application_id = app.application_id;
-    let token = deployment::deploy_hook::ensure_token(&state, &application_id).await?;
+    let configured = deployment::deploy_hook::has_token(&state, &app.application_id).await?;
     Ok(ok(
-        serde_json::json!({ "token": token, "url": deployment::deploy_hook::hook_url(&crate::handler::settings::public_base_url(&state).await, &token) }),
+        serde_json::json!({ "configured": configured, "token": null, "url": null }),
     ))
 }
 
-/// Rotates the token, immediately invalidating the previous URL.
+/// Creates or rotates the token, immediately invalidating the previous URL. The
+/// only response that carries the URL.
 pub async fn rotate_deploy_hook_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::AppUpdate>,
@@ -201,7 +202,7 @@ pub async fn rotate_deploy_hook_handler(
     let application_id = app.application_id;
     let token = deployment::deploy_hook::rotate_token(&state, &application_id).await?;
     Ok(ok(
-        serde_json::json!({ "token": token, "url": deployment::deploy_hook::hook_url(&crate::handler::settings::public_base_url(&state).await, &token) }),
+        serde_json::json!({ "configured": true, "token": token, "url": deployment::deploy_hook::hook_url(&crate::handler::settings::public_base_url(&state).await, &token) }),
     ))
 }
 

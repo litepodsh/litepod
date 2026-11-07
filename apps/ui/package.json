@@ -36,7 +36,7 @@
     "@xyflow/svelte": "^1.6.5",
     "astronomy-engine": "^2.1.19",
     "d3-geo": "3",
-    "dompurify": "^3.4.12",
+    "dompurify": "^3.4.17",
     "fuse.js": "^7.5.0",
     "globe.gl": "^2.46.2",
     "marked": "^18.0.7",
@@ -87,12 +87,14 @@
     "vaul-svelte": "^1.0.0-next.7",
     "vite": "^8.0.16",
     "vitest": "^4.1.10",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "overrides": {
     "devalue": "^5.9.4",
+    "dompurify": "^3.4.17",
     "joi": "^17.13.8",
-    "source-map-js": "^1.2.2"
+    "source-map-js": "^1.2.2",
+    "tinypool": "^2.2.0"
   },
   "imports": {
     "#lib": "./src/lib/index.js",

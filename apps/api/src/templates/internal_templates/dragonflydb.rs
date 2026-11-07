@@ -213,7 +213,7 @@ fn compose(
         command.push_str("      - --cache_mode=true\n");
     }
     format!(
-        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    command:\n{command}    volumes:\n      - {volume}:{DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
+        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    command:\n{command}    # By default this database is reachable only from apps linked to it in the\n    # same project. To reach it from another app in this litepod that is NOT\n    # linked (different project/environment), publish the port and connect via\n    # the server public IP or the podman host gateway. Uncomment:\n    #   ports:\n    #     - \"6379:6379\"\n    volumes:\n      - {volume}:{DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
         service_networks = crate::templates::resource_service_networks(application_id),
         networks = crate::templates::resource_network_compose(application_id),
     )

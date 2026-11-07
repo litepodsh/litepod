@@ -745,40 +745,55 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deploy_hook_token_is_stable_until_rotated() {
+    async fn deploy_hook_token_is_stored_as_digest_until_rotated() {
+        use super::super::deploy_hook::{
+            application_for_token, has_token, hash_legacy_tokens, rotate_token,
+        };
         let (state, path) = test_state().await;
-        let first = super::super::deploy_hook::ensure_token(&state, "application-1")
-            .await
-            .unwrap();
+        assert!(!has_token(&state, "application-1").await.unwrap());
+
+        let first = rotate_token(&state, "application-1").await.unwrap();
         assert!(
             first.len() >= 40,
             "token must be unguessable, got {} chars",
             first.len()
         );
-        assert_eq!(
-            super::super::deploy_hook::ensure_token(&state, "application-1")
+        assert!(has_token(&state, "application-1").await.unwrap());
+        let conn = crate::git::repositories::db::get_conn(&state).await;
+        let stored: Option<String> =
+            sqlx::query_scalar("SELECT deploy_token_digest FROM applications WHERE id = 'application-1'")
+                .fetch_one(&conn)
                 .await
-                .unwrap(),
-            first,
-            "reused until rotated"
-        );
+                .unwrap();
+        assert_ne!(stored.as_deref(), Some(first.as_str()), "never stored in the clear");
 
-        let rotated = super::super::deploy_hook::rotate_token(&state, "application-1")
-            .await
-            .unwrap();
+        let rotated = rotate_token(&state, "application-1").await.unwrap();
         assert_ne!(rotated, first);
         assert_eq!(
-            super::super::deploy_hook::application_for_token(&state, &rotated)
-                .await
-                .unwrap(),
+            application_for_token(&state, &rotated).await.unwrap(),
             "application-1"
         );
         assert!(
-            super::super::deploy_hook::application_for_token(&state, &first)
-                .await
-                .is_err(),
+            application_for_token(&state, &first).await.is_err(),
             "rotation revokes the old URL"
         );
+
+        // A token from before migration 0091 keeps working once hashed at boot.
+        sqlx::query("UPDATE applications SET deploy_token = 'legacy-token', deploy_token_digest = NULL WHERE id = 'application-1'")
+            .execute(&conn)
+            .await
+            .unwrap();
+        assert_eq!(hash_legacy_tokens(&conn).await.unwrap(), 1);
+        assert_eq!(
+            application_for_token(&state, "legacy-token").await.unwrap(),
+            "application-1"
+        );
+        let plain: Option<String> =
+            sqlx::query_scalar("SELECT deploy_token FROM applications WHERE id = 'application-1'")
+                .fetch_one(&conn)
+                .await
+                .unwrap();
+        assert!(plain.is_none());
         cleanup(path);
     }
 

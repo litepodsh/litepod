@@ -18,11 +18,13 @@
 	import OverviewProjectCard from './overview-project-card.svelte';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import { t } from '#lib/i18n/index.svelte.js';
+	import { pollWhileVisible } from '#lib/utils/poll.js';
 
 	let { organizationId }: { organizationId: string } = $props();
 
 	const PROJECT_LIMIT = 6;
-	const STATS_POLL_MS = 10_000;
+	// The sampler refreshes every 15 s; polling faster brings no new numbers.
+	const STATS_POLL_MS = 15_000;
 
 	type AppOverview = {
 		application: ApplicationDto;
@@ -56,8 +58,7 @@
 
 	onMount(() => {
 		void load();
-		const interval = window.setInterval(() => void pollStats(), STATS_POLL_MS);
-		return () => window.clearInterval(interval);
+		return pollWhileVisible(pollStats, STATS_POLL_MS);
 	});
 
 	async function load() {

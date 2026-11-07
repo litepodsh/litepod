@@ -41,6 +41,7 @@ use crate::{
 };
 
 mod geo;
+pub mod latest;
 pub mod requests;
 
 const MAX_POINTS: i64 = 120;
@@ -702,6 +703,7 @@ async fn sample_server(
     )
     .await
     .map_err(|_| AppError::InternalError("podman stats timed out".into()))??;
+    latest::store(&server.id, &snapshot);
     let owners = owners_on(state, &server.id).await?;
     Ok(to_samples(
         &server.id,

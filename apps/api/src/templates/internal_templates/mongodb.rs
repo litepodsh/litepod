@@ -132,7 +132,7 @@ fn js_string(value: &str) -> String {
 
 fn compose(image: &str, volume: &str, application_id: &str) -> String {
     format!(
-        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    environment:\n      MONGO_INITDB_ROOT_USERNAME: ${{MONGO_INITDB_ROOT_USERNAME}}\n      MONGO_INITDB_ROOT_PASSWORD: ${{MONGO_INITDB_ROOT_PASSWORD}}\n      MONGO_INITDB_DATABASE: ${{MONGO_INITDB_DATABASE}}\n    volumes:\n      - {volume}:{MONGO_DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
+        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    environment:\n      MONGO_INITDB_ROOT_USERNAME: ${{MONGO_INITDB_ROOT_USERNAME}}\n      MONGO_INITDB_ROOT_PASSWORD: ${{MONGO_INITDB_ROOT_PASSWORD}}\n      MONGO_INITDB_DATABASE: ${{MONGO_INITDB_DATABASE}}\n    # By default this database is reachable only from apps linked to it in the\n    # same project. To reach it from another app in this litepod that is NOT\n    # linked (different project/environment), publish the port and connect via\n    # the server public IP or the podman host gateway. Uncomment:\n    #   ports:\n    #     - \"27017:27017\"\n    volumes:\n      - {volume}:{MONGO_DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
         service_networks = crate::templates::resource_service_networks(application_id),
         networks = crate::templates::resource_network_compose(application_id),
     )

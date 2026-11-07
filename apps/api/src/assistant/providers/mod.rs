@@ -24,6 +24,9 @@ pub type CompletionModelBox = rig::agent::ModelHandle;
 pub fn http_client() -> Result<rig::http_client::ReqwestClient, AppError> {
     rig::http_client::ReqwestClient::builder()
         .redirect(reqwest013::redirect::Policy::none())
+        // Idle limits, not a total one: a streamed answer can run for minutes.
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .read_timeout(std::time::Duration::from_secs(300))
         .build()
         .map_err(|error| AppError::InternalError(format!("could not build HTTP client: {error}")))
 }

@@ -275,38 +275,32 @@ pub async fn list_organization_apps_stats(
             .push((index, name));
     }
 
-    for (server_id, entries) in by_server {
-        let identities = entries
-            .iter()
-            .map(|(_, name)| ContainerIdentity::running(name.clone(), name.clone()))
-            .collect::<Vec<_>>();
-        let output = match ServerRuntime::for_server(state, &server_id).await {
-            Ok(runtime) => runtime
-                .podman(&[
-                    "stats".into(),
-                    "--no-stream".into(),
-                    "--format".into(),
-                    "json".into(),
-                ])
-                .await
-                .ok()
-                .map(|output| output.stdout),
-            Err(_) => None,
-        };
-        let value = output
-            .and_then(|stdout| serde_json::from_str::<serde_json::Value>(&stdout).ok())
-            .unwrap_or(serde_json::Value::Array(Vec::new()));
-        let snapshot = normalize_stats(value, &identities, chrono::Utc::now());
-        for ((index, _), metric) in entries.iter().zip(snapshot.metrics.iter()) {
-            if metric.state == ContainerMetricState::Running {
-                stats[*index] = Some(ApplicationStatsItemDto {
-                    application_id: apps[*index].application_id.clone(),
-                    status: "running".into(),
-                    cpu_percent: metric.cpu_percent,
-                    mem_usage_bytes: metric.memory_usage_bytes,
-                    mem_limit_bytes: metric.memory_limit_bytes,
-                });
+    // The sampler's last snapshot when it is recent; a live read, all servers at
+    // once, only where it has none (first seconds after boot, or a server it skips).
+    let by_server = by_server.into_iter().collect::<Vec<_>>();
+    let snapshots = futures_util::future::join_all(by_server.iter().map(
+        |(server_id, entries)| async move {
+            match crate::metrics_history::latest::fresh(server_id) {
+                Some(snapshot) => snapshot,
+                None => live_snapshot(state, server_id, entries).await,
             }
+        },
+    ))
+    .await;
+    for ((_, entries), snapshot) in by_server.iter().zip(snapshots) {
+        for (index, name) in entries {
+            let Some(metric) = snapshot.metrics.iter().find(|metric| {
+                metric.name == *name && metric.state == ContainerMetricState::Running
+            }) else {
+                continue;
+            };
+            stats[*index] = Some(ApplicationStatsItemDto {
+                application_id: apps[*index].application_id.clone(),
+                status: "running".into(),
+                cpu_percent: metric.cpu_percent,
+                mem_usage_bytes: metric.memory_usage_bytes,
+                mem_limit_bytes: metric.memory_limit_bytes,
+            });
         }
     }
 
@@ -325,6 +319,38 @@ pub async fn list_organization_apps_stats(
             }),
         })
         .collect())
+}
+
+/// One `podman stats` on the server for the given container names. An unreachable
+/// or slow server reads as no stats (every app `stopped`), never as an error.
+async fn live_snapshot(
+    state: &SharedState,
+    server_id: &str,
+    entries: &[(usize, String)],
+) -> crate::podman::podman_metrics::ContainerMetricsSnapshot {
+    let identities = entries
+        .iter()
+        .map(|(_, name)| ContainerIdentity::running(name.clone(), name.clone()))
+        .collect::<Vec<_>>();
+    let read = async {
+        let runtime = ServerRuntime::for_server(state, server_id).await.ok()?;
+        let output = runtime
+            .podman(&[
+                "stats".into(),
+                "--no-stream".into(),
+                "--format".into(),
+                "json".into(),
+            ])
+            .await
+            .ok()?;
+        serde_json::from_str::<serde_json::Value>(&output.stdout).ok()
+    };
+    let value = tokio::time::timeout(std::time::Duration::from_secs(10), read)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(serde_json::Value::Array(Vec::new()));
+    normalize_stats(value, &identities, chrono::Utc::now())
 }
 
 /// Domains per application, with the saved certificate name each one shows in

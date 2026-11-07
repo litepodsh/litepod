@@ -11,6 +11,7 @@ use axum::{
 use axum_prometheus::PrometheusMetricLayerBuilder;
 use serde::Serialize;
 use tower::ServiceExt;
+use tower_http::compression::{CompressionLayer, DefaultPredicate, Predicate};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 use utoipa::OpenApi;
@@ -49,7 +50,6 @@ const METRICS_ALLOWED_PATHS: &[&str] = &[
     "/api/v1/{*path}",
     "/deploy/{*path}",
     "/health",
-    "/exception",
     "/docs",
 ];
 
@@ -1340,11 +1340,11 @@ pub fn create_router(state: SharedState) -> Router {
                 ])
                 .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT])
                 .allow_credentials(true),
-        );
+        )
+        .layer(CompressionLayer::new().compress_when(DefaultPredicate::new().and(compressible)));
 
     let app = Router::new()
         .route("/health", get(health_check))
-        .route("/exception", get(exception_handler))
         .merge(metrics_routes)
         .merge(docs_route)
         // .merge(debug_route)
@@ -1627,10 +1627,10 @@ pub(crate) async fn ui_fallback(req: Request<Body>) -> impl IntoResponse {
     // touching script/style loading: `base-uri` stops an injected <base> from
     // repointing every relative URL, `object-src` kills plugin vectors.
     //
-    // A strict `script-src` is deliberately NOT set here: the SvelteKit shell
-    // runs one inline hydration script whose content (and hash) changes every
-    // build, so locking it down needs build-time CSP hashes in the UI plus
-    // browser testing of Turnstile and the Monaco editor. Tracked separately.
+    // `script-src` is not set here: the SvelteKit shell runs one inline hydration
+    // script whose hash changes every build, so the UI build writes it, with
+    // `script-src` and `worker-src`, in a <meta http-equiv> of each page
+    // (`kit.csp` in `ui/vite.config.ts`). The browser enforces both policies.
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         header::HeaderValue::from_static(
@@ -1644,6 +1644,20 @@ pub(crate) async fn ui_fallback(req: Request<Body>) -> impl IntoResponse {
         );
     }
     res
+}
+
+/// JSON and text only: downloads (zip, backups, container files) are already
+/// compressed or need their `Content-Length`. `DefaultPredicate` leaves out SSE.
+fn compressible(
+    _: axum::http::StatusCode,
+    _: axum::http::Version,
+    headers: &axum::http::HeaderMap,
+    _: &axum::http::Extensions,
+) -> bool {
+    headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json") || value.starts_with("text/"))
 }
 
 fn build_cors_origins() -> AllowOrigin {
@@ -1696,14 +1710,6 @@ async fn health_check(State(state): State<SharedState>) -> impl IntoResponse {
     })
 }
 
-async fn exception_handler() -> impl IntoResponse {
-    sentry::capture_message("Something went wrong", sentry::Level::Info);
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "exception handler".to_string(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use axum::{
@@ -1712,7 +1718,30 @@ mod tests {
         response::IntoResponse,
     };
 
-    use super::{METRICS_ALLOWED_PATHS, is_secret_probe_path, ui_fallback};
+    use super::{METRICS_ALLOWED_PATHS, compressible, is_secret_probe_path, ui_fallback};
+
+    #[test]
+    fn only_json_and_text_responses_are_compressed() {
+        let compresses = |content_type: &str| {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::CONTENT_TYPE,
+                content_type.parse().unwrap(),
+            );
+            compressible(
+                StatusCode::OK,
+                axum::http::Version::HTTP_11,
+                &headers,
+                &axum::http::Extensions::new(),
+            )
+        };
+        assert!(compresses("application/json"));
+        assert!(compresses("application/json; charset=utf-8"));
+        assert!(compresses("text/plain; charset=utf-8"));
+        assert!(!compresses("application/zip"));
+        assert!(!compresses("application/octet-stream"));
+        assert!(!compresses("image/png"));
+    }
 
     #[test]
     fn metrics_allowlist_contains_only_product_routes() {
@@ -1722,7 +1751,6 @@ mod tests {
                 "/api/v1/{*path}",
                 "/deploy/{*path}",
                 "/health",
-                "/exception",
                 "/docs",
             ],
         );

@@ -38,6 +38,7 @@
 		runOutcome,
 		taskHealth,
 	} from './task-utils.js';
+	import { pollWhileVisible } from '#lib/utils/poll.js';
 
 	// Right-hand sheet for one task: header with actions, then its runs, each
 	// expandable to its log. Replaces the old history and execution dialogs.
@@ -116,8 +117,7 @@
 	// keeps statuses fresh while the sheet is open, like the old history dialog
 	$effect(() => {
 		if (!open || !taskId) return;
-		const timer = setInterval(() => void refresh(), 2000);
-		return () => clearInterval(timer);
+		return pollWhileVisible(refresh, 2000);
 	});
 
 	async function runNow() {

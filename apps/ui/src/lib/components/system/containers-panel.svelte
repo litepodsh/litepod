@@ -89,6 +89,7 @@
 	import { toneBadge, toneDot } from '#lib/utils/status-tone.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { allowed } from '#lib/state/permissions.svelte.js';
+	import { pollWhileVisible } from '#lib/utils/poll.js';
 
 	type Tab =
 		| 'containers'
@@ -923,8 +924,7 @@
 			}
 		};
 		void tick();
-		const timer = setInterval(tick, 2_000);
-		return () => clearInterval(timer);
+		return pollWhileVisible(tick, 2_000);
 	});
 
 	$effect(() => {

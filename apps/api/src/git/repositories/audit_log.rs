@@ -231,14 +231,16 @@ pub async fn list_for_export(
 
 /// Deletes every entry past its organization's own retention window, in one
 /// query across all orgs — no per-org loop needed since the cutoff is a join
-/// condition, not an application-side constant.
+/// condition, not an application-side constant. `CROSS JOIN` keeps organizations as
+/// the outer loop so each one reads `idx_audit_logs_organization_created_at`.
 pub async fn purge_expired(state: &SharedState) -> Result<u64, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let result = sqlx::query(
         "DELETE FROM audit_logs WHERE id IN (
-            SELECT a.id FROM audit_logs a
-            JOIN organizations o ON o.id = a.organization_id
-            WHERE a.created_at < datetime('now', '-' || o.audit_logs_retention_days || ' days')
+            SELECT a.id FROM organizations o
+            CROSS JOIN audit_logs a
+            WHERE a.organization_id = o.id
+              AND a.created_at < datetime('now', '-' || o.audit_logs_retention_days || ' days')
         )",
     )
     .execute(&conn)
@@ -248,17 +250,18 @@ pub async fn purge_expired(state: &SharedState) -> Result<u64, String> {
 }
 
 /// Same shape as `scheduled_tasks::scheduler::spawn` / `backup::scheduler::spawn`:
-/// purge once at startup, then daily.
+/// purge once at startup, then daily. Also purges long-expired sessions.
 pub fn spawn(state: SharedState) {
     tokio::spawn(async move {
-        if let Err(error) = purge_expired(&state).await {
-            tracing::warn!(%error, "audit log purge failed");
-        }
+        // The first tick fires immediately: that is the purge at startup.
         let mut daily = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
         loop {
             daily.tick().await;
             if let Err(error) = purge_expired(&state).await {
                 tracing::warn!(%error, "audit log purge failed");
+            }
+            if let Err(error) = crate::git::repositories::session::purge_expired(&state).await {
+                tracing::warn!(%error, "expired session purge failed");
             }
         }
     });

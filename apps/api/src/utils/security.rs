@@ -35,6 +35,21 @@ pub fn get_encryption_key() -> [u8; 32] {
     key
 }
 
+/// Constant-time string comparison for secrets. Length mismatch and content
+/// mismatch both return false; the content compare is constant-time in the
+/// length, so a wrong guess leaks no timing signal about how much matched.
+pub fn constant_time_eq(expected: &str, supplied: &str) -> bool {
+    let (a, b) = (expected.as_bytes(), supplied.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Encrypt plaintext using AES-256-GCM with a random 12-byte nonce.
 /// Returns base64-encoded nonce || ciphertext.
 pub fn encrypt_data(plaintext: &str, key: &[u8; 32]) -> Result<String, String> {

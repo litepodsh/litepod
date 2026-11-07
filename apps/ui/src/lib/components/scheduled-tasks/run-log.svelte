@@ -14,6 +14,7 @@
 	import { renderTerminalText } from '#lib/utils/terminal-text.js';
 	import { toast } from '#lib/utils/toast.js';
 	import { cn } from '#lib/utils.js';
+	import { pollWhileVisible } from '#lib/utils/poll.js';
 
 	// The log of one execution: the saved rows, then live lines over the push
 	// stream while it runs (polling if the stream fails), plus copy and kill.
@@ -109,8 +110,7 @@
 	// polling: the fallback when the stream failed
 	$effect(() => {
 		if (!active || !streamFailed) return;
-		const timer = setInterval(() => void refresh(), intervalMs);
-		return () => clearInterval(timer);
+		return pollWhileVisible(refresh, intervalMs);
 	});
 
 	// follow the tail as new lines arrive, unless the reader scrolled up

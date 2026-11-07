@@ -24,7 +24,7 @@ pub async fn verify(token: &str, remote_ip: IpAddr) -> Result<(), AppError> {
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| AppError::InternalError("TURNSTILE_SECRET not configured".to_string()))?;
 
-    let resp = reqwest::Client::new()
+    let resp = crate::utils::http::client()
         .post(SITEVERIFY_URL)
         .form(&[
             ("secret", secret.as_str()),

@@ -150,7 +150,7 @@ fn resolve_password(value: Option<&str>) -> Result<String, AppError> {
 
 fn compose(image: &str, volume: &str, application_id: &str) -> String {
     format!(
-        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    environment:\n      MARIADB_DATABASE: ${{MARIADB_DATABASE}}\n      MARIADB_USER: ${{MARIADB_USER}}\n      MARIADB_PASSWORD: ${{MARIADB_PASSWORD}}\n      MARIADB_ROOT_PASSWORD: ${{MARIADB_ROOT_PASSWORD}}\n      MARIADB_ROOT_HOST: \"%\"\n    volumes:\n      - {volume}:{DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
+        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    environment:\n      MARIADB_DATABASE: ${{MARIADB_DATABASE}}\n      MARIADB_USER: ${{MARIADB_USER}}\n      MARIADB_PASSWORD: ${{MARIADB_PASSWORD}}\n      MARIADB_ROOT_PASSWORD: ${{MARIADB_ROOT_PASSWORD}}\n      MARIADB_ROOT_HOST: \"%\"\n    # By default this database is reachable only from apps linked to it in the\n    # same project. To reach it from another app in this litepod that is NOT\n    # linked (different project/environment), publish the port and connect via\n    # the server public IP or the podman host gateway. Uncomment:\n    #   ports:\n    #     - \"3306:3306\"\n    volumes:\n      - {volume}:{DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
         service_networks = crate::templates::resource_service_networks(application_id),
         networks = crate::templates::resource_network_compose(application_id),
     )

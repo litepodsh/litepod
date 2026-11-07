@@ -101,7 +101,7 @@ where
 }
 
 async fn ship_logs(config: LokiConfig, mut receiver: mpsc::Receiver<LokiEntry>) {
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::client();
 
     while let Some(first_entry) = receiver.recv().await {
         let mut values = Vec::with_capacity(MAX_BATCH_SIZE);
