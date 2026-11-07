@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="litepod-error" content="502">
+<title>App not responding</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect x='10' y='10' width='100' height='100' rx='26' fill='%23B91C1C'/%3E%3Crect x='34' y='42' width='52' height='36' rx='18' fill='%23FFFFFF' transform='rotate(-24 60 60)'/%3E%3C/svg%3E">
+<style>
+  /* Dark unless the system asks for light. */
+  :root {
+    color-scheme: dark;
+    --ground: #0a0a0a;
+    --cell: #1a1a1a;
+    --ink: #fff;
+    --muted: #b0b0b0;
+    --accent: #ff6a1f;
+    --cell-size: 10px;
+    --gap: 1px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { color-scheme: light; --ground: #fafafa; --cell: #efefef; --ink: #0f0f0f; --muted: #5e5e5e; --accent: #d4410b; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  .board { position: fixed; inset: 0; }
+  .board::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: var(--cell);
+    background-image:
+      linear-gradient(to right, var(--ground) var(--gap), transparent var(--gap)),
+      linear-gradient(to bottom, var(--ground) var(--gap), transparent var(--gap));
+    background-size: var(--cell-size) var(--cell-size);
+    -webkit-mask-image: linear-gradient(#000 var(--play, 58vh), transparent calc(var(--play, 58vh) + 8rem));
+    mask-image: linear-gradient(#000 var(--play, 58vh), transparent calc(var(--play, 58vh) + 8rem));
+  }
+  .board canvas { position: relative; display: block; width: 100%; height: 100%; }
+  .mono { font: 500 .75rem/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  .score { position: fixed; top: 1.1rem; left: clamp(1rem, 3vw, 1.5rem); margin: 0; color: var(--muted); }
+  .score b { color: var(--ink); }
+  main {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    text-align: center;
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 0 clamp(1.25rem, 5vw, 3rem) clamp(1.5rem, 4vh, 2.5rem);
+    pointer-events: none;
+  }
+  main button, main a { pointer-events: auto; }
+  .eyebrow { display: inline-flex; align-items: center; gap: .6rem; margin: 0 0 1rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .eyebrow i { width: .5rem; height: .5rem; background: var(--accent); }
+  h1 { margin: 0; font-size: clamp(1.9rem, 4.6vw, 3.25rem); line-height: 1.02; font-weight: 600; letter-spacing: -.04em; }
+  .lede { margin: 1rem auto 0; max-width: 34rem; font-size: clamp(1rem, 1.5vw, 1.0625rem); line-height: 1.55; color: var(--muted); }
+  .retry { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: 1.5rem; color: var(--muted); }
+  .bar { display: inline-flex; gap: 2px; }
+  .bar span { width: 8px; height: 8px; background: color-mix(in oklab, var(--ink) 18%, transparent); }
+  .bar span.on { background: var(--accent); }
+  .retry button {
+    padding: .35rem .7rem;
+    border: 1px solid color-mix(in oklab, var(--ink) 16%, transparent);
+    border-radius: .35rem;
+    background: transparent;
+    font: inherit;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  footer {
+    width: 100%;
+    margin-top: 1.75rem;
+    padding-top: 1rem;
+    border-top: 1px solid color-mix(in oklab, var(--ink) 10%, transparent);
+    color: var(--muted);
+  }
+  footer p { margin: 0; }
+  footer p + p { margin-top: .35rem; opacity: .8; }
+  .brand { display: inline-flex; align-items: center; gap: .5rem; margin-top: .9rem; color: inherit; text-decoration: none; }
+  .brand:hover { color: var(--ink); }
+  .brand svg { width: 1rem; height: 1rem; }
+</style>
+</head>
+<body>
+<div class="board" aria-hidden="true"><canvas></canvas></div>
+<p class="score mono" id="score" hidden><span id="score-label">Conectados</span> <b id="points">0</b></p>
+<main>
+  <section>
+    <p class="eyebrow mono"><i></i><span id="eyebrow"></span></p>
+    <h1 id="title"></h1>
+    <p class="lede" id="lede"></p>
+    <div class="retry mono">
+      <span id="retry-text"></span>
+      <span class="bar" id="bar"></span>
+      <button type="button" id="retry-now"></button>
+    </div>
+  </section>
+  <footer class="mono">
+    <p id="details"></p>
+    <p id="owner"></p>
+    <a class="brand" href="https://litepod.sh" target="_blank" rel="noopener">
+      <svg viewBox="0 0 120 120" aria-hidden="true"><rect x="10" y="10" width="100" height="100" rx="26" fill="var(--accent)"/><rect x="34" y="42" width="52" height="36" rx="18" fill="#fff" transform="rotate(-24 60 60)"/></svg>
+      <span id="brand"></span>
+    </a>
+  </footer>
+</main>
+<script>
+(() => {
+  const es = /^es\b/i.test(navigator.language || '');
+  const touch = matchMedia('(pointer: coarse)').matches;
+  // Not `host`: on public-edge servers the Caddyfile expands host in braces as its own placeholder.
+  const siteHost = location.host || 'example.com';
+  // Litepod swaps these for Caddy's status code and request id when it installs the page.
+  const code = /^\d{3}$/.test('__LITEPOD_STATUS__') ? '__LITEPOD_STATUS__' : '502';
+  const requestId = '__LITEPOD_REQUEST_ID__';
+  const T = es ? {
+    trace: [`${code} · La app no responde`, 'Litepod está bien. La app no contesta.', `Tu conexión y Litepod funcionan, pero la aplicación detrás de ${siteHost} no respondió. Suele arreglarse solo en unos segundos.`],
+    pulse: [`${code} · Sin señal`, 'Sin señal de la app.', `${siteHost} dejó de responder. Seguimos escuchando y te llevamos en cuanto vuelva; mientras, ayúdale a recuperar el pulso.`],
+    pod: [`${code} · Reiniciando`, 'La app se está levantando.', `${siteHost} todavía no responde. Suele pasar durante un deploy o un reinicio; volvemos a intentar solos.`],
+    pipes: [`${code} · La app no responde`, 'Conecta mientras esperamos.', `${siteHost} no responde. Gira las piezas para unir Litepod con la app; nosotros seguimos intentando.`],
+    you: 'Tú', app: 'App', ok: 'OK', down: 'Sin respuesta', flat: 'sin pulso',
+    retryIn: (s) => `Reintentando en ${s} s`, checking: 'Comprobando…', back: 'Volvió. Llevándote…', now: 'Reintentar ahora',
+    owner: '¿Es tu sitio? Revisa en Litepod el estado y los logs de la aplicación.', time: 'hora', tap: 'clic para girar', connected: 'Conectados',
+    beats: 'Latidos', inARow: 'seguidos', best: 'récord', pulseHint: touch ? 'Toca cuando el pulso llegue a la app' : 'Espacio o clic cuando el pulso llegue a la app',
+  } : {
+    trace: [`${code} · App not responding`, 'Litepod is fine. The app is not answering.', `Your connection and Litepod work, but the application behind ${siteHost} did not respond. It usually sorts itself out in a few seconds.`],
+    pulse: [`${code} · No signal`, 'No signal from the app.', `${siteHost} stopped responding. We keep listening and will take you there as soon as it is back; meanwhile, help it find its pulse.`],
+    pod: [`${code} · Restarting`, 'The app is getting back up.', `${siteHost} is not responding yet. This usually happens during a deploy or a restart; we keep retrying on our own.`],
+    pipes: [`${code} · App not responding`, 'Connect while we wait.', `${siteHost} is not responding. Turn the pieces to link Litepod to the app; we keep retrying.`],
+    you: 'You', app: 'App', ok: 'OK', down: 'No response', flat: 'flatline',
+    retryIn: (s) => `Retrying in ${s}s`, checking: 'Checking…', back: 'Back. Taking you there…', now: 'Retry now',
+    owner: 'Is this your site? Check the application status and logs in Litepod.', time: 'time', tap: 'click to turn', connected: 'Connected',
+    beats: 'Beats', inARow: 'in a row', best: 'best', pulseHint: touch ? 'Tap when the pulse reaches the app' : 'Space or click when the pulse reaches the app',
+  };
+  if (es) document.documentElement.lang = 'es';
+
+  const board = document.querySelector('.board');
+  const canvas = board.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  const SIZE = 10, GAP = 1;
+  const rand = (n) => Math.floor(Math.random() * n);
+  let cols, rows, colors, variant;
+
+  function cell(x, y, color, alpha = 1) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.fillRect(x * SIZE + GAP, y * SIZE + GAP, SIZE - GAP, SIZE - GAP);
+  }
+  function label(text, x, y, color, alpha = 1, align = 'center') {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.font = '500 12px ui-monospace, "SF Mono", Menlo, monospace';
+    ctx.textAlign = align;
+    ctx.textBaseline = 'top';
+    ctx.fillText(text, x * SIZE, y * SIZE);
+  }
+  // The Litepod logo as cells: an orange rounded tile with a tilted white capsule.
+  function logoCells(n) {
+    const out = [];
+    const cos = Math.cos((24 * Math.PI) / 180), sin = Math.sin((24 * Math.PI) / 180);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const x = ((i + 0.5) / n) * 120, y = ((j + 0.5) / n) * 120;
+      const dx = Math.max(36 - x, 0, x - 84), dy = Math.max(36 - y, 0, y - 84);
+      if (x < 10 || x > 110 || y < 10 || y > 110 || Math.hypot(dx, dy) > 26) continue;
+      // Undo the capsule's -24° turn, then test the stadium (half length 26, radius 18).
+      const px = x - 60, py = y - 60, qx = px * cos - py * sin, qy = px * sin + py * cos;
+      const capsule = Math.hypot(Math.max(Math.abs(qx) - 8, 0), qy) <= 18;
+      out.push({ i, j, capsule });
+    }
+    return out;
+  }
+
+  // ---- 1. Diagnosis: You -> Litepod -> App, packets bounce off the app.
+  const trace = (() => {
+    const W = 7;
+    return {
+      draw(t) {
+        const cy = Math.floor(rows / 2) - 1;
+        const xs = [0.18, 0.5, 0.82].map((f) => Math.floor(cols * f) - 3);
+        const a = xs[0] + W, b = xs[2] - 1;
+        for (let x = a; x <= b; x += 2) if (x < xs[1] || x >= xs[1] + W) cell(x, cy, colors.ink, 0.15);
+        // Packets leave every 450 ms, hop through Litepod and bounce back from the app.
+        const speed = 22;
+        for (let born = Math.floor(t / 450) * 450; born > t - 6000; born -= 450) {
+          const dist = ((t - born) / 1000) * speed, forward = b - a;
+          let x, color = colors.ink, alpha = 0.9;
+          if (dist < forward) x = a + Math.floor(dist);
+          else {
+            const back = dist - forward;
+            if (back > 7) continue;
+            x = b - Math.floor(back);
+            color = colors.accent;
+            alpha = 1 - back / 7;
+          }
+          if (x >= xs[1] && x < xs[1] + W) continue;
+          cell(x, cy, color, alpha);
+        }
+        const blink = Math.floor(t / 500) % 2;
+        xs.forEach((x0, n) => {
+          const down = n === 2;
+          for (let i = 0; i < W; i++) for (let j = 0; j < W; j++) {
+            if (i === 0 || j === 0 || i === W - 1 || j === W - 1) cell(x0 + i, cy - 3 + j, down ? colors.accent : colors.ink, down ? 0.9 : 0.6);
+          }
+          if (n === 0) for (let i = 2; i < 5; i++) for (let j = 2; j < 4; j++) cell(x0 + i, cy - 3 + j, colors.ink, 0.5);
+          if (n === 1) logoCells(3).forEach((c) => cell(x0 + 2 + c.i, cy - 1 + c.j, c.capsule ? colors.ink : colors.accent, 0.9));
+          if (down) [[2, 2], [4, 2], [3, 3], [2, 4], [4, 4]].forEach(([i, j]) => cell(x0 + i, cy - 3 + j, colors.accent, blink ? 1 : 0.35));
+          const name = [T.you, 'Litepod', T.app][n];
+          label(name, x0 + W / 2, cy + 5, colors.ink, 0.9);
+          label(down ? `✕ ${T.down}` : `✓ ${T.ok}`, x0 + W / 2, cy + 7, down ? colors.accent : colors.muted, 0.9);
+        });
+      },
+    };
+  })();
+
+  // ---- 2. Pulse: heartbeats leave Litepod and travel to the app, where they die.
+  // Press when a beat's peak crosses the app's zone and it gets through.
+  const pulse = (() => {
+    const BEAT = [0, 0, 0, 0, -1, -2, -1, 0, 0, 1, -4, -9, -4, 2, 1, 0, 0, 0, -1, -2, -2, -1, 0, 0];
+    const PEAK = 11, SPEED = 24, ZONE = 2.5;
+    let beats, last, streak, best, points, flash, miss, nextAt, playing;
+    const geometry = () => {
+      const left = 3, right = cols - 4;
+      return { left, right, cut: Math.floor(left + (right - left) * 0.68), base: Math.floor(rows * 0.56) };
+    };
+    function hit(beat, t) {
+      beat.judged = beat.hit = true;
+      flash = t;
+      streak++;
+      if (playing) {
+        best = Math.max(best, streak);
+        setScore(++points);
+      }
+    }
+    return {
+      label: () => T.beats,
+      points: () => points,
+      reset() {
+        beats = [];
+        last = null;
+        streak = 0;
+        best = best || 0;
+        points = points || 0;
+        flash = miss = -1e9;
+        nextAt = 0;
+      },
+      press(t) {
+        playing = true;
+        const { cut } = geometry();
+        const beat = beats.find((b) => !b.judged && Math.abs(b.x + PEAK - cut) <= ZONE);
+        if (beat) return hit(beat, t);
+        streak = 0;
+        miss = t;
+      },
+      draw(t) {
+        const dt = last === null ? 0 : Math.min(0.05, (t - last) / 1000);
+        last = t;
+        const { left, right, cut, base } = geometry();
+        // Litepod beats at a steady but uneven rhythm, around 70 per minute.
+        if (t >= nextAt) {
+          beats.push({ x: left - PEAK, judged: false, hit: false });
+          nextAt = t + 650 + Math.random() * 550;
+        }
+        for (const b of beats) {
+          b.x += SPEED * dt;
+          const p = b.x + PEAK;
+          // Nobody playing: it plays itself and lets some beats die, to show the idea.
+          if (!playing && !b.judged && !b.auto && p >= cut) {
+            b.auto = true;
+            if (Math.random() < 0.6) hit(b, t);
+          }
+          if (!b.judged && p > cut + ZONE) {
+            b.judged = true;
+            miss = t;
+            streak = 0;
+          }
+        }
+        beats = beats.filter((b) => b.x < right + 2);
+
+        // Monitor frame, baseline and the app's zone.
+        for (let x = left; x <= right; x += 2) {
+          cell(x, base - 13, colors.ink, 0.12);
+          cell(x, base + 6, colors.ink, 0.12);
+        }
+        const glow = Math.max(0, 1 - (t - flash) / 400), sad = Math.max(0, 1 - (t - miss) / 400);
+        for (let x = Math.ceil(cut - ZONE); x <= Math.floor(cut + ZONE); x++) {
+          for (let y = base - 11; y <= base + 4; y++) cell(x, y, sad > glow ? colors.ink : colors.accent, 0.07 + glow * 0.35 + sad * 0.12);
+        }
+
+        // The trace: past the app only the beats that made it through.
+        const value = new Array(cols).fill(0), alive = new Array(cols).fill(false);
+        for (const b of beats) {
+          for (let i = 0; i < BEAT.length; i++) {
+            const c = Math.floor(b.x) + i;
+            if (c < left || c > right || (c > cut && !b.hit) || !BEAT[i]) continue;
+            value[c] = BEAT[i];
+            alive[c] = c > cut;
+          }
+        }
+        for (let x = left; x <= right; x++) {
+          const v = value[x], p = x > left ? value[x - 1] : v;
+          const past = x > cut;
+          const color = past && (alive[x] || alive[x - 1]) ? colors.accent : colors.ink;
+          const alpha = past ? (alive[x] || alive[x - 1] ? 1 : 0.25) : 0.85;
+          for (let y = Math.min(v, p); y <= Math.max(v, p); y++) cell(x, base + y, color, alpha);
+        }
+
+        // Readouts, like a bedside monitor.
+        label(`LITEPOD  ♥ ${Math.round(60000 / 900)} bpm  ✓`, left, base - 16, colors.ink, 0.85, 'left');
+        const appText = streak ? `${T.app.toUpperCase()}  ♥ ${streak} ${T.inARow}` : `${T.app.toUpperCase()}  — bpm  ${T.flat}`;
+        label(appText, cut - ZONE, base - 16, streak ? colors.accent : colors.muted, 0.95, 'left');
+        if (best) label(`${T.best} ${best}`, right, base - 16, colors.muted, 0.7, 'right');
+        label(T.pulseHint, (left + right) / 2, base + 8, colors.muted, playing ? 0.45 : 0.85);
+      },
+    };
+  })();
+
+  // ---- 3. Pod: the Litepod logo rebuilds itself cell by cell, holds, crumbles, repeats.
+  const pod = (() => {
+    let cells = [], n = 0;
+    const CYCLE = 7000;
+    const ease = (p) => 1 - (1 - p) ** 3;
+    return {
+      reset() {
+        n = Math.max(12, Math.min(28, Math.floor(rows * 0.75), Math.floor(cols * 0.5)));
+        // Bottom rows land first, with some noise, like a stack being built.
+        cells = logoCells(n).map((c) => ({ ...c, d: (1 - c.j / n) * 1800 + Math.random() * 700, d2: Math.random() * 1200 }));
+      },
+      draw(t) {
+        const ox = Math.floor((cols - n) / 2), oy = Math.floor((rows - n) / 2);
+        const tau = t % CYCLE;
+        for (const c of cells) {
+          let y = c.j, alpha = 1;
+          if (tau < c.d) continue;
+          if (tau < c.d + 500) y = Math.round(-oy - 2 + (c.j + oy + 2) * ease((tau - c.d) / 500));
+          const fall = tau - 5000 - c.d2;
+          if (fall > 0) {
+            y = c.j + Math.round((fall / 1000) ** 2 * 40);
+            alpha = Math.max(0, 1 - fall / 900);
+          }
+          cell(ox + c.i, oy + y, c.capsule ? colors.ink : colors.accent, alpha * 0.95);
+        }
+      },
+    };
+  })();
+
+  // ---- 4. Pipes: turn the tiles until Litepod (left) reaches the app (right).
+  const pipes = (() => {
+    const N = 1, E = 2, S = 4, Wd = 8, TILE = 5, MID = 2;
+    const DIRS = [[N, 0, -1, S], [E, 1, 0, Wd], [S, 0, 1, N], [Wd, -1, 0, E]];
+    const turn = (m) => ((m << 1) | (m >> 3)) & 15;
+    let w, h, grid, sy, ey, lit, solved = 0, points = 0, ox, oy;
+    function connected() {
+      const seen = new Set();
+      if (!(grid[sy][0] & Wd)) return seen;
+      const queue = [[0, sy]];
+      seen.add(`0,${sy}`);
+      while (queue.length) {
+        const [x, y] = queue.shift();
+        for (const [bit, dx, dy, back] of DIRS) {
+          const nx = x + dx, ny = y + dy;
+          if (!(grid[y][x] & bit) || nx < 0 || ny < 0 || nx >= w || ny >= h || seen.has(`${nx},${ny}`)) continue;
+          if (!(grid[ny][nx] & back)) continue;
+          seen.add(`${nx},${ny}`);
+          queue.push([nx, ny]);
+        }
+      }
+      return seen;
+    }
+    const isSolved = () => lit.has(`${w - 1},${ey}`) && grid[ey][w - 1] & E;
+    function build() {
+      w = Math.max(5, Math.min(12, Math.floor((cols - 14) / TILE)));
+      h = Math.max(3, Math.min(6, Math.floor((rows - 8) / TILE)));
+      ox = Math.floor((cols - w * TILE) / 2);
+      oy = Math.floor((rows - h * TILE) / 2);
+      // A random self-avoiding walk from the left edge to the right edge is the answer.
+      let path;
+      do {
+        sy = rand(h);
+        path = [[0, sy]];
+        const seen = new Set([`0,${sy}`]);
+        while (path.length && path[path.length - 1][0] < w - 1) {
+          const [x, y] = path[path.length - 1];
+          const next = DIRS.map(([, dx, dy]) => [x + dx, y + dy])
+            .filter(([nx, ny]) => nx >= 0 && ny >= 0 && nx < w && ny < h && !seen.has(`${nx},${ny}`))
+            .sort(() => Math.random() - 0.5)
+            .sort((p, q) => (q[0] > x) - (p[0] > x) || 0);
+          const pick = next.length ? next[Math.random() < 0.55 ? 0 : rand(next.length)] : null;
+          if (!pick) { path.pop(); continue; }
+          seen.add(`${pick[0]},${pick[1]}`);
+          path.push(pick);
+        }
+      } while (!path.length);
+      ey = path[path.length - 1][1];
+      grid = Array.from({ length: h }, () => Array.from({ length: w }, () => [5, 3, 3, 7][rand(4)]));
+      const bitTo = (a, b) => DIRS.find(([, dx, dy]) => a[0] + dx === b[0] && a[1] + dy === b[1])[0];
+      path.forEach((p, k) => {
+        const from = k ? bitTo(p, path[k - 1]) : Wd;
+        const to = k < path.length - 1 ? bitTo(p, path[k + 1]) : E;
+        grid[p[1]][p[0]] = from | to;
+      });
+      do {
+        for (const row of grid) for (let i = 0; i < row.length; i++) for (let r = rand(4); r > 0; r--) row[i] = turn(row[i]);
+        lit = connected();
+      } while (isSolved());
+      solved = 0;
+    }
+    return {
+      label: () => T.connected,
+      points: () => points,
+      reset: build,
+      click(px, py) {
+        if (solved) return;
+        const x = Math.floor((px / SIZE - ox) / TILE), y = Math.floor((py / SIZE - oy) / TILE);
+        if (x < 0 || y < 0 || x >= w || y >= h) return;
+        grid[y][x] = turn(grid[y][x]);
+        lit = connected();
+        if (isSolved()) {
+          solved = performance.now();
+          setScore(++points);
+        }
+      },
+      draw(t) {
+        if (solved && t - solved > 1400) build();
+        const flash = solved && Math.floor((t - solved) / 150) % 2;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const m = grid[y][x], on = lit.has(`${x},${y}`);
+          const color = on ? colors.accent : colors.ink, alpha = on ? (flash ? 0.5 : 1) : 0.45;
+          const cx = ox + x * TILE + MID, cy = oy + y * TILE + MID;
+          cell(cx, cy, color, alpha);
+          for (const [bit, dx, dy] of DIRS) if (m & bit) for (let k = 1; k <= MID; k++) cell(cx + dx * k, cy + dy * k, color, alpha);
+        }
+        // Litepod feeds the left edge; the app waits on the right.
+        const lx = ox - 4, ly = oy + sy * TILE + MID - 1;
+        logoCells(3).forEach((c) => cell(lx + c.i, ly + c.j, c.capsule ? colors.ink : colors.accent, 1));
+        cell(ox - 1, ly + 1, colors.accent, 1);
+        label('Litepod', lx + 1.5, ly - 2, colors.muted, 0.9);
+        const ax = ox + w * TILE + 1, ay = oy + ey * TILE + MID - 1;
+        const ok = lit.has(`${w - 1},${ey}`) && grid[ey][w - 1] & E;
+        cell(ax - 1, ay + 1, ok ? colors.accent : colors.ink, ok ? 1 : 0.3);
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (i !== 1 || j !== 1) cell(ax + i, ay + j, ok ? colors.accent : colors.ink, ok ? 1 : 0.6);
+        label(T.app, ax + 1.5, ay - 2, colors.muted, 0.9);
+        label(T.tap, ox + (w * TILE) / 2, oy + h * TILE + 1, colors.muted, 0.6);
+      },
+    };
+  })();
+
+  const variants = { trace, pulse, pod, pipes };
+  function setScore(n) { document.getElementById('points').textContent = n; }
+
+  function readColors() {
+    const css = getComputedStyle(document.documentElement);
+    colors = Object.fromEntries(['ink', 'accent', 'ground', 'muted'].map((k) => [k, css.getPropertyValue(`--${k}`).trim()]));
+  }
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const { width, height } = board.getBoundingClientRect();
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const play = Math.max(160, document.querySelector('main section').getBoundingClientRect().top - 24);
+    board.style.setProperty('--play', `${play}px`);
+    const next = [Math.floor(width / SIZE), Math.floor(play / SIZE)];
+    if (next[0] !== cols || next[1] !== rows) {
+      [cols, rows] = next;
+      Object.values(variants).forEach((v) => v.reset?.());
+    }
+  }
+  function pick(name) {
+    variant = variants[name] ? name : 'trace';
+    const [eyebrow, title, lede] = T[variant];
+    document.getElementById('eyebrow').textContent = eyebrow;
+    document.getElementById('title').textContent = title;
+    document.getElementById('lede').textContent = lede;
+    const game = variants[variant];
+    document.getElementById('score').hidden = !game.points;
+    if (game.points) {
+      document.getElementById('score-label').textContent = game.label();
+    }
+    resize();
+    if (game.points) setScore(game.points());
+  }
+  function loop(time) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    variants[variant].draw(time);
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(loop);
+  }
+
+  // Retry: every 10 seconds ask for this address again; once the answer is not this
+  // error page (no litepod-error meta), the app is back and we reload into it.
+  const bar = document.getElementById('bar');
+  const retryText = document.getElementById('retry-text');
+  for (let i = 0; i < 10; i++) bar.append(document.createElement('span'));
+  let left = 10, busy = false;
+  async function check() {
+    busy = true;
+    retryText.textContent = T.checking;
+    try {
+      const res = await fetch(location.href, { cache: 'no-store', credentials: 'same-origin' });
+      if (!(await res.text()).includes('name="litepod-error"')) {
+        retryText.textContent = T.back;
+        return location.reload();
+      }
+    } catch {}
+    busy = false;
+    left = 10;
+    tick();
+  }
+  function tick() {
+    retryText.textContent = T.retryIn(left);
+    [...bar.children].forEach((s, i) => s.classList.toggle('on', i < 10 - left));
+  }
+  setInterval(() => {
+    if (busy || document.hidden) return;
+    if (--left <= 0) check();
+    else tick();
+  }, 1000);
+  const now = document.getElementById('retry-now');
+  now.textContent = T.now;
+  now.addEventListener('click', () => { if (!busy) check(); });
+  tick();
+
+  const id = requestId.startsWith('__') ? Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('') : requestId;
+  document.getElementById('details').textContent = `${siteHost} · ${T.time} ${new Date().toLocaleTimeString()} · id ${id}`;
+  document.getElementById('owner').textContent = T.owner;
+  document.getElementById('brand').textContent = es ? 'Servido por Litepod' : 'Served by Litepod';
+
+  board.addEventListener('pointerup', (e) => {
+    if (variant === 'pipes') pipes.click(e.clientX, e.clientY);
+    if (variant === 'pulse') pulse.press(performance.now());
+  });
+  addEventListener('keydown', (e) => {
+    if (variant !== 'pulse' || e.repeat || (e.key !== ' ' && e.key !== 'ArrowUp')) return;
+    e.preventDefault();
+    pulse.press(performance.now());
+  });
+  board.style.cursor = 'default';
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
+  addEventListener('resize', resize);
+  readColors();
+  // `#trace`, `#pulse`, `#pod` or `#pipes` forces one; otherwise it is a surprise.
+  pick(location.hash.slice(1) in variants ? location.hash.slice(1) : Object.keys(variants)[rand(4)]);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

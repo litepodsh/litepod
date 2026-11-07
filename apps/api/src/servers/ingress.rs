@@ -478,6 +478,16 @@ pub async fn sync_server_routes(
     let maintenance_supported = setup::caddy_helper(server, &[OsString::from("maintenance-check")])
         .await
         .is_ok();
+    // The error page is on by default, so an older helper just goes without it
+    // (until Update script) instead of failing every route sync.
+    let error_pages = if setup::caddy_helper(server, &[OsString::from("error-page-check")])
+        .await
+        .is_ok()
+    {
+        Some(crate::deployment::error_page::load(state).await?)
+    } else {
+        None
+    };
     let mut lines = Vec::new();
     for target in &targets {
         let domain = domains::get_by_id(state, &target.domain_id).await?;
@@ -534,11 +544,22 @@ pub async fn sync_server_routes(
                         .into(),
                 ));
             }
-            let auth_field = match (auth, maintenance) {
-                (auth, Some(page)) => format!(" {} {page}", auth.unwrap_or_else(|| "-".into())),
-                (Some(token), None) => format!(" {token}"),
-                (None, None) => String::new(),
-            };
+            // The error page is the ninth field; a page in maintenance never proxies,
+            // so it has no use for one.
+            let error_page = error_pages
+                .as_ref()
+                .filter(|_| maintenance.is_none())
+                .and_then(|pages| crate::deployment::error_page::edge_token(pages, &domain.id));
+            // Optional trailing fields: the unset ones before a set one become "-", and
+            // the trailing unset ones are left off so an older helper still parses the line.
+            let mut extra = vec![auth, maintenance, error_page];
+            while extra.last().is_some_and(Option::is_none) {
+                extra.pop();
+            }
+            let auth_field: String = extra
+                .into_iter()
+                .map(|field| format!(" {}", field.unwrap_or_else(|| "-".into())))
+                .collect();
             lines.push(format!(
                 "{} {} {} {} {} {}{}\n",
                 domain.id,
