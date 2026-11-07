@@ -197,7 +197,7 @@ fn resolve_password(value: Option<&str>) -> Result<String, AppError> {
 
 fn compose(image: &str, volume: &str, application_id: &str) -> String {
     format!(
-        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    user: \"0:0\"\n    environment:\n      ACCEPT_EULA: \"Y\"\n      MSSQL_PID: Developer\n      {PASSWORD_VARIABLE}: ${{{PASSWORD_VARIABLE}}}\n    volumes:\n      - {volume}:{DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
+        "services:\n  {SERVICE_NAME}:\n    image: {image}\n    user: \"0:0\"\n    environment:\n      ACCEPT_EULA: \"Y\"\n      MSSQL_PID: Developer\n      {PASSWORD_VARIABLE}: ${{{PASSWORD_VARIABLE}}}\n    # By default this database is reachable only from apps linked to it in the\n    # same project. To reach it from another app in this litepod that is NOT\n    # linked (different project/environment), publish the port and connect via\n    # the server public IP or the podman host gateway. Uncomment:\n    #   ports:\n    #     - \"1433:1433\"\n    volumes:\n      - {volume}:{DATA_PATH}\n{service_networks}volumes:\n  {volume}: {{}}\n{networks}",
         service_networks = crate::templates::resource_service_networks(application_id),
         networks = crate::templates::resource_network_compose(application_id),
     )

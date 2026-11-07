@@ -40,10 +40,10 @@ describe('updateState.startUpdate', () => {
 			dragonfly: 'v1.39.0',
 		});
 		expect(toast.info).toHaveBeenCalledWith(
-			'Installing update. This container will recreate shortly (~10s downtime).',
+			'Installing update. Only the control plane restarts (~10s); your deployed apps keep running.',
 		);
 		expect(updateState.applying).toBe(true);
-		expect(updateState.phase).toBe('grace');
+		expect(updateState.phase).toBe('watching');
 	});
 
 	it('ignores a stale caller snapshot and installs what the API reports now', async () => {
@@ -88,7 +88,7 @@ describe('updateState.startUpdate', () => {
 			caddy: '2.11.0',
 			dragonfly: 'v1.39.0',
 		});
-		expect(updateState.phase).toBe('grace');
+		expect(updateState.phase).toBe('watching');
 	});
 
 	it('warns instead of applying when the API reports nothing pending', async () => {
@@ -106,7 +106,7 @@ describe('updateState.startUpdate', () => {
 		expect(updateState.applying).toBe(false);
 	});
 
-	it('waits for the backup without the grace timer, then reloads once the version changes', async () => {
+	it('waits for the backup by watching the version, then reloads once it changes', async () => {
 		vi.useFakeTimers();
 		try {
 			getSystemVersion.mockResolvedValueOnce(systemVersion());
@@ -118,7 +118,7 @@ describe('updateState.startUpdate', () => {
 				'Backing up before updating. The update starts when the backup finishes.',
 			);
 			expect(updateState.applying).toBe(true);
-			expect(updateState.phase).toBe('preparing');
+			expect(updateState.phase).toBe('watching');
 		} finally {
 			vi.useRealTimers();
 		}
@@ -142,6 +142,32 @@ describe('updateState.startUpdate', () => {
 			expect(updateState.applying).toBe(false);
 			expect(updateState.phase).toBe('idle');
 		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('reloads only once the reported build version changes', async () => {
+		vi.useFakeTimers();
+		const reload = vi.fn();
+		vi.stubGlobal('window', { location: { reload } });
+		try {
+			getSystemVersion.mockResolvedValueOnce(systemVersion());
+			applyUpdate.mockResolvedValue({ triggered: true, note: 'scheduled' });
+			await updateState.startUpdate();
+
+			// The old container keeps answering with the same version while it pulls.
+			getSystemVersion.mockResolvedValue(systemVersion());
+			await vi.advanceTimersByTimeAsync(2_100);
+			expect(reload).not.toHaveBeenCalled();
+
+			// The replacement serves a different build → reload exactly once.
+			const flipped = systemVersion();
+			flipped.version = 'v0.1.22';
+			getSystemVersion.mockResolvedValue(flipped);
+			await vi.advanceTimersByTimeAsync(2_100);
+			expect(reload).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.unstubAllGlobals();
 			vi.useRealTimers();
 		}
 	});

@@ -331,13 +331,14 @@ backing_up = "Respaldando antes de actualizar. La actualización empieza cuando 
 checking_in = "Comprobando el servidor en"
 core_targets_incomplete = "Los destinos de los servicios principales mostrados están incompletos. Compruébalos de nuevo antes de instalar."
 install_failed = "La instalación falló"
-installing = "Instalando la actualización. Este contenedor se recreará en breve (~10 s de inactividad)."
+installing = "Instalando la actualización. Solo se reinicia el panel de control (~10 s); tus apps desplegadas siguen funcionando."
 none_pending = "No hay ninguna actualización pendiente ahora. Ejecuta una comprobación e inténtalo de nuevo."
 preparing = "Preparando la actualización…"
 preparing_hint = "Confirmando el destino de instalación con el servidor"
 state_read_failed = "No se pudo leer el estado de la actualización"
 target_incomplete = "El destino de actualización mostrado está incompleto. Compruébalo de nuevo antes de instalar."
-waiting = "El servidor está en proceso, espera…"
+waiting = "Actualizando… esperando a que la nueva versión entre en línea"
+waiting_hint = "Solo se reinicia el panel de control de litepod: tus aplicaciones desplegadas siguen funcionando. Puede tardar unos minutos (copia, descarga de imagen y reinicio del contenedor). La página se recarga sola cuando esté activa la nueva versión."
 
 [upload]
 choose_file = "Elegir archivo"

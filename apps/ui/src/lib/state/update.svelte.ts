@@ -4,12 +4,9 @@ import {
 	triggerUpdateCheck,
 	type SystemVersion,
 } from '#lib/clients/system-client.js';
-import { API_URL } from '#lib/clients/base-client.js';
 import { isInstallableUpdate, notifySystemUpdateChanged } from '#lib/utils/system-update.js';
 import { toast } from '#lib/utils/toast.js';
 import { t } from '#lib/i18n/index.svelte.js';
-
-export const GRACE_SECONDS = 20;
 
 // The API only accepts an apply when its own snapshot says update_available.
 // The UI shows the button on a wider condition (core-service tags out of date),
@@ -17,7 +14,15 @@ export const GRACE_SECONDS = 20;
 const CHECK_ATTEMPTS = 8;
 const CHECK_INTERVAL_MS = 1_500;
 
-type UpdatePhase = 'idle' | 'preparing' | 'grace' | 'watching';
+// Poll interval and deadline for waiting on the replacement container. The apply
+// endpoint answers 202 while the old container keeps serving during the backup,
+// image pull and self-recreation, so a health probe would reload onto the old
+// build. We poll the version instead and reload only once it has flipped.
+const WATCH_POLL_MS = 2_000;
+const WATCH_LIMIT_MS = 15 * 60_000;
+const BACKUP_LIMIT_MS = 40 * 60_000;
+
+type UpdatePhase = 'idle' | 'preparing' | 'watching';
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,41 +31,14 @@ function sleep(ms: number): Promise<void> {
 function createUpdateStore() {
 	let applying = $state(false);
 	let phase = $state<UpdatePhase>('idle');
-	let secondsLeft = $state(0);
 
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
-	let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
-	let graceTimer: ReturnType<typeof setInterval> | null = null;
-	let pollAbort: AbortController | null = null;
 	let reloaded = false;
 
 	function clearTimers() {
-		if (graceTimer) {
-			clearInterval(graceTimer);
-			graceTimer = null;
-		}
 		if (pollTimer) {
 			clearInterval(pollTimer);
 			pollTimer = null;
-		}
-		if (deadlineTimer) {
-			clearTimeout(deadlineTimer);
-			deadlineTimer = null;
-		}
-		if (pollAbort) {
-			pollAbort.abort();
-			pollAbort = null;
-		}
-	}
-
-	async function isHealthy(signal: AbortSignal): Promise<boolean> {
-		try {
-			const res = await fetch(`${API_URL}/health`, { cache: 'no-store', signal });
-			if (!res.ok) return false;
-			const body = (await res.json()) as { status?: string };
-			return body.status === 'ok';
-		} catch {
-			return false;
 		}
 	}
 
@@ -71,55 +49,17 @@ function createUpdateStore() {
 		window.location.reload();
 	}
 
-	function startWatchdog() {
+	// Wait for the replacement container to come online by watching the build
+	// identity, not a health probe. The old container keeps answering /health the
+	// whole time the backup runs and the new image pulls, so a health-based reload
+	// lands on the old build. `version` flips the instant the replacement serves.
+	//
+	// A backup that failed before the install cancels the update; the background
+	// apply writes that into `last_check_note`, which we surface and stop on.
+	function startWatching(startedVersion: string, withBackup: boolean) {
 		clearTimers();
 		phase = 'watching';
-		secondsLeft = 0;
-		pollAbort = new AbortController();
-		const { signal } = pollAbort;
-
-		deadlineTimer = setTimeout(reload, 20_000);
-
-		const tick = async () => {
-			if (signal.aborted) return;
-			if (await isHealthy(signal)) reload();
-		};
-
-		void tick();
-		pollTimer = setInterval(tick, 1_000);
-	}
-
-	// The apply endpoint answers 202 ("scheduled"), so for a few seconds the old
-	// container is still up and would answer /health with status ok. Wait out that
-	// window before probing, otherwise the watchdog reloads onto the old build.
-	function startGrace() {
-		clearTimers();
-		phase = 'grace';
-		secondsLeft = GRACE_SECONDS;
-		const endsAt = Date.now() + GRACE_SECONDS * 1_000;
-
-		graceTimer = setInterval(() => {
-			const left = Math.ceil((endsAt - Date.now()) / 1_000);
-			if (left <= 0) {
-				startWatchdog();
-				return;
-			}
-			secondsLeft = left;
-		}, 1_000);
-	}
-
-	// An instance backup runs before the install, and it can take minutes. The container only goes
-	// down once it finishes, so the grace timer would reload onto the old build. Poll the API
-	// instead: it going away means the install started; a note starting with "update cancelled"
-	// means the backup failed and nothing was touched.
-	const BACKUP_POLL_MS = 3_000;
-	const BACKUP_LIMIT_MS = 40 * 60_000;
-
-	function startBackupWait(startedVersion: string) {
-		clearTimers();
-		phase = 'preparing';
-		secondsLeft = 0;
-		const endsAt = Date.now() + BACKUP_LIMIT_MS;
+		const endsAt = Date.now() + (withBackup ? BACKUP_LIMIT_MS : WATCH_LIMIT_MS);
 		let inFlight = false;
 		pollTimer = setInterval(async () => {
 			if (inFlight) return;
@@ -129,25 +69,31 @@ function createUpdateStore() {
 				const note = info.state.last_check_note ?? '';
 				if (note.startsWith('update cancelled')) {
 					stopWithMessage(note);
-				} else if (info.state.current_version && info.state.current_version !== startedVersion) {
+					return;
+				}
+				if (info.version && info.version !== startedVersion) {
 					reload();
-				} else if (Date.now() > endsAt) {
+					return;
+				}
+				if (Date.now() > endsAt) {
 					stopWithMessage(t('common.update.install_failed'));
 				}
 			} catch {
-				// The API stopped answering: the install is replacing the container.
-				startGrace();
+				// The API stops answering while the replacement boots. Keep polling:
+				// the new build reports a different version the moment it serves.
+				if (Date.now() > endsAt) {
+					stopWithMessage(t('common.update.install_failed'));
+				}
 			} finally {
 				inFlight = false;
 			}
-		}, BACKUP_POLL_MS);
+		}, WATCH_POLL_MS);
 	}
 
 	function stopWithMessage(message: string, level: 'error' | 'warning' = 'error') {
 		clearTimers();
 		applying = false;
 		phase = 'idle';
-		secondsLeft = 0;
 		if (level === 'warning') toast.warning(message);
 		else toast.error(message);
 	}
@@ -173,7 +119,6 @@ function createUpdateStore() {
 		if (applying) return;
 		applying = true;
 		phase = 'preparing';
-		secondsLeft = 0;
 
 		let info: SystemVersion | null;
 		try {
@@ -210,10 +155,10 @@ function createUpdateStore() {
 			});
 			if (result.triggered && result.backup_started) {
 				toast.info(t('common.update.backing_up'));
-				startBackupWait(state.current_version);
+				startWatching(info.version, true);
 			} else if (result.triggered) {
 				toast.info(t('common.update.installing'));
-				startGrace();
+				startWatching(info.version, false);
 			} else {
 				notifySystemUpdateChanged();
 				stopWithMessage(result.note, 'warning');
@@ -225,12 +170,11 @@ function createUpdateStore() {
 	}
 
 	// An unmounting entry point must not tear down an install that is already
-	// running: the grace/watchdog timers own the reload.
+	// running: the watcher owns the reload.
 	function reset() {
 		if (applying) return;
 		clearTimers();
 		phase = 'idle';
-		secondsLeft = 0;
 		reloaded = false;
 	}
 
@@ -238,7 +182,6 @@ function createUpdateStore() {
 		clearTimers();
 		applying = false;
 		phase = 'idle';
-		secondsLeft = 0;
 		reloaded = false;
 	}
 
@@ -248,9 +191,6 @@ function createUpdateStore() {
 		},
 		get phase() {
 			return phase;
-		},
-		get secondsLeft() {
-			return secondsLeft;
 		},
 		startUpdate,
 		reset,
