@@ -10,6 +10,7 @@ services:
       - ./Caddyfile/Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - caddy_admin:/run/caddy-admin
     restart: unless-stopped
 
   dragonfly:
@@ -39,8 +40,9 @@ services:
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       METRICS_USERNAME: ${METRICS_USERNAME:?Set METRICS_USERNAME in apps/.env}
       METRICS_PASSWORD: ${METRICS_PASSWORD:?Set METRICS_PASSWORD in apps/.env}
-      CADDY_URL: http://litepod-caddy:2019
-      CADDY_ADMIN_URL: http://litepod-caddy:2019
+      # Only its host is used, to trust Caddy's address for forwarded headers.
+      CADDY_URL: http://litepod-caddy:80
+      CADDY_ADMIN_URL: unix:///run/caddy-admin/admin.sock
       DRAGONFLY_URL: redis://:${DFLY_PASSWORD:?Set DFLY_PASSWORD in apps/.env}@litepod-dragonfly:6379
       PODMAN_SOCKET: ${LITEPOD_PODMAN_SOCKET:?Set by scripts/install.sh}
       LITEPOD_DATA_DIR: /var/lib/litepod
@@ -62,6 +64,7 @@ services:
     volumes:
       - ${LITEPOD_PODMAN_SOCKET_PATH:?Set by scripts/install.sh}:${LITEPOD_PODMAN_SOCKET_PATH:?Set by scripts/install.sh}
       - litepod_data:/var/lib/litepod
+      - caddy_admin:/run/caddy-admin
       - ./:/etc/litepod-stack:rw
     depends_on:
       - caddy
@@ -71,6 +74,8 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  caddy_admin:
+    name: litepod_caddy_admin
   litepod_data:
     name: litepod_data
 

@@ -1,5 +1,6 @@
 {
-	admin 0.0.0.0:2019
+	# Unix socket on a volume only caddy and app mount: apps on litepod-network cannot reach it.
+	admin unix//run/caddy-admin/admin.sock
 }
 
 :80 {
