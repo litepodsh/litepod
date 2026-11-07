@@ -94,7 +94,7 @@ async fn send(
 }
 
 async fn get(state: &SharedState, path: &str, action: &str) -> Result<Value, AppError> {
-    send(state, reqwest::Client::new().get(url(state, path)?), action).await
+    send(state, crate::utils::http::client().get(url(state, path)?), action).await
 }
 
 /// Walks every page of a Polar list endpoint. `path` must already carry a
@@ -255,7 +255,7 @@ pub async fn update_subscription_units(
     units: i64,
     proration_behavior: &str,
 ) -> Result<Value, AppError> {
-    let request = reqwest::Client::new()
+    let request = crate::utils::http::client()
         .patch(url(state, &format!("/subscriptions/{subscription_id}"))?)
         .json(&json!({"units": units, "proration_behavior": proration_behavior}));
     send(state, request, "update this subscription's server quantity").await
@@ -284,7 +284,7 @@ pub async fn create_checkout(
     }
     let base = return_base.trim_end_matches('/');
     let binding = Uuid::now_v7().to_string();
-    let request = reqwest::Client::new()
+    let request = crate::utils::http::client()
         .post(url(state, "/checkouts/")?)
         .json(&json!({
             "products": [product_id],
@@ -322,7 +322,7 @@ pub async fn customer_portal_url(
     customer_id: &str,
     return_base: &str,
 ) -> Result<String, AppError> {
-    let request = reqwest::Client::new()
+    let request = crate::utils::http::client()
         .post(url(state, "/customer-sessions/")?)
         .json(&json!({
             "customer_id": customer_id,
@@ -346,7 +346,7 @@ pub async fn invoice_pdf_url(state: &SharedState, order_id: &str) -> Result<Stri
     if payload.is_none() {
         send(
             state,
-            reqwest::Client::new().post(url(state, &path)?),
+            crate::utils::http::client().post(url(state, &path)?),
             "generate the invoice",
         )
         .await?;

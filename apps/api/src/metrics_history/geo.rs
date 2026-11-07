@@ -85,7 +85,12 @@ fn is_fresh(path: &Path) -> bool {
 async fn download(target: &Path) -> Result<(), String> {
     let now = chrono::Utc::now().date_naive();
     let last_month = now - chrono::Months::new(1);
-    let client = reqwest::Client::new();
+    // A large file: its own, longer timeout than `utils::http::client()`.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
     let mut response = None;
     for month in [now, last_month] {
         let url = format!("{DOWNLOAD_URL}-{}.mmdb.gz", month.format("%Y-%m"));
