@@ -1,7 +1,8 @@
 name: ci
 
 # Compile gate for main and next: API (with the `saml` feature the release binary
-# ships) and UI type-check + build. The Dockerfile is exercised by the release
+# ships) and UI type-check + build, plus dependency advisories (`cargo audit`,
+# `bun audit` at high and above). The Dockerfile is exercised by the release
 # workflow (manual dispatch defaults to a dry run).
 
 on:
@@ -50,6 +51,14 @@ jobs:
       - name: cargo build
         run: cargo build --locked --features saml
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # Fails on a vulnerability advisory; "unmaintained"/"unsound" stay warnings.
+      - name: cargo audit
+        run: cargo audit
+
   ui:
     runs-on: ubuntu-24.04
     defaults:
@@ -61,5 +70,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - run: bun install --frozen-lockfile
+      - run: bun audit --audit-level=high
       - run: bun run check
       - run: bun run build
