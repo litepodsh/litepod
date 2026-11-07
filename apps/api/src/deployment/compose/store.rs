@@ -112,14 +112,8 @@ impl ComposeFileStore {
     /// and all internal templates - so an unsafe file can never be persisted, let
     /// alone deployed.
     pub async fn write_content(&self, content: &str) -> Result<(), String> {
-        let reserved = super::reserved_services_in_compose(content);
-        if !reserved.is_empty() {
-            return Err(super::reserved_service_message(&reserved));
-        }
-        let mounts = super::unnamed_mounts_in_compose(content);
-        if !mounts.is_empty() {
-            return Err(super::unnamed_mounts_message(&mounts));
-        }
+        // `privileged` is left to the callers that know who is asking.
+        super::validate_tenant_compose(content, true)?;
         let dir = self.base_dir();
         tokio::fs::create_dir_all(&dir)
             .await

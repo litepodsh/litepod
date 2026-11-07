@@ -743,8 +743,8 @@ pub async fn propose_compose_file(
             "That is the file it already has".into(),
         ));
     }
-    require_named_volumes(&arguments.compose)?;
-    require_no_privileged(&arguments.compose)?;
+    crate::deployment::compose::validate_tenant_compose(&arguments.compose, false)
+        .map_err(AppError::ValidationError)?;
 
     let title = format!("Replace the compose file of {}", target.application_name);
     let summary = match &arguments.reason {
@@ -786,33 +786,6 @@ pub async fn propose_compose_file(
 /// The compose file is parsed here rather than at confirm time: a `port` that
 /// no service publishes means the application would come up with no public
 /// URL, and that is worth refusing while it is still a proposal.
-/// Data lives in named volumes declared under `volumes:`, like every catalog
-/// template: rootless Podman cannot write to a host directory it does not own,
-/// and an anonymous volume can be left behind by a redeploy. See
-/// `unnamed_mounts_in_compose`.
-fn require_named_volumes(compose: &str) -> Result<(), AppError> {
-    let mounts = crate::deployment::compose::unnamed_mounts_in_compose(compose);
-    if mounts.is_empty() {
-        return Ok(());
-    }
-    Err(AppError::ValidationError(
-        crate::deployment::compose::unnamed_mounts_message(&mounts),
-    ))
-}
-
-/// The assistant deploys on the caller's behalf at Editor level, so it must not
-/// author a `privileged: true` service — that is the instance SysAdmin's
-/// capability, and the assistant can never be one.
-fn require_no_privileged(compose: &str) -> Result<(), AppError> {
-    let privileged = crate::deployment::compose::privileged_services_in_compose(compose);
-    if privileged.is_empty() {
-        return Ok(());
-    }
-    Err(AppError::ValidationError(
-        crate::deployment::compose::privileged_services_message(&privileged),
-    ))
-}
-
 /// The checks every compose file the assistant creates an application from
 /// goes through, and the service `port` routes to when one is given.
 fn checked_compose(compose: &str, port: Option<i64>) -> Result<Option<String>, AppError> {
@@ -837,14 +810,9 @@ fn checked_compose(compose: &str, port: Option<i64>) -> Result<Option<String>, A
             "A compose file needs a `services:` mapping".into(),
         ));
     }
-    let reserved = crate::deployment::compose::reserved_services_in_compose(compose);
-    if !reserved.is_empty() {
-        return Err(AppError::ValidationError(
-            crate::deployment::compose::reserved_service_message(&reserved),
-        ));
-    }
-    require_named_volumes(compose)?;
-    require_no_privileged(compose)?;
+    // The assistant acts at Editor level and can never author `privileged`.
+    crate::deployment::compose::validate_tenant_compose(compose, false)
+        .map_err(AppError::ValidationError)?;
     let Some(port) = port else {
         return Ok(None);
     };

@@ -101,33 +101,8 @@ pub async fn compose_content_put_handler(
     if !request.content.trim().is_empty() {
         serde_yaml::from_str::<serde_yaml::Value>(&request.content)
             .map_err(|e| AppError::ValidationError(format!("Invalid YAML: {e}")))?;
-        // Refused at save time so a reserved name never reaches a deploy, where it
-        // would shadow a control-plane hostname on the shared network.
-        let reserved = compose::reserved_services_in_compose(&request.content);
-        if !reserved.is_empty() {
-            return Err(AppError::ValidationError(
-                compose::reserved_service_message(&reserved),
-            ));
-        }
-        // Host paths, binds and anonymous volumes are refused for everyone on
-        // the shared server; they cannot be written on rootless Podman and a
-        // host path or the Podman socket would let a tenant reach the host.
-        let mounts = compose::unnamed_mounts_in_compose(&request.content);
-        if !mounts.is_empty() {
-            return Err(AppError::ValidationError(
-                compose::unnamed_mounts_message(&mounts),
-            ));
-        }
-        // `privileged: true` escapes the user namespace, so only the instance
-        // SysAdmin may deploy one; an Editor in any organization is refused.
-        if !app.user.is_sysadmin {
-            let privileged = compose::privileged_services_in_compose(&request.content);
-            if !privileged.is_empty() {
-                return Err(AppError::ValidationError(
-                    compose::privileged_services_message(&privileged),
-                ));
-            }
-        }
+        compose::validate_tenant_compose(&request.content, app.user.is_sysadmin)
+            .map_err(AppError::ValidationError)?;
     }
     let store = ComposeFileStore::new(&state.data_dir, &application_id);
     store
@@ -195,49 +170,18 @@ pub async fn compose_validate_handler(
         }));
     }
 
-    // Reported before `podman compose config` runs: the provider is perfectly
-    // happy with these names, but the deploy would hijack a control-plane
-    // hostname on the shared network.
-    let reserved = compose::reserved_services_in_compose(&content);
-    if !reserved.is_empty() {
+    // Same guards as the save path, reported before `podman compose config`
+    // runs: the provider accepts all of these, the shared server must not.
+    if let Err(message) = compose::validate_tenant_compose(&content, app.user.is_sysadmin) {
         return Ok(ok(ValidationResponse {
             valid: false,
             errors: vec![ValidationError {
                 line: None,
                 column: None,
-                message: compose::reserved_service_message(&reserved),
+                message,
             }],
             catalog: None,
         }));
-    }
-
-    // Same host-escape guards as the save path: no host paths / binds /
-    // anonymous volumes, and `privileged` only for the instance SysAdmin.
-    let mounts = compose::unnamed_mounts_in_compose(&content);
-    if !mounts.is_empty() {
-        return Ok(ok(ValidationResponse {
-            valid: false,
-            errors: vec![ValidationError {
-                line: None,
-                column: None,
-                message: compose::unnamed_mounts_message(&mounts),
-            }],
-            catalog: None,
-        }));
-    }
-    if !app.user.is_sysadmin {
-        let privileged = compose::privileged_services_in_compose(&content);
-        if !privileged.is_empty() {
-            return Ok(ok(ValidationResponse {
-                valid: false,
-                errors: vec![ValidationError {
-                    line: None,
-                    column: None,
-                    message: compose::privileged_services_message(&privileged),
-                }],
-                catalog: None,
-            }));
-        }
     }
 
     let tmp_dir = std::env::temp_dir().join(format!(

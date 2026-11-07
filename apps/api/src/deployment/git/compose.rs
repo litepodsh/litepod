@@ -497,6 +497,9 @@ pub async fn run(
         .ok_or_else(|| "Compose public service is missing".to_string())?;
     let content = std::fs::read_to_string(repo.join(compose_path))
         .map_err(|error| format!("Could not read Compose file {compose_path}: {error}"))?;
+    // The repository is tenant input like the editor, checked on every deploy
+    // (the first one included). A webhook carries no user, so never privileged.
+    crate::deployment::compose::validate_tenant_compose(&content, false)?;
     if !service_exists(&content, service)? {
         return Err(format!("Compose service '{service}' was not found"));
     }
