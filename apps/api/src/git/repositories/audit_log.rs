@@ -250,17 +250,18 @@ pub async fn purge_expired(state: &SharedState) -> Result<u64, String> {
 }
 
 /// Same shape as `scheduled_tasks::scheduler::spawn` / `backup::scheduler::spawn`:
-/// purge once at startup, then daily.
+/// purge once at startup, then daily. Also purges long-expired sessions.
 pub fn spawn(state: SharedState) {
     tokio::spawn(async move {
-        if let Err(error) = purge_expired(&state).await {
-            tracing::warn!(%error, "audit log purge failed");
-        }
+        // The first tick fires immediately: that is the purge at startup.
         let mut daily = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
         loop {
             daily.tick().await;
             if let Err(error) = purge_expired(&state).await {
                 tracing::warn!(%error, "audit log purge failed");
+            }
+            if let Err(error) = crate::git::repositories::session::purge_expired(&state).await {
+                tracing::warn!(%error, "expired session purge failed");
             }
         }
     });

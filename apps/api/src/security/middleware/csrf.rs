@@ -29,6 +29,13 @@ pub fn trusted_request_origin(headers: &axum::http::HeaderMap) -> Option<String>
 /// still match the `Origin: http://1.2.3.4` header browsers actually send
 /// (they omit the default port). Anything that isn't a recognized default
 /// port pairing is left untouched.
+/// The origin (`scheme://host[:port]`) of a `Referer`, whatever its path. `None`
+/// for anything that is not a URL with a host.
+fn referer_origin(referer: &str) -> Option<String> {
+    let origin = url::Url::parse(referer).ok()?.origin();
+    origin.is_tuple().then(|| origin.ascii_serialization())
+}
+
 fn normalize_origin(origin: &str) -> String {
     let origin = origin.trim_end_matches('/');
     if let Some(host) = origin
@@ -98,7 +105,10 @@ fn without_session(request: &Request) -> bool {
         .any(|cookies| {
             cookies
                 .split(';')
-                .any(|cookie| cookie.trim_start().starts_with("session_token="))
+                .any(|cookie| {
+                    let cookie = cookie.trim_start();
+                    cookie.starts_with("session_token=") || cookie.starts_with("__Host-session_token=")
+                })
         });
     !session_cookie
 }
@@ -169,18 +179,15 @@ pub async fn origin_guard(
         .headers()
         .get(axum::http::header::ORIGIN)
         .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
         .or_else(|| {
             request
                 .headers()
                 .get(axum::http::header::REFERER)
                 .and_then(|v| v.to_str().ok())
-                .and_then(|referer| {
-                    referer
-                        .trim_end_matches('/')
-                        .rsplit_once('/')
-                        .map(|(base, _)| base)
-                })
+                .and_then(referer_origin)
         });
+    let origin = origin.as_deref();
 
     match origin {
         Some(origin)
@@ -206,6 +213,24 @@ pub async fn origin_guard(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn referer_origin_drops_the_whole_path() {
+        assert_eq!(
+            referer_origin("https://panel.example.com/x/y?z=1").as_deref(),
+            Some("https://panel.example.com")
+        );
+        assert_eq!(
+            referer_origin("http://localhost:5173/").as_deref(),
+            Some("http://localhost:5173")
+        );
+        assert_eq!(
+            referer_origin("https://panel.example.com:443/a").as_deref(),
+            Some("https://panel.example.com")
+        );
+        assert_eq!(referer_origin("not a url"), None);
+        assert_eq!(referer_origin("data:text/html,x"), None);
+    }
 
     #[test]
     fn trusted_request_origin_accepts_only_allowed_origins() {

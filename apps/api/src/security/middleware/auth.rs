@@ -34,7 +34,7 @@ pub async fn auth_middleware(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let token = jar.get("session_token").map(|c| c.value().to_string());
+    let token = crate::utils::cookie::session_token(&jar);
 
     let (auth_user, token_scopes) = if let Some(token) = token {
         // The lookup can fail with a database error if maintenance makes the local

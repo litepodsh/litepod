@@ -16,12 +16,10 @@ use crate::dtos::response::{AppError, created, ok};
 use crate::git::repositories::user;
 use crate::security::middleware::auth::AuthUser;
 use crate::state::state::SharedState;
-use crate::utils::cookie::{SESSION_COOKIE, clear_session_cookie};
+use crate::utils::cookie::{clear_session_cookie, session_token};
 
 fn current_session_token(jar: &CookieJar) -> String {
-    jar.get(SESSION_COOKIE)
-        .map(|c| c.value().to_string())
-        .unwrap_or_default()
+    session_token(jar).unwrap_or_default()
 }
 
 /// GET /api/v1/account
@@ -126,9 +124,7 @@ pub async fn change_password_handler(
 ) -> Result<impl IntoResponse, AppError> {
     // Everything but this browser's own session gets revoked, so the user isn't
     // logged out of the tab they just used to change the password.
-    let current_token = jar
-        .get(crate::utils::cookie::SESSION_COOKIE)
-        .map(|cookie| cookie.value().to_string());
+    let current_token = session_token(&jar);
     account_commands::change_password(
         &state,
         &auth_user.user_id,

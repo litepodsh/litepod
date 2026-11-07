@@ -11,7 +11,7 @@ use crate::dtos::response::{AppError, ok};
 use crate::git::repositories::session;
 use crate::security::middleware::auth::AuthUser;
 use crate::state::state::SharedState;
-use crate::utils::cookie::{SESSION_COOKIE, clear_session_cookie};
+use crate::utils::cookie::{clear_session_cookie, session_token};
 
 /// GET /api/v1/sessions
 #[utoipa::path(
@@ -23,10 +23,7 @@ pub async fn list_sessions_handler(
     Extension(auth_user): Extension<AuthUser>,
     jar: CookieJar,
 ) -> Result<impl IntoResponse, AppError> {
-    let current_token = jar
-        .get(SESSION_COOKIE)
-        .map(|c| c.value().to_string())
-        .unwrap_or_default();
+    let current_token = session_token(&jar).unwrap_or_default();
     let sessions = account_queries::sessions(&state, &auth_user.user_id, &current_token).await?;
     Ok(ok(sessions))
 }
@@ -42,8 +39,8 @@ pub async fn revoke_current_session_handler(
     State(state): State<SharedState>,
     jar: CookieJar,
 ) -> Result<impl IntoResponse, AppError> {
-    if let Some(cookie) = jar.get(SESSION_COOKIE) {
-        let _ = session::revoke_session(&state, cookie.value()).await;
+    if let Some(token) = session_token(&jar) {
+        let _ = session::revoke_session(&state, &token).await;
     }
     Ok((
         clear_session_cookie(&state, jar).await,
@@ -102,10 +99,7 @@ pub async fn delete_session_handler(
     Path(session_id): Path<String>,
     jar: CookieJar,
 ) -> Result<impl IntoResponse, AppError> {
-    let current_token = jar
-        .get(SESSION_COOKIE)
-        .map(|c| c.value().to_string())
-        .unwrap_or_default();
+    let current_token = session_token(&jar).unwrap_or_default();
 
     let conn = crate::git::repositories::db::get_conn(&state).await;
     let row = sqlx::query("SELECT token_digest FROM sessions WHERE id = ?1 AND user_id = ?2")

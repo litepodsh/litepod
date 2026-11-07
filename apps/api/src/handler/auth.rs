@@ -27,7 +27,9 @@ use crate::security::middleware::rate_limit::{
 };
 use crate::security::middleware::request_context::RequestContext;
 use crate::state::state::SharedState;
-use crate::utils::cookie::{SESSION_COOKIE, add_session_cookie, clear_session_cookie};
+use crate::utils::cookie::{
+    SESSION_COOKIE, add_session_cookie, clear_session_cookie, session_token,
+};
 
 /// First sign-in of a new account: the baseline `login_anomaly` compares later
 /// logins against.
@@ -97,17 +99,12 @@ pub(crate) async fn audit_auth_event(
 pub async fn setup_check_handler(
     State(state): State<SharedState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let count = user::count_users(&state)
-        .await
-        .map_err(|e| AppError::DatabaseError(e))?;
     let setup_required = user::count_sysadmins(&state)
         .await
         .map_err(AppError::DatabaseError)?
         == 0;
-    Ok(ok(SetupCheckResponse {
-        setup_required,
-        user_count: count,
-    }))
+    // No user count: it is public, and would tell anyone the size of the instance.
+    Ok(ok(SetupCheckResponse { setup_required }))
 }
 
 #[utoipa::path(
@@ -133,11 +130,29 @@ pub async fn registration_status_handler(
     }))
 }
 
-/// The install's one-time token. Dev and legacy installs have none.
+/// Generated at boot when `SETUP_TOKEN` is empty and there is no administrator yet.
+static GENERATED_SETUP_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Boot: a self-hosted install with no administrator and no `SETUP_TOKEN` gets one
+/// generated and written to the log, so the first visitor can never claim the instance.
+pub async fn ensure_setup_token(state: &SharedState) {
+    if state.is_cloud || configured_setup_token().is_some() {
+        return;
+    }
+    // Fails closed: a database error still generates a token.
+    if matches!(user::count_sysadmins(state).await, Ok(count) if count > 0) {
+        return;
+    }
+    let token = GENERATED_SETUP_TOKEN.get_or_init(crate::utils::security::generate_token);
+    tracing::warn!("[boot] setup token: {token} (set SETUP_TOKEN in .env to choose your own)");
+}
+
+/// The install's one-time token: `SETUP_TOKEN`, or the one `ensure_setup_token` generated.
 fn configured_setup_token() -> Option<String> {
     std::env::var("SETUP_TOKEN")
         .ok()
         .filter(|token| !token.is_empty())
+        .or_else(|| GENERATED_SETUP_TOKEN.get().cloned())
 }
 
 /// Constant-time comparison for the one-time setup token. Length mismatch and
@@ -600,12 +615,11 @@ pub async fn logout_handler(
 ) -> Result<(CookieJar, impl IntoResponse), AppError> {
     let mut redirect_url = None;
     let mut reauth = false;
-    if let Some(cookie) = jar.get(SESSION_COOKIE) {
+    if let Some(token) = session_token(&jar) {
         // Read the SSO origin and resolve the user before the row is deleted.
-        let origin =
-            crate::git::repositories::session::sso_origin_by_token(&state, cookie.value()).await;
+        let origin = crate::git::repositories::session::sso_origin_by_token(&state, &token).await;
         if let Ok(Some(session)) =
-            crate::git::repositories::session::get_session_by_token_result(&state, cookie.value())
+            crate::git::repositories::session::get_session_by_token_result(&state, &token)
                 .await
             && let Some(user_row) = user::get_user_by_id(&state, &session.user_id).await
         {
@@ -628,7 +642,7 @@ pub async fn logout_handler(
             .await;
         }
         // The local session goes first and unconditionally.
-        let _ = auth::logout(&state, cookie.value()).await;
+        let _ = auth::logout(&state, &token).await;
 
         if let Some(origin) = origin {
             redirect_url = idp_logout_url(&state, &origin).await;

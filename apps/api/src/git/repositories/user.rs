@@ -369,16 +369,6 @@ pub async fn make_sysadmin(state: &SharedState, user_id: &str) -> Result<bool, S
     Ok(inserted > 0)
 }
 
-pub async fn count_users(state: &SharedState) -> Result<i64, String> {
-    let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query("SELECT COUNT(*) as cnt FROM users")
-        .fetch_one(&conn)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    row.try_get::<i64, _>(0).map_err(|e| e.to_string())
-}
-
 pub async fn count_sysadmins(state: &SharedState) -> Result<i64, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let row = sqlx::query("SELECT COUNT(*) FROM user_global_roles WHERE role_id = 0")

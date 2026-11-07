@@ -482,6 +482,7 @@ async fn async_main(sentry_kind: Option<&'static str>) {
         }
     });
 
+    crate::handler::auth::ensure_setup_token(&shared_state).await;
     crate::updater::spawn(shared_state.clone());
     crate::telemetry::spawn(shared_state.clone());
     crate::backup::scheduler::spawn(shared_state.clone());

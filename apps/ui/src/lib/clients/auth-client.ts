@@ -3,7 +3,6 @@ import { invalidateOrganizationsCache } from './organization-client';
 
 export type SetupCheckResponse = {
 	setup_required: boolean;
-	user_count: number;
 };
 
 export type RegistrationStatusResponse = {
