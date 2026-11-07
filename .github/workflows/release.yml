@@ -148,11 +148,31 @@ jobs:
         with:
           tool: cross
 
+      # Blacksmith hands out cold VMs whose host has no binfmt_misc mount. The
+      # privileged tonistiigi/binfmt container then registers qemu-aarch64 in
+      # its own mount namespace ("installing: arm64 OK") and the handler dies
+      # with the container, so `podman build --platform linux/arm64` later
+      # fails with `exec container process /bin/sh: Exec format error`.
+      # Mount it on the host first so the registration lands in the kernel.
+      - name: Mount binfmt_misc (Blacksmith cold VMs)
+        if: matrix.arch == 'arm64' && needs.prepare.outputs.warm != 'true'
+        run: |
+          mountpoint -q /proc/sys/fs/binfmt_misc || {
+            sudo modprobe binfmt_misc || true
+            sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+          }
+
       - name: Register qemu binfmt (arm64 image build + probe)
         if: matrix.arch == 'arm64' && needs.prepare.outputs.warm != 'true'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
+
+      # Fail fast and clearly here instead of 10 minutes later with an opaque
+      # exec-format error inside `podman build`.
+      - name: Assert arm64 emulation
+        if: matrix.arch == 'arm64' && needs.prepare.outputs.warm != 'true'
+        run: grep -q enabled /proc/sys/fs/binfmt_misc/qemu-aarch64
 
       - name: Install native deps (xmlsec1 for saml, libclang for bindgen)
         if: matrix.arch == 'amd64'
