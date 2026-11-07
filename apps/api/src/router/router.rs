@@ -11,6 +11,7 @@ use axum::{
 use axum_prometheus::PrometheusMetricLayerBuilder;
 use serde::Serialize;
 use tower::ServiceExt;
+use tower_http::compression::{CompressionLayer, DefaultPredicate, Predicate};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 use utoipa::OpenApi;
@@ -1340,7 +1341,8 @@ pub fn create_router(state: SharedState) -> Router {
                 ])
                 .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT])
                 .allow_credentials(true),
-        );
+        )
+        .layer(CompressionLayer::new().compress_when(DefaultPredicate::new().and(compressible)));
 
     let app = Router::new()
         .route("/health", get(health_check))
@@ -1646,6 +1648,20 @@ pub(crate) async fn ui_fallback(req: Request<Body>) -> impl IntoResponse {
     res
 }
 
+/// JSON and text only: downloads (zip, backups, container files) are already
+/// compressed or need their `Content-Length`. `DefaultPredicate` leaves out SSE.
+fn compressible(
+    _: axum::http::StatusCode,
+    _: axum::http::Version,
+    headers: &axum::http::HeaderMap,
+    _: &axum::http::Extensions,
+) -> bool {
+    headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json") || value.starts_with("text/"))
+}
+
 fn build_cors_origins() -> AllowOrigin {
     let origins: Vec<axum::http::HeaderValue> = cors_allowed_origins()
         .iter()
@@ -1712,7 +1728,30 @@ mod tests {
         response::IntoResponse,
     };
 
-    use super::{METRICS_ALLOWED_PATHS, is_secret_probe_path, ui_fallback};
+    use super::{METRICS_ALLOWED_PATHS, compressible, is_secret_probe_path, ui_fallback};
+
+    #[test]
+    fn only_json_and_text_responses_are_compressed() {
+        let compresses = |content_type: &str| {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::CONTENT_TYPE,
+                content_type.parse().unwrap(),
+            );
+            compressible(
+                StatusCode::OK,
+                axum::http::Version::HTTP_11,
+                &headers,
+                &axum::http::Extensions::new(),
+            )
+        };
+        assert!(compresses("application/json"));
+        assert!(compresses("application/json; charset=utf-8"));
+        assert!(compresses("text/plain; charset=utf-8"));
+        assert!(!compresses("application/zip"));
+        assert!(!compresses("application/octet-stream"));
+        assert!(!compresses("image/png"));
+    }
 
     #[test]
     fn metrics_allowlist_contains_only_product_routes() {
