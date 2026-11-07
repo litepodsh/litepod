@@ -252,7 +252,16 @@ async fn async_main(sentry_kind: Option<&'static str>) {
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .foreign_keys(true)
-        .busy_timeout(std::time::Duration::from_millis(5000));
+        .busy_timeout(std::time::Duration::from_millis(5000))
+        // Safe under WAL: a crash of the process loses nothing, a power cut at most
+        // the last transaction. Saves an fsync per commit.
+        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+        .pragma("temp_store", "memory")
+        // ~16 MB of page cache per connection, up from 2 MB.
+        .pragma("cache_size", "-16000")
+        // Pooled connections are recycled (max_lifetime 30 min), so this keeps the
+        // planner's statistics fresh without a job of its own.
+        .optimize_on_close(true, 400);
     let db_pool = sqlx::sqlite::SqlitePoolOptions::new()
         // SQLite serializes writers regardless of pool size; a handful of readers
         // plus headroom for one writer in flight is enough - this isn't a
