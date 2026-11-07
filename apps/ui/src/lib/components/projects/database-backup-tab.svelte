@@ -23,6 +23,7 @@
 	import { getSystemVersion } from '#lib/clients/system-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { toast, toastError } from '#lib/utils/toast.js';
+	import { pollWhileVisible } from '#lib/utils/poll.js';
 
 	let {
 		organizationId,
@@ -124,7 +125,7 @@
 			toast.success(t('projects.db_backup.run_started'));
 			// Poll until the background run settles.
 			const deadline = Date.now() + 30 * 60_000;
-			const poll = setInterval(async () => {
+			const stopPoll = pollWhileVisible(async () => {
 				const runs = await listDatabaseBackups(
 					organizationId,
 					projectId,
@@ -134,7 +135,7 @@
 				history = runs;
 				const current = runs.find((r) => r.id === record.id);
 				if ((current && current.status !== 'running') || Date.now() > deadline) {
-					clearInterval(poll);
+					stopPoll();
 					running = false;
 				}
 			}, 4000);

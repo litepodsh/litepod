@@ -6,12 +6,13 @@
 	import { getSystemVersion, type SystemVersion } from '#lib/clients/system-client.js';
 	import { updateState } from '#lib/state/update.svelte.js';
 	import { isInstallableUpdate, SYSTEM_UPDATE_CHANGED_EVENT } from '#lib/utils/system-update.js';
+	import { pollWhileVisible } from '#lib/utils/poll.js';
 
 	const RELEASES_URL = 'https://github.com/litepodsh/litepod/releases';
 
 	let { isSysadmin }: { isSysadmin: boolean } = $props();
 	let info = $state<SystemVersion | null>(null);
-	let pollTimer: number | null = null;
+	let stopPoll: (() => void) | null = null;
 
 	const updateAvailable = $derived(isSysadmin && isInstallableUpdate(info));
 
@@ -28,12 +29,12 @@
 	}
 
 	onMount(() => {
-		pollTimer = window.setInterval(refresh, 60_000);
+		stopPoll = pollWhileVisible(refresh, 60_000);
 		window.addEventListener(SYSTEM_UPDATE_CHANGED_EVENT, refresh);
 	});
 
 	onDestroy(() => {
-		if (pollTimer) window.clearInterval(pollTimer);
+		stopPoll?.();
 		window.removeEventListener(SYSTEM_UPDATE_CHANGED_EVENT, refresh);
 		// reset() is a no-op while an install is running - the grace/watchdog
 		// timers own the reload and must survive this component unmounting.

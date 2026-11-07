@@ -18,6 +18,7 @@
 	import { networkMember } from '#lib/clients/podman-console-client.js';
 	import { toast } from '#lib/utils/toast.js';
 	import { t } from '#lib/i18n/index.svelte.js';
+	import { pollWhileVisible } from '#lib/utils/poll.js';
 
 	function formatRate(bytesPerSec: number): string {
 		if (bytesPerSec < 1000) return `${Math.round(bytesPerSec)} B/s`;
@@ -86,10 +87,10 @@
 			}
 		}
 		void poll();
-		const timer = setInterval(poll, 3000);
+		const stop = pollWhileVisible(poll, 3000);
 		return () => {
 			cancelled = true;
-			clearInterval(timer);
+			stop();
 		};
 	});
 

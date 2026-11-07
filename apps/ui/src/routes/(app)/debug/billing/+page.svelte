@@ -10,6 +10,7 @@
 	import { toneClass, toneDot, type StatusTone } from '#lib/utils/status-tone.js';
 	import { toast } from '#lib/utils/toast.js';
 	import { t } from '#lib/i18n/index.svelte.js';
+	import { pollWhileVisible } from '#lib/utils/poll.js';
 
 	let status = $state<BillingDebugStatus | null>(null);
 	let loading = $state(true);
@@ -53,8 +54,7 @@
 
 	onMount(() => {
 		void refresh();
-		const timer = window.setInterval(() => void refresh(false), 2_000);
-		return () => window.clearInterval(timer);
+		return pollWhileVisible(() => refresh(false), 2_000);
 	});
 </script>
 
