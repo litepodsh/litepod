@@ -24,7 +24,7 @@ pub async fn metrics_basic_auth_middleware(
             let encoded =
                 base64::Engine::encode(&base64::engine::general_purpose::STANDARD, credentials);
 
-            if auth == format!("Basic {}", encoded) {
+            if crate::utils::security::constant_time_eq(&format!("Basic {}", encoded), auth) {
                 next.run(request).await
             } else {
                 (

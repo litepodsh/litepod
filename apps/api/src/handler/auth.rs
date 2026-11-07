@@ -155,21 +155,6 @@ fn configured_setup_token() -> Option<String> {
         .or_else(|| GENERATED_SETUP_TOKEN.get().cloned())
 }
 
-/// Constant-time comparison for the one-time setup token. Length mismatch and
-/// content mismatch both return false; the content compare is constant-time in
-/// the (fixed) token length, so a wrong guess leaks no timing signal.
-fn setup_token_matches(expected: &str, supplied: &str) -> bool {
-    let (a, b) = (expected.as_bytes(), supplied.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
 #[utoipa::path(
     post,
     path = "/api/v1/auth/setup",
@@ -195,7 +180,7 @@ pub async fn setup_handler(
     // first administrator before the operator does.
     if let Some(expected_token) = configured_setup_token() {
         let supplied = req.setup_token.as_deref().unwrap_or_default();
-        if !setup_token_matches(&expected_token, supplied) {
+        if !crate::utils::security::constant_time_eq(&expected_token, supplied) {
             return Err(AppError::SetupTokenInvalid);
         }
     }
@@ -714,10 +699,10 @@ mod tests {
     #[test]
     fn setup_token_compare_is_exact_and_constant_time() {
         let token = "a".repeat(64);
-        assert!(setup_token_matches(&token, &token));
-        assert!(!setup_token_matches(&token, &"b".repeat(64)));
-        assert!(!setup_token_matches(&token, &token[..63]));
-        assert!(!setup_token_matches(&token, ""));
+        assert!(crate::utils::security::constant_time_eq(&token, &token));
+        assert!(!crate::utils::security::constant_time_eq(&token, &"b".repeat(64)));
+        assert!(!crate::utils::security::constant_time_eq(&token, &token[..63]));
+        assert!(!crate::utils::security::constant_time_eq(&token, ""));
     }
 
     #[tokio::test]
