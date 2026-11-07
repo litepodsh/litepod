@@ -134,6 +134,28 @@ pub async fn get_session_by_token_result(
     }))
 }
 
+/// The session's `expires_at` and its user, in one query: this runs on every request.
+pub async fn get_session_identity_result(
+    state: &SharedState,
+    token: &str,
+) -> Result<
+    Option<(String, crate::git::repositories::user::Identity)>,
+    crate::dtos::response::AppError,
+> {
+    use crate::git::repositories::user::{IDENTITY_COLUMNS, identity_from};
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let sql = format!(
+        "SELECT s.expires_at, {IDENTITY_COLUMNS} FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_digest = ?1"
+    );
+    let row = sqlx::query(&sql)
+        .bind(digest(token))
+        .fetch_optional(&conn)
+        .await
+        .map_err(|e| crate::dtos::response::AppError::DatabaseError(e.to_string()))?;
+
+    Ok(row.map(|row| (row.try_get(0).unwrap(), identity_from(state, &row, 1))))
+}
+
 pub async fn revoke_session(state: &SharedState, token: &str) -> Result<(), String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     sqlx::query("DELETE FROM sessions WHERE token_digest = ?1")

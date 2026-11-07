@@ -115,8 +115,10 @@ pub async fn delete_pending_user(state: &SharedState, user_id: &str) -> Result<b
     )
 }
 
+const ACTIVE_STATUS_ID: i64 = 1;
+
 pub fn is_active(row: &UserRow) -> bool {
-    row.status_id == 1
+    row.status_id == ACTIVE_STATUS_ID
 }
 
 pub async fn get_user_by_email(state: &SharedState, email: &str) -> Option<UserRow> {
@@ -397,9 +399,41 @@ pub async fn is_sysadmin(state: &SharedState, user_id: &str) -> bool {
         .fetch_optional(&conn)
         .await;
 
-    let has_role = matches!(row, Ok(Some(_)));
+    sysadmin_with_role(state, user_id, matches!(row, Ok(Some(_))))
+}
+
+fn sysadmin_with_role(state: &SharedState, user_id: &str, has_role: bool) -> bool {
     let pinned = std::env::var(CLOUD_SYSADMIN_USER_ID_ENV).ok();
     has_role && passes_cloud_pin(state.is_cloud, user_id, pinned.as_deref())
+}
+
+/// The user behind a session or token, read in the same query as the credential.
+pub struct Identity {
+    pub id: String,
+    pub email: String,
+    pub name: String,
+    pub is_active: bool,
+    pub is_sysadmin: bool,
+}
+
+/// Columns of `users u` that `identity_from` reads, in order, starting at its `offset`.
+pub const IDENTITY_COLUMNS: &str = "u.id, u.email, u.name, u.status_id, \
+    EXISTS(SELECT 1 FROM user_global_roles g WHERE g.user_id = u.id AND g.role_id = 0)";
+
+pub fn identity_from(
+    state: &SharedState,
+    row: &sqlx::sqlite::SqliteRow,
+    offset: usize,
+) -> Identity {
+    let id: String = row.try_get(offset).unwrap();
+    let has_role: bool = row.try_get(offset + 4).unwrap();
+    Identity {
+        is_sysadmin: sysadmin_with_role(state, &id, has_role),
+        email: row.try_get(offset + 1).unwrap(),
+        name: row.try_get(offset + 2).unwrap(),
+        is_active: row.try_get::<i64, _>(offset + 3).unwrap() == ACTIVE_STATUS_ID,
+        id,
+    }
 }
 
 fn passes_cloud_pin(is_cloud: bool, user_id: &str, pinned: Option<&str>) -> bool {
