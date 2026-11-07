@@ -294,9 +294,11 @@ export type SourceConfigDto = {
 	source_archive_bytes: number | null;
 };
 
+/** `token` and `url` only come back from `rotateDeployHook`: the server keeps a digest. */
 export type DeployHookDto = {
-	token: string;
-	url: string;
+	configured: boolean;
+	token: string | null;
+	url: string | null;
 };
 export type DeploymentRunDto = {
 	id: string;

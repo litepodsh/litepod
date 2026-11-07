@@ -1852,8 +1852,9 @@
 		if (!environment) return;
 		busy = true;
 		try {
+			const rotated = deployHook?.configured;
 			deployHook = await rotateDeployHook(organizationId, projectId, environment.id, applicationId);
-			toast.success('Deploy URL rotated — the old one no longer works');
+			if (rotated) toast.success('Deploy URL rotated — the old one no longer works');
 		} catch (caught) {
 			toast.error(caught instanceof Error ? caught.message : 'Could not rotate the deploy URL');
 		} finally {

@@ -276,6 +276,9 @@ async fn async_main(sentry_kind: Option<&'static str>) {
     {
         tracing::info!("[boot] running migrations");
         migrations::run(&db_pool).await;
+        if let Err(error) = deployment::deploy_hook::hash_legacy_tokens(&db_pool).await {
+            tracing::warn!(%error, "[boot] hashing legacy deploy hook tokens failed");
+        }
     }
 
     let rate_limit_config = security::rate_limit::load_config(&db_pool).await;

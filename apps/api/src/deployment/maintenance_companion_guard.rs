@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 /// `(file, text found in the statement, why companions are meant to be seen)`.
 const ALLOWED: &[(&str, &str, &str)] = &[
     ("deployment/compose/store.rs", "SELECT id FROM applications", "host-port reservation must see every live application, companions included"),
-    ("deployment/deploy_hook.rs", "WHERE deploy_token = ?1", "a lookup by unique token; a companion has none"),
+    ("deployment/deploy_hook.rs", "WHERE deploy_token_digest = ?1", "a lookup by unique token; a companion has none"),
+    ("deployment/deploy_hook.rs", "WHERE deploy_token IS NOT NULL", "one-time hashing of legacy tokens; a companion has none"),
     ("deployment/domains/caddy_sync.rs", "LEFT JOIN applications a ON a.id = d.application_id", "starts from domains; a companion has none"),
     ("deployment/domains/validate.rs", "FROM application_domains d", "starts from domains; a companion has none"),
     ("metrics_history/requests.rs", "FROM application_domains d", "starts from domains; a companion has none"),
