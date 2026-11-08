@@ -1161,6 +1161,7 @@ vec3 ground(float lng, float lat) {
 		width: 20px;
 		height: 20px;
 		border-radius: 50%;
+		corner-shape: round;
 		background: var(--c);
 		color: #0b0c0f;
 	}

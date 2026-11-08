@@ -365,6 +365,43 @@
 	}
 }
 
+/* Continuous corners across the whole panel: every existing `border-radius`
+   keeps its size, and supporting browsers (Chromium 139+) draw the
+   superellipse instead of the circular arc. Safari and Firefox ignore the
+   declaration and keep the plain radius, so this only ever upgrades.
+   Pills, badges and buttons take the squircle too. Only true circles keep
+   `round`: `rounded-full` plus an exact `size-*` token, which is how avatars,
+   status dots and radio pips are built. Matching the whole token (start or
+   space before it) avoids false positives from arbitrary selectors such as
+   `[&_svg:not([class*='size-'])]:size-4` inside the button variants. */
+@layer base {
+	@supports (corner-shape: squircle) {
+		*,
+		*::before,
+		*::after {
+			corner-shape: squircle;
+		}
+
+		:is(
+			[class*='rounded-full'][class^='size-'],
+			[class*='rounded-full'][class*=' size-'],
+			[class*='rounded-[50%]']
+		),
+		:is(
+			[class*='rounded-full'][class^='size-'],
+			[class*='rounded-full'][class*=' size-'],
+			[class*='rounded-[50%]']
+		)::before,
+		:is(
+			[class*='rounded-full'][class^='size-'],
+			[class*='rounded-full'][class*=' size-'],
+			[class*='rounded-[50%]']
+		)::after {
+			corner-shape: round;
+		}
+	}
+}
+
 /* The console column: header, hero, tabs and page share it, so their edges line up. */
 @utility shell-col {
 	width: 100%;
