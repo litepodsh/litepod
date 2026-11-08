@@ -210,82 +210,6 @@
 			<FullOnboardingChecklist summary={onboardingState.summary} />
 		{/if}
 
-		<div class="columns">
-			<div class="flex min-w-0 flex-col gap-6">
-				<OverviewSection organizationId={organization.id} />
-			</div>
-
-			<aside class="flex min-w-0 flex-col gap-4">
-				<ActivitySection organizationId={organization.id} limit={6} />
-
-				<section class="lp-raised min-w-0 overflow-hidden rounded-2xl border bg-card">
-					<header class="lp-groove-b flex items-center justify-between gap-3 px-4 py-3">
-						<h2 class="text-[15px] font-semibold tracking-tight">{t('common.org_apps.up_next')}</h2>
-						<a
-							href="{orgBase}/scheduled-tasks"
-							class="text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
-							>{t('common.org_apps.kpi_tasks')}</a>
-					</header>
-					{#if tasksLoading}
-						<div class="p-3">
-							<SkeletonRows rows={UP_NEXT_LIMIT} height="h-10" />
-						</div>
-					{:else if tasksError}
-						<p class="p-6 text-sm text-destructive">{tasksError}</p>
-					{:else if upNext.length === 0}
-						<p class="p-6 text-sm text-muted-foreground">{t('common.org_apps.no_tasks')}</p>
-					{:else}
-						<ol class="flex flex-col p-1.5">
-							{#each upNext as task (task.id)}
-								<li>
-									<a
-										href="{orgBase}/scheduled-tasks"
-										class="grid grid-cols-[minmax(0,1fr)_auto] gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-muted">
-										<span class="min-w-0">
-											<b class="block truncate font-mono text-[12.5px] font-medium">{task.name}</b>
-											<small class="block truncate text-xs text-muted-foreground"
-												>{describeCron(task.cron_expression) ?? task.cron_expression}</small>
-										</span>
-										<time
-											class="text-xs whitespace-nowrap text-muted-foreground"
-											datetime={new Date(task.next_run_at!).toISOString()}
-											>{relativeTime(task.next_run_at!, Date.now(), i18n.locale)}</time>
-									</a>
-								</li>
-							{/each}
-						</ol>
-					{/if}
-				</section>
-			</aside>
-		</div>
-
-		{#if appsLoading || appsError || apps.length}
-			<section class="lp-raised min-w-0 rounded-2xl border bg-card">
-				<header class="lp-groove-b flex items-center justify-between gap-3 px-4 py-3">
-					<h2 class="text-[15px] font-semibold tracking-tight">
-						{t('common.org_apps.apps_title')}
-					</h2>
-					{#if !appsLoading && apps.length}
-						<a
-							href="{orgBase}/apps"
-							class="inline-flex items-center gap-1 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground">
-							{t('common.org_apps.view_all', { count: apps.length })}
-							<ArrowRightIcon class="size-3.5" />
-						</a>
-					{/if}
-				</header>
-				{#if appsLoading}
-					<div class="p-4">
-						<SkeletonRows rows={7} height="h-9" label={t('common.org_apps.loading')} />
-					</div>
-				{:else if appsError}
-					<p class="p-6 text-sm text-destructive">{appsError}</p>
-				{:else}
-					<AppsTable groups={board} bind:failedApplicationIds />
-				{/if}
-			</section>
-		{/if}
-
 		{#if appsLoading || apps.length}
 			<div class="kpis">
 				{#if appsLoading}
@@ -363,6 +287,82 @@
 						ticks={tasks.map((task) => (task.enabled ? 'ok' : 'neutral'))} />
 				{/if}
 			</div>
+		{/if}
+
+		<div class="columns">
+			<div class="flex min-w-0 flex-col gap-6">
+				<OverviewSection organizationId={organization.id} />
+			</div>
+
+			<aside class="flex min-w-0 flex-col gap-4">
+				<ActivitySection organizationId={organization.id} limit={6} />
+
+				<section class="lp-raised min-w-0 overflow-hidden rounded-2xl border bg-card">
+					<header class="lp-groove-b flex items-center justify-between gap-3 px-4 py-3">
+						<h2 class="text-[15px] font-semibold tracking-tight">{t('common.org_apps.up_next')}</h2>
+						<a
+							href="{orgBase}/scheduled-tasks"
+							class="text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+							>{t('common.org_apps.kpi_tasks')}</a>
+					</header>
+					{#if tasksLoading}
+						<div class="p-3">
+							<SkeletonRows rows={UP_NEXT_LIMIT} height="h-10" />
+						</div>
+					{:else if tasksError}
+						<p class="p-6 text-sm text-destructive">{tasksError}</p>
+					{:else if upNext.length === 0}
+						<p class="p-6 text-sm text-muted-foreground">{t('common.org_apps.no_tasks')}</p>
+					{:else}
+						<ol class="flex flex-col p-1.5">
+							{#each upNext as task (task.id)}
+								<li>
+									<a
+										href="{orgBase}/scheduled-tasks"
+										class="grid grid-cols-[minmax(0,1fr)_auto] gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-muted">
+										<span class="min-w-0">
+											<b class="block truncate font-mono text-[12.5px] font-medium">{task.name}</b>
+											<small class="block truncate text-xs text-muted-foreground"
+												>{describeCron(task.cron_expression) ?? task.cron_expression}</small>
+										</span>
+										<time
+											class="text-xs whitespace-nowrap text-muted-foreground"
+											datetime={new Date(task.next_run_at!).toISOString()}
+											>{relativeTime(task.next_run_at!, Date.now(), i18n.locale)}</time>
+									</a>
+								</li>
+							{/each}
+						</ol>
+					{/if}
+				</section>
+			</aside>
+		</div>
+
+		{#if appsLoading || appsError || apps.length}
+			<section class="lp-raised min-w-0 rounded-2xl border bg-card">
+				<header class="lp-groove-b flex items-center justify-between gap-3 px-4 py-3">
+					<h2 class="text-[15px] font-semibold tracking-tight">
+						{t('common.org_apps.apps_title')}
+					</h2>
+					{#if !appsLoading && apps.length}
+						<a
+							href="{orgBase}/apps"
+							class="inline-flex items-center gap-1 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground">
+							{t('common.org_apps.view_all', { count: apps.length })}
+							<ArrowRightIcon class="size-3.5" />
+						</a>
+					{/if}
+				</header>
+				{#if appsLoading}
+					<div class="p-4">
+						<SkeletonRows rows={7} height="h-9" label={t('common.org_apps.loading')} />
+					</div>
+				{:else if appsError}
+					<p class="p-6 text-sm text-destructive">{appsError}</p>
+				{:else}
+					<AppsTable groups={board} bind:failedApplicationIds />
+				{/if}
+			</section>
 		{/if}
 
 		{#if isSysadmin}
