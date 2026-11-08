@@ -79,6 +79,41 @@ pub(crate) fn resource_log_line(source: &SourceConfigDto) -> String {
     }
 }
 
+/// Memory cap, as `(memory_bytes, memswap_bytes)`, for a build whose application sets no
+/// limit. Builds share the host with every running app, and an uncapped one (a `next build`,
+/// say) can take all of its memory, which freezes the whole server instead of failing the
+/// build. Read from the build host's `/proc/meminfo` right before the build: what is available
+/// minus 1 GiB for everything else, at least 1 GiB, plus half the free swap. Memory only: the
+/// cpu cgroup controller is not delegated to rootless Podman on older systemd.
+pub(crate) fn default_build_memory(meminfo: &str) -> Option<(usize, usize)> {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    let bytes = |key: &str| {
+        meminfo
+            .lines()
+            .find(|line| line.starts_with(key))?
+            .split_whitespace()
+            .nth(1)?
+            .parse::<u64>()
+            .ok()?
+            .checked_mul(1024)
+    };
+    let memory = bytes("MemAvailable:")?.saturating_sub(GIB).max(GIB);
+    let memswap = memory.saturating_add(bytes("SwapFree:").unwrap_or(0) / 2);
+    Some((
+        usize::try_from(memory).ok()?,
+        usize::try_from(memswap).ok()?,
+    ))
+}
+
+pub(crate) fn default_build_memory_log_line(memory_bytes: usize, memswap_bytes: usize) -> String {
+    let mib = |bytes: usize| bytes as u64 / BYTES_PER_MIB;
+    format!(
+        "Resources: no build limit configured; capping this build at {} MiB RAM + {} MiB swap (from the server's free memory) so it cannot freeze the server",
+        mib(memory_bytes),
+        mib(memswap_bytes - memory_bytes)
+    )
+}
+
 /// `ContainerCreateOptsBuilder` takes different units than the image build opts:
 /// the CPU pair is `u64`/`i64` and memory only travels inside `resource_limits`.
 pub(crate) fn with_resource_limits(

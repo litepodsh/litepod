@@ -132,6 +132,30 @@ fn resource_log_line_describes_limited_and_unlimited_deploys() {
 }
 
 #[test]
+fn default_build_memory_leaves_a_gib_and_half_the_free_swap() {
+    let gib = 1024 * 1024 * 1024;
+    let meminfo = |available_kib: u64, swap_kib: u64| {
+        format!(
+            "MemTotal: 16000000 kB\nMemAvailable: {available_kib} kB\nSwapFree: {swap_kib} kB\n"
+        )
+    };
+    assert_eq!(
+        default_build_memory(&meminfo(8 * 1024 * 1024, 4 * 1024 * 1024)),
+        Some((7 * gib, 9 * gib))
+    );
+    // A host that is already short still gets a 1 GiB build rather than none.
+    assert_eq!(
+        default_build_memory(&meminfo(512 * 1024, 0)),
+        Some((gib, gib))
+    );
+    assert_eq!(default_build_memory("MemTotal: 16000000 kB\n"), None);
+    assert_eq!(
+        default_build_memory_log_line(7 * gib, 9 * gib),
+        "Resources: no build limit configured; capping this build at 7168 MiB RAM + 2048 MiB swap (from the server's free memory) so it cannot freeze the server"
+    );
+}
+
+#[test]
 fn deployment_identity_uses_six_characters_from_the_final_uuid_section() {
     let (name, hostname) = deployment_identity(
         "Proyecto",

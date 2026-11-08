@@ -314,38 +314,50 @@ fn data_mount(state: &SharedState) -> (Vec<models::ContainerMount>, Vec<models::
     }
 }
 
+/// `default_memory` is the `(memory, memswap)` cap for an application without configured limits.
 fn with_build_limits(
     mut options: ContainerCreateOptsBuilder,
     source: &SourceConfigDto,
+    default_memory: Option<(usize, usize)>,
 ) -> Result<ContainerCreateOptsBuilder, String> {
-    if let Some(limits) = resource_limits(source)? {
-        let memory = i64::try_from(limits.memory_bytes)
+    let limits = match resource_limits(source)? {
+        Some(limits) => Some((
+            Some(limits.cpu_quota_us),
+            limits.memory_bytes,
+            limits.memswap_bytes,
+        )),
+        None => default_memory.map(|(memory, memswap)| (None, memory, memswap)),
+    };
+    if let Some((cpu_quota_us, memory_bytes, memswap_bytes)) = limits {
+        let memory = i64::try_from(memory_bytes)
             .map_err(|_| "Build memory limit is too large".to_string())?;
-        let memswap = i64::try_from(limits.memswap_bytes)
+        let memswap = i64::try_from(memswap_bytes)
             .map_err(|_| "Build swap limit is too large".to_string())?;
-        options = options
-            .cpu_period(BUILD_CPU_PERIOD_US as u64)
-            .cpu_quota(limits.cpu_quota_us as i64)
-            .resource_limits(models::LinuxResources {
-                block_io: None,
-                cpu: None,
-                devices: None,
-                hugepage_limits: None,
-                memory: Some(models::LinuxMemory {
-                    disable_oom_killer: None,
-                    kernel: None,
-                    kernel_tcp: None,
-                    limit: Some(memory),
-                    reservation: None,
-                    swap: Some(memswap),
-                    swappiness: None,
-                    use_hierarchy: None,
-                }),
-                network: None,
-                pids: None,
-                rdma: None,
-                unified: None,
-            });
+        if let Some(quota) = cpu_quota_us {
+            options = options
+                .cpu_period(BUILD_CPU_PERIOD_US as u64)
+                .cpu_quota(quota as i64);
+        }
+        options = options.resource_limits(models::LinuxResources {
+            block_io: None,
+            cpu: None,
+            devices: None,
+            hugepage_limits: None,
+            memory: Some(models::LinuxMemory {
+                disable_oom_killer: None,
+                kernel: None,
+                kernel_tcp: None,
+                limit: Some(memory),
+                reservation: None,
+                swap: Some(memswap),
+                swappiness: None,
+                use_hierarchy: None,
+            }),
+            network: None,
+            pids: None,
+            rdma: None,
+            unified: None,
+        });
     }
     Ok(options)
 }
@@ -520,6 +532,7 @@ async fn build_image(
             })
             .networks(networks.clone()),
         source,
+        None,
     )?
     .build();
     podman
@@ -557,6 +570,7 @@ async fn build_image(
         .await;
     let runner_context = copied_child_path("/workspace/source", &context)?;
     let runner_plan = copied_child_path("/workspace/inputs", &workspace_path(run_id))?;
+    let default_memory = super::default_build_memory_for(state, run_id, source, None).await;
     let runner_options = with_build_limits(
         ContainerCreateOpts::builder()
             .name(&name)
@@ -580,6 +594,7 @@ async fn build_image(
             })
             .networks(networks),
         source,
+        default_memory,
     )?
     .build();
     podman

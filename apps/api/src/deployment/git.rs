@@ -12,7 +12,10 @@ use podman_api::{Podman, opts::ImageBuildOpts};
 
 use crate::{dtos::response::AppError, git::git_providers, state::state::SharedState};
 
-use super::{BUILD_CPU_PERIOD_US, decrypted_environment, resource_limits, resource_log_line};
+use super::{
+    BUILD_CPU_PERIOD_US, decrypted_environment, default_build_memory,
+    default_build_memory_log_line, resource_limits, resource_log_line,
+};
 
 pub mod compose;
 pub mod railpack;
@@ -722,6 +725,15 @@ async fn remote_docker_pipeline(
             OsString::from("--memory-swap"),
             OsString::from(limits.memswap_bytes.to_string()),
         ]);
+    } else if let Some((memory, memswap)) =
+        default_build_memory_for(state, run_id, source, Some(runtime)).await
+    {
+        build.extend([
+            OsString::from("--memory"),
+            OsString::from(memory.to_string()),
+            OsString::from("--memory-swap"),
+            OsString::from(memswap.to_string()),
+        ]);
     }
     build.push(OsString::from(&remote_repo));
     // A real Dockerfile build routinely takes minutes; stream it like the
@@ -927,6 +939,15 @@ async fn remote_railpack_pipeline(
             OsString::from("--memory-swap"),
             OsString::from(limits.memswap_bytes.to_string()),
         ]);
+    } else if let Some((memory, memswap)) =
+        default_build_memory_for(state, run_id, source, Some(runtime)).await
+    {
+        builder_run.extend([
+            OsString::from("--memory"),
+            OsString::from(memory.to_string()),
+            OsString::from("--memory-swap"),
+            OsString::from(memswap.to_string()),
+        ]);
     }
     builder_run.push(OsString::from(&builder_image));
     // A real `bun install && bun run build` (or equivalent) routinely takes
@@ -962,6 +983,34 @@ async fn remote_railpack_pipeline(
         runtime,
     )
     .await
+}
+
+/// `(memory_bytes, memswap_bytes)` for a build whose application sets no limit, read from the
+/// server that runs it (`remote`, or this host) and noted in the deploy log. `None` when a limit
+/// is configured or the server's memory cannot be read.
+async fn default_build_memory_for(
+    state: &SharedState,
+    run_id: &str,
+    source: &crate::dtos::deployment::SourceConfigDto,
+    remote: Option<&crate::servers::runtime::ServerRuntime>,
+) -> Option<(usize, usize)> {
+    if source.build_cpu_cores.is_some() || source.build_memory_mib.is_some() {
+        return None;
+    }
+    let meminfo = match remote {
+        Some(runtime) => {
+            runtime
+                .remote_command(&[OsString::from("cat"), OsString::from("/proc/meminfo")])
+                .await
+                .ok()?
+                .stdout
+        }
+        None => tokio::fs::read_to_string("/proc/meminfo").await.ok()?,
+    };
+    let (memory, memswap) = default_build_memory(&meminfo)?;
+    let line = default_build_memory_log_line(memory, memswap);
+    let _ = super::history::append(state, run_id, "info", &line).await;
+    Some((memory, memswap))
 }
 
 /// Runs a Podman step through `podman_stream` and appends each stdout/stderr
@@ -1314,6 +1363,10 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
             // Podman interprets this as memory plus swap. The user can extend
             // it past RAM via `build_swap_mib`; otherwise it equals `memory`.
             .memswap(limits.memswap_bytes);
+    } else if let Some((memory, memswap)) =
+        default_build_memory_for(state, run_id, &source, None).await
+    {
+        options = options.memory(memory).memswap(memswap);
     }
     let options = options.build();
     let images = podman.images();
