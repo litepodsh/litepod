@@ -7,6 +7,11 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import ShellSelect from '#lib/components/shell-select.svelte';
 	import { loadNerdFont } from '#lib/utils/lazy-nerd-font.js';
+	import {
+		TERMINAL_FONT_SIZE,
+		terminalFontZoom,
+		zoomedTerminalFontSize,
+	} from '#lib/utils/terminal-font-zoom.js';
 	import { toast } from '#lib/utils/toast.js';
 	import {
 		createContainerExec,
@@ -35,6 +40,7 @@
 	let themeObserver: MutationObserver | null = null;
 	let dataDisposable: { dispose: () => void } | null = null;
 	let sendControlByte: (data: string) => void = () => {};
+	let fontSize = $state<number>(TERMINAL_FONT_SIZE.initial);
 
 	const DARK = {
 		background: '#1e1e1e',
@@ -65,11 +71,26 @@
 		}
 	}
 
+	function applyFontSize(next: number) {
+		if (next === fontSize) return;
+		fontSize = next;
+		if (!term) return;
+		term.options.fontSize = fontSize;
+		requestAnimationFrame(fitNow);
+	}
+	// Keep the dialog fixed while Ctrl/Cmd + - / + / 0 resize only the text.
+	function handleZoomKeydown(event: KeyboardEvent) {
+		const zoom = terminalFontZoom(event);
+		if (!zoom) return;
+		event.preventDefault();
+		event.stopPropagation();
+		applyFontSize(zoomedTerminalFontSize(fontSize, zoom));
+	}
 	function buildTerminal() {
 		if (!hostEl) return;
 		term = new Terminal({
 			fontFamily: "'Commit Mono', 'CommitMono Nerd Font Mono', monospace",
-			fontSize: 13,
+			fontSize,
 			cursorBlink: true,
 			convertEol: true,
 			rightClickSelectsWord: true,
@@ -168,6 +189,10 @@
 		sendControlByte = () => {};
 	}
 
+	onMount(() => {
+		window.addEventListener('keydown', handleZoomKeydown, { capture: true });
+		return () => window.removeEventListener('keydown', handleZoomKeydown, { capture: true });
+	});
 	onMount(async () => {
 		await loadNerdFont();
 		buildTerminal();
