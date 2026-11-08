@@ -462,7 +462,7 @@
 	<div class="lp-panel overflow-hidden rounded-[14px] border border-foreground/9 bg-card">
 		<div class="lp-groove-b flex flex-wrap items-center gap-2 bg-muted/40 px-3 py-2">
 			<span
-				class="inline-flex h-[22px] items-center gap-1.5 rounded-full px-2 text-[11.5px] capitalize"
+				class="inline-flex h-[22px] items-center gap-1.5 rounded-full corner-soft px-2 text-[11.5px] capitalize"
 				class:status-ok={status === 'connected'}
 				class:status-warn={status === 'connecting'}
 				class:status-err={status === 'error'}

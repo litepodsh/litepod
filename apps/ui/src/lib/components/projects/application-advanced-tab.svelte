@@ -654,13 +654,13 @@
 									<span class="truncate font-mono">{domain.host}</span>
 									{#if domain.is_primary}
 										<span
-											class="rounded-full bg-primary/10 px-1.5 py-px font-mono text-[10.5px] text-primary">
+											class="rounded-full corner-soft bg-primary/10 px-1.5 py-px font-mono text-[10.5px] text-primary">
 											{t('projects.dialogs_common.primary')}
 										</span>
 									{/if}
 									{#if domain.https}
 										<span
-											class="rounded-full bg-muted px-1.5 py-px font-mono text-[10.5px] text-muted-foreground">
+											class="rounded-full corner-soft bg-muted px-1.5 py-px font-mono text-[10.5px] text-muted-foreground">
 											HTTPS
 										</span>
 									{/if}
@@ -690,7 +690,7 @@
 			<div class="mt-2.5">
 				{#if healthCheck?.enabled}
 					<span
-						class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium {toneBadge(
+						class="inline-flex items-center gap-1.5 rounded-full corner-soft border px-2 py-0.5 text-xs font-medium {toneBadge(
 							healthTone,
 						)}">
 						<span class="size-1.5 rounded-full {toneDot(healthTone)}"></span>
@@ -701,7 +701,7 @@
 								: t('projects.health_check.unknown')}
 					</span>
 				{:else}
-					<span class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+					<span class="rounded-full corner-soft bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
 						{t('projects.health_check.disabled')}
 					</span>
 				{/if}

@@ -354,7 +354,7 @@
 					{/if}
 					<span class="truncate font-mono text-sm">{row.containerName}</span>
 					<span
-						class="rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize {stateClass(
+						class="rounded-full corner-soft border px-2 py-0.5 text-[11px] font-medium capitalize {stateClass(
 							row.status,
 						)}">{row.status}</span>
 				</div>
@@ -531,7 +531,7 @@
 											<span class="flex flex-wrap items-center gap-2">
 												<span class="truncate font-medium">{replica.server_name}</span>
 												<span
-													class="rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize {stateClass(
+													class="rounded-full corner-soft border px-2 py-0.5 text-[11px] font-medium capitalize {stateClass(
 														replica.reachable ? replica.replica_status : 'unavailable',
 													)}"
 													>{replica.reachable

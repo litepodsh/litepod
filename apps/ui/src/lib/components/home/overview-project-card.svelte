@@ -85,7 +85,7 @@
 			{/if}
 		</span>
 		<span
-			class="lp-raised inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 text-xs text-muted-foreground"
+			class="lp-raised inline-flex h-6 shrink-0 items-center rounded-full corner-soft bg-muted px-2 text-xs text-muted-foreground"
 			>{t('common.home.apps_count', { count: overview.apps.length })}</span>
 	</header>
 
@@ -101,7 +101,7 @@
 			{#each overview.apps.slice(0, CHIP_LIMIT) as app (app.application.id)}
 				<a
 					href={`${appsHref}/${app.application.id}`}
-					class="lp-raised relative z-10 inline-flex h-6 max-w-full items-center gap-1.5 rounded-md bg-muted px-2 font-mono text-[11.5px] text-muted-foreground transition-colors hover:text-foreground">
+					class="lp-raised relative z-10 inline-flex h-6 max-w-full items-center gap-1.5 rounded-full corner-soft bg-muted px-2 font-mono text-[11.5px] text-muted-foreground transition-colors hover:text-foreground">
 					<ApplicationIcon
 						templateKind={app.application.template_kind}
 						catalogIconUrl={app.application.catalog_icon_url}
@@ -115,7 +115,7 @@
 			{/each}
 			{#if overview.apps.length > CHIP_LIMIT}
 				<span
-					class="lp-raised inline-flex h-6 items-center rounded-md bg-muted px-2 text-xs text-muted-foreground"
+					class="lp-raised inline-flex h-6 items-center rounded-full corner-soft bg-muted px-2 text-xs text-muted-foreground"
 					>{t('common.home.more_count', { count: overview.apps.length - CHIP_LIMIT })}</span>
 			{/if}
 		</div>
@@ -129,7 +129,7 @@
 	<footer class="lp-groove-t mt-auto flex flex-wrap gap-1.5 pt-3.5">
 		{#if overview.environmentName}
 			<span
-				class="lp-raised inline-flex h-6 items-center gap-1.5 rounded-md bg-muted px-2 text-xs text-muted-foreground">
+				class="lp-raised inline-flex h-6 items-center gap-1.5 rounded-full corner-soft bg-muted px-2 text-xs text-muted-foreground">
 				{#if overview.isProduction}
 					<ShieldCheckIcon class="size-3.5" />
 				{:else}
@@ -139,7 +139,7 @@
 			</span>
 		{/if}
 		<span
-			class="lp-raised ms-auto inline-flex h-6 items-center rounded-md bg-muted px-2 text-xs text-muted-foreground"
+			class="lp-raised ms-auto inline-flex h-6 items-center rounded-full corner-soft bg-muted px-2 text-xs text-muted-foreground"
 			>{t('common.home.running_of', { running, total: overview.apps.length })}</span>
 	</footer>
 </article>

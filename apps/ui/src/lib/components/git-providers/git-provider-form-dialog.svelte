@@ -377,7 +377,7 @@
 												<div class="flex items-center gap-2">
 													<span class="min-w-0 truncate text-sm font-medium"
 														>{repository.full_name}</span
-													><span class="rounded-full bg-muted px-1.5 py-0.5 text-[10px]"
+													><span class="rounded-full corner-soft bg-muted px-1.5 py-0.5 text-[10px]"
 														>{repository.private
 															? t('git-providers.form-dialog.repo_private')
 															: t('git-providers.form-dialog.repo_public')}</span

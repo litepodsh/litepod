@@ -2251,7 +2251,7 @@
 {#snippet heroStatus()}
 	{#if deployment}
 		<span
-			class="rounded-full px-2 py-0.5 text-xs font-medium {hasRunningContainer
+			class="rounded-full corner-soft px-2 py-0.5 text-xs font-medium {hasRunningContainer
 				? 'bg-success/12 text-success'
 				: 'bg-muted text-muted-foreground'}"
 			>{hasRunningContainer
@@ -2261,7 +2261,7 @@
 	{#if maintenanceEnabled}
 		<!-- Visitors see the maintenance page, whatever the containers are doing. -->
 		<span
-			class="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+			class="rounded-full corner-soft bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
 			title={t('projects.maintenance.on_hint')}>{t('projects.maintenance.active_badge')}</span>
 	{/if}
 {/snippet}

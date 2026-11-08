@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
-	import { Badge } from '#lib/components/ui/badge/index.js';
+	import { Badge, badgeVariants } from '#lib/components/ui/badge/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import * as Select from '#lib/components/ui/select/index.js';
@@ -482,7 +482,7 @@
 
 		{#if !application && createMode === 'catalog'}
 			{#if catalogView === 'catalog'}
-				<div class="grid min-h-0 flex-1 auto-rows-min gap-4 overflow-y-auto pr-1">
+				<div class="grid min-h-0 flex-1 auto-rows-min gap-4 overflow-y-auto -m-1 p-1">
 					<div class="flex flex-col gap-3 sm:flex-row sm:items-center">
 						<div class="relative flex-1">
 							<SearchIcon
@@ -502,13 +502,15 @@
 							>{/if}
 					</div>
 					{#if categories.length}<div
-							class="no-scrollbar flex flex-nowrap gap-2 overflow-x-auto sm:flex-wrap">
-							{#each categories as item (item)}<Button
+							class="no-scrollbar -m-1 flex flex-nowrap gap-2 overflow-x-auto p-1 sm:flex-wrap">
+							{#each categories as item (item)}<button
 									type="button"
-									size="sm"
-									class="shrink-0"
-									variant={category === item ? 'secondary' : 'outline'}
-									onclick={() => (category = category === item ? '' : item)}>{item}</Button
+									aria-pressed={category === item}
+									class={badgeVariants({
+										variant: category === item ? 'secondary' : 'outline',
+										class: 'h-6 cursor-pointer px-2.5 hover:bg-muted hover:text-foreground',
+									})}
+									onclick={() => (category = category === item ? '' : item)}>{item}</button
 								>{/each}
 						</div>{/if}
 					{#if templatesError}<p
@@ -575,7 +577,7 @@
 						)}</Button>
 				</div>
 			{:else if selectedTemplate}
-				<div class="grid min-h-0 flex-1 auto-rows-min gap-5 overflow-y-auto pr-1">
+				<div class="grid min-h-0 flex-1 auto-rows-min gap-5 overflow-y-auto -m-1 p-1">
 					<section class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 						<div class="flex gap-4">
 							{#if selectedTemplate.icon_url}

@@ -404,6 +404,13 @@
 	}
 }
 
+/* A softer squircle for tags. The full squircle (superellipse(2)) flattens a
+   20-24px capsule's ends into a boxy chip; 1.3 keeps the continuous curve but
+   sits closer to round (superellipse(1)). Unsupported browsers ignore it. */
+@utility corner-soft {
+	corner-shape: superellipse(1.3);
+}
+
 /* The console column: header, hero, tabs and page share it, so their edges line up. */
 @utility shell-col {
 	width: 100%;

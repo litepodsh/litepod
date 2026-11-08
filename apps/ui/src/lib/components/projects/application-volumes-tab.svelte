@@ -110,7 +110,7 @@
 								{volume.mount_path}
 							</p>
 						</div>
-						<span class="rounded-full bg-muted px-2 py-1 text-xs"
+						<span class="rounded-full corner-soft bg-muted px-2 py-1 text-xs"
 							>{volume.attached
 								? t('projects.application_volumes.attached')
 								: t('projects.application_volumes.detached')}</span>

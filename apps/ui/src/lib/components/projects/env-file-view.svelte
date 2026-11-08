@@ -74,7 +74,7 @@
 							<td class="px-4 py-2.5 text-right">
 								{#if row.linked}
 									<span
-										class="rounded-full bg-success/10 px-2 py-0.5 font-mono text-[11px] text-success"
+										class="rounded-full corner-soft bg-success/10 px-2 py-0.5 font-mono text-[11px] text-success"
 										>{t('projects.application_env_tab.domain_badge')}</span>
 								{/if}
 							</td>

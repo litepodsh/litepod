@@ -125,7 +125,7 @@
 
 {#snippet pill(tone: StatusTone, label: string)}
 	<span
-		class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium {toneClass(
+		class="inline-flex shrink-0 items-center gap-1.5 rounded-full corner-soft px-2 py-0.5 text-xs font-medium {toneClass(
 			tone,
 		)}">
 		<i class="size-1.5 rounded-full {toneDot(tone)}"></i>{label}

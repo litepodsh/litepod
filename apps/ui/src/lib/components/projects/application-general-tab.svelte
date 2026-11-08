@@ -557,7 +557,7 @@
 			<div class="flex min-w-0 flex-wrap items-center gap-2">
 				<p class="text-sm font-medium">{t('projects.application_general.status')}</p>
 				<span
-					class="rounded-full px-2 py-0.5 text-xs font-medium {statusClass(visibleStatus)}"
+					class="rounded-full corner-soft px-2 py-0.5 text-xs font-medium {statusClass(visibleStatus)}"
 					title={containerStatus?.status === 'unavailable'
 						? t('projects.application_general.server_unavailable_title')
 						: undefined}>
@@ -681,7 +681,7 @@
 						)}
 						{@const metric = containerMetrics.get(service.container_name)}
 						<span
-							class="inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs {serviceRunning
+							class="inline-flex max-w-full items-center gap-1.5 rounded-full corner-soft border px-2 py-1 text-xs {serviceRunning
 								? 'border-success/30 bg-success/10 text-success'
 								: 'bg-muted text-muted-foreground'}">
 							<span
@@ -702,7 +702,7 @@
 				{@const containerRunning = containerStatus.label === 'Running'}
 				{@const metric = containerMetrics.get(containerStatus.container_name)}
 				<span
-					class="inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs {containerRunning
+					class="inline-flex max-w-full items-center gap-1.5 rounded-full corner-soft border px-2 py-1 text-xs {containerRunning
 						? 'border-success/30 bg-success/10 text-success'
 						: 'bg-muted text-muted-foreground'}">
 					<span
@@ -752,7 +752,7 @@
 								{/if}
 							</span>
 							<span
-								class="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium {statusClass(
+								class="shrink-0 rounded-full corner-soft px-2 py-0.5 text-xs font-medium {statusClass(
 									replica.status,
 								)}">
 								{replica.status.replaceAll('_', ' ')}

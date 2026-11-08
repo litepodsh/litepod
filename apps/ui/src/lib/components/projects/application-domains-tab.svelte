@@ -321,16 +321,16 @@
 										>{domain.host}</span
 									><span class="font-mono">{domain.path}</span>{:else}{domain.host}{/if}</a>
 							{#if domain.is_primary}<span
-									class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+									class="rounded-full corner-soft bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
 									>{t('projects.dialogs_common.primary')}</span
 								>{/if}
 						</div>
 						<div class="mt-1.5 flex flex-wrap gap-1.5 text-xs">
 							{#if serverNameOf(domain)}<span
-									class="flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium"
+									class="flex items-center gap-1 rounded-full corner-soft border px-2 py-0.5 font-medium"
 									><ServerIcon class="size-3 text-muted-foreground" />{serverNameOf(domain)}</span
 								>{/if}
-							<span class="rounded-full bg-muted px-2 py-0.5 font-medium"
+							<span class="rounded-full corner-soft bg-muted px-2 py-0.5 font-medium"
 								>{domain.is_local
 									? t('projects.application_domains.local')
 									: domain.ingress_mode === 'public_edge'
@@ -339,7 +339,7 @@
 											? t('projects.application_domains.private_relay')
 											: t('projects.application_domains.central_caddy')}</span>
 							<span
-								class={`rounded-full px-2 py-0.5 font-medium ${
+								class={`rounded-full corner-soft px-2 py-0.5 font-medium ${
 									domain.route_health === 'ready'
 										? 'bg-success/10 text-success'
 										: 'bg-warning/10 text-warning'
@@ -354,7 +354,7 @@
 									title={dnsCheck?.result?.message ??
 										dnsCheck?.requestError ??
 										t('projects.application_domains.check_dns_records')}
-									class={`relative z-10 flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 font-medium transition-colors hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${dns.class}`}>
+									class={`relative z-10 flex cursor-pointer items-center gap-1 rounded-full corner-soft px-2 py-0.5 font-medium transition-colors hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${dns.class}`}>
 									<DnsIcon
 										class={dnsCheck?.loading
 											? 'size-3 animate-spin motion-reduce:animate-none'
@@ -367,7 +367,7 @@
 									type="button"
 									disabled={busy}
 									onclick={() => add(domain.host)}
-									class="relative z-10 flex cursor-pointer items-center gap-1 rounded-full border border-dashed px-2 py-0.5 font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+									class="relative z-10 flex cursor-pointer items-center gap-1 rounded-full corner-soft border border-dashed px-2 py-0.5 font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
 									><PlusIcon class="size-3" />{t('projects.application_domains.add_route')}</button>
 							{/if}
 						</div>
@@ -417,7 +417,7 @@
 						</span>
 						<span class="min-w-0">
 							<span
-								class={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${domain.https ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}`}
+								class={`inline-flex max-w-full items-center gap-1 rounded-full corner-soft px-2 py-0.5 text-xs font-medium ${domain.https ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}`}
 								>{#if domain.https}<LockIcon class="size-3 shrink-0" />{:else}<LockOpenIcon
 										class="size-3 shrink-0" />{/if}<span class="truncate"
 									>{certificateLabel(domain)}</span

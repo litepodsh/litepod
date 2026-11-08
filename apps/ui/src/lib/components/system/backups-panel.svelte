@@ -255,7 +255,7 @@
 				description={t('account.backups.storage_destinations_hint')}>
 				{#snippet aside()}
 					<span
-						class="mt-2.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium {hasSecretKey
+						class="mt-2.5 inline-flex items-center gap-1 rounded-full corner-soft border px-2 py-0.5 text-xs font-medium {hasSecretKey
 							? 'border-success/30 bg-success/10 text-success'
 							: 'text-muted-foreground'}">
 						{#if hasSecretKey}<CheckIcon class="size-3" />{:else}<XIcon class="size-3" />{/if}
@@ -480,7 +480,7 @@
 										>{formatDate(backup.finished_at)}</Table.Cell>
 									<Table.Cell>
 										<span
-											class="inline-flex items-center gap-1.5 rounded-full border border-current/25 px-2 py-0.5 text-xs font-medium {statusClass(
+											class="inline-flex items-center gap-1.5 rounded-full corner-soft border border-current/25 px-2 py-0.5 text-xs font-medium {statusClass(
 												backup.status,
 											)}">
 											<span

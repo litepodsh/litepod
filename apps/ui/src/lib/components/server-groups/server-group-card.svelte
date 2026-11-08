@@ -38,7 +38,7 @@
 			{#if group.member_servers.length > 0}
 				<div class="flex flex-wrap items-center gap-2">
 					{#each group.member_servers as server (server.id)}
-						<ServerMark {server} class="rounded-full border bg-muted/40 px-2 py-0.5" />
+						<ServerMark {server} class="rounded-full corner-soft border bg-muted/40 px-2 py-0.5" />
 					{/each}
 				</div>
 			{/if}

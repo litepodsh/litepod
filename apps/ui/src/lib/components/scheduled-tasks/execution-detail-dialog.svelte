@@ -294,7 +294,7 @@
 								<span class="min-w-0 truncate">
 									<b class="font-mono text-[13px] font-medium">{execution.id.slice(0, 8)}</b>
 									<span
-										class="lp-raised ms-1.5 rounded-md bg-muted px-1.5 py-px text-[11px] text-muted-foreground"
+										class="lp-raised ms-1.5 rounded-full corner-soft bg-muted px-1.5 py-px text-[11px] text-muted-foreground"
 										>{execution.trigger === 'manual'
 											? t('organizations.task_ui.manual')
 											: t('organizations.task_ui.scheduled')}</span>

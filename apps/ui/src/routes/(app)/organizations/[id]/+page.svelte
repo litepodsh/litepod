@@ -231,7 +231,7 @@
 			{#if organization.plan}<span aria-hidden="true">·</span><span>{organization.plan}</span>{/if}
 			{#if organization.is_root}
 				<span
-					class="lp-raised inline-flex h-5 items-center rounded-md bg-primary/10 px-1.5 text-[11px] font-medium text-primary"
+					class="lp-raised inline-flex h-5 items-center rounded-full corner-soft bg-primary/10 px-1.5 text-[11px] font-medium text-primary"
 					>{t('organizations.common.root')}</span>
 			{/if}
 		{/if}

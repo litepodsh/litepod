@@ -223,7 +223,7 @@
 		description={t('account.subscription.status_description')}>
 		<div class="flex flex-wrap items-center gap-2">
 			<span
-				class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium {toneBadge(
+				class="inline-flex items-center rounded-full corner-soft border px-2.5 py-0.5 text-xs font-medium {toneBadge(
 					tone,
 				)}">{statusLabel}</span>
 			{#if hasActiveSubscription}
@@ -402,7 +402,7 @@
 						>{t('account.subscription.price_unit', { unit: unit(interval) })}</span>
 					{#if serverPrice.trial_period}
 						<span
-							class="ml-1 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium {toneBadge(
+							class="ml-1 inline-flex items-center rounded-full corner-soft border px-2 py-0.5 text-xs font-medium {toneBadge(
 								'info',
 							)}">{t('account.subscription.free_trial', { trial: trialLabel(serverPrice) })}</span>
 					{/if}

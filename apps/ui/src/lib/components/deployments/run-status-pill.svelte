@@ -24,7 +24,7 @@
 </script>
 
 <span
-	class="inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium whitespace-nowrap lp-raised {toneClass(
+	class="inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full corner-soft px-2 text-xs font-medium whitespace-nowrap lp-raised {toneClass(
 		tone,
 	)}">
 	<span class="size-1.5 shrink-0 rounded-full bg-current {active ? 'pip-pulse' : ''}"></span>

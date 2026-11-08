@@ -258,7 +258,7 @@
 						{/each}
 						<Button variant="outline" size="sm" class={glass} onclick={() => ufo++}>UFO</Button>
 					{/if}
-					<span class="rounded-full px-2.5 py-1 font-mono text-xs {glass}">
+					<span class="rounded-full corner-soft px-2.5 py-1 font-mono text-xs {glass}">
 						{#if replaying}{new Date(clock).toISOString().slice(0, 10)}{/if}
 						{utcTime(clock)} UTC
 					</span>
@@ -340,7 +340,7 @@
 								? t('organizations.topology.globe_day')
 								: t('organizations.topology.globe_night')}
 						{:else}
-							<span class="rounded-full border px-1.5 py-0.5">
+							<span class="rounded-full corner-soft border px-1.5 py-0.5">
 								{t('organizations.topology.globe_no_time')}
 							</span>
 						{/if}

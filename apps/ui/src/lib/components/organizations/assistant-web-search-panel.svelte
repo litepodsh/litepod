@@ -123,7 +123,7 @@
 							: t('organizations.assistant.search_provider_searxng')}
 					</strong>
 					<span
-						class="rounded-full border border-current/30 bg-current/10 px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase {setting.enabled
+						class="rounded-full corner-soft border border-current/30 bg-current/10 px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase {setting.enabled
 							? 'text-success'
 							: 'text-muted-foreground'}">
 						{setting.enabled

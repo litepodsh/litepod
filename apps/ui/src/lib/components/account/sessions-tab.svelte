@@ -179,7 +179,7 @@
 								<SessionDevice userAgent={session.user_agent} />
 							{/if}
 							<span
-								class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium {toneBadge(
+								class="inline-flex items-center gap-1.5 rounded-full corner-soft border px-2 py-0.5 text-xs font-medium {toneBadge(
 									badge.tone,
 								)}">
 								<span class="size-1.5 rounded-full {toneDot(badge.tone)}"></span>

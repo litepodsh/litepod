@@ -304,7 +304,7 @@
 									<span class="flex items-center gap-2 text-sm font-medium">
 										{t('organizations.server_groups.available')}
 										<span
-											class="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums"
+											class="rounded-full corner-soft bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums"
 											>{unselected.length}</span>
 									</span>
 									<Button
@@ -364,7 +364,7 @@
 									<span class="flex items-center gap-2 text-sm font-medium">
 										{t('organizations.server_groups.members')}
 										<span
-											class="rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary tabular-nums"
+											class="rounded-full corner-soft bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary tabular-nums"
 											>{members.length}</span>
 									</span>
 									<Button

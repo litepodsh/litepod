@@ -1172,7 +1172,7 @@
 																	>{image.repo || '—'}</span>
 																{#if image.tag}
 																	<span
-																		class="lp-raised shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+																		class="lp-raised shrink-0 rounded-full corner-soft bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
 																		>{image.tag}</span>
 																{/if}
 															</span>
@@ -1207,7 +1207,7 @@
 													</div>
 													<div class="flex items-center gap-3 sm:flex-col sm:items-end sm:gap-1.5">
 														<span
-															class={`rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize ${containerStateClass(entry)}`}
+															class={`rounded-full corner-soft border px-2 py-0.5 text-[11px] font-medium capitalize ${containerStateClass(entry)}`}
 															>{containerState(entry)}</span>
 														{#if running}
 															<span class="text-[11px] text-muted-foreground tabular-nums">
@@ -1253,7 +1253,7 @@
 															{#if tags.length === 0}
 																<span class="font-medium text-muted-foreground"><none></none></span>
 																<span
-																	class={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${toneBadge('warn')}`}
+																	class={`rounded-full corner-soft border px-2 py-0.5 text-[11px] font-medium ${toneBadge('warn')}`}
 																	>dangling</span>
 															{:else}
 																<span class="truncate font-medium">{tags[0]}</span>

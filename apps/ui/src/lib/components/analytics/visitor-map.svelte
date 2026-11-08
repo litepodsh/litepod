@@ -151,7 +151,7 @@
 			{#if selected}
 				<button
 					type="button"
-					class="flex items-center gap-1.5 rounded-full border bg-muted px-2.5 py-0.5 text-xs hover:border-foreground/25"
+					class="flex items-center gap-1.5 rounded-full corner-soft border bg-muted px-2.5 py-0.5 text-xs hover:border-foreground/25"
 					onclick={() => (selected = null)}
 					aria-label={t('analytics.geo.clear_filter')}>
 					<span aria-hidden="true">{flag(selected)}</span>

@@ -274,7 +274,7 @@
 											>{headline(run)}</span>
 										{#if run.id === currentRunId}
 											<span
-												class="shrink-0 rounded-full bg-primary/12 px-1.5 py-px text-[10.5px] font-medium text-primary"
+												class="shrink-0 rounded-full corner-soft bg-primary/12 px-1.5 py-px text-[10.5px] font-medium text-primary"
 												>{t('projects.application_deployment.current')}</span>
 										{/if}
 									</span>
@@ -313,7 +313,7 @@
 									<span class="col-span-full flex flex-wrap items-center gap-1.5">
 										{#each shown as replica (replica.server_id)}
 											<span
-												class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] {replicaChipClass(
+												class="inline-flex items-center gap-1 rounded-full corner-soft border px-2 py-0.5 text-[11px] {replicaChipClass(
 													replica.status,
 												)}"
 												title={replica.last_error ?? replica.status}>
