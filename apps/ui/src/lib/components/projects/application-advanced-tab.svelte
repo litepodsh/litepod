@@ -330,7 +330,10 @@
 			{step}
 			value={Math.min(Math.max(value || recommended || min, min), total)}
 			disabled={!resourceEnabled || busy}
-			onValueChange={(next) => {
+			onValueCommit={(next) => {
+				// Commit, not change: bits-ui snaps an out-of-step `value` prop
+				// (e.g. 204 with step 64) and reports it through `onValueChange`,
+				// which would rewrite the number the user is typing.
 				if (next !== undefined) onChange(next);
 			}} />
 		{#if recommended !== null}

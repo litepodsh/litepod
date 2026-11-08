@@ -72,6 +72,43 @@ it('keeps manual CPU and RAM inputs usable when server capacity is unknown', asy
 	);
 });
 
+it('keeps the typed memory value even when it is not a slider step multiple', async () => {
+	const source = {
+		build_method: 'railpack',
+		build_cpu_cores: 6,
+		build_memory_mib: 1920,
+	} as SourceConfigDto;
+	const server = {
+		name: 'Linux',
+		capacity: { cpu_cores: 8, memory_bytes: 16 * 1024 ** 3, disk_free_bytes: null },
+	} as ServerSummaryDto;
+	const basicAuth = {
+		enabled: false,
+		realm: 'Restricted',
+		users: [],
+		protected_domain_ids: [],
+	} as BasicAuthConfigDto;
+	render(ApplicationAdvancedTab, {
+		server,
+		source,
+		domains: [],
+		basicAuth,
+		onSaveSource: vi.fn(),
+		onLoadResourceBaseline: vi.fn().mockResolvedValue(null),
+		onSaveBasicAuth: vi.fn(),
+		onAddBasicAuthUser: vi.fn(),
+		onDeleteBasicAuthUser: vi.fn(),
+		onSaveHealthCheck: vi.fn(),
+	});
+	const memory = screen.getByRole('spinbutton', { name: 'Memory (MiB)' }) as HTMLInputElement;
+	await fireEvent.input(memory, { target: { value: '' } });
+	for (const value of ['2', '20', '204']) {
+		await fireEvent.input(memory, { target: { value } });
+	}
+	// The slider step is 64; bits-ui used to snap 204 to 192 and write it back.
+	expect(memory.value).toBe('204');
+});
+
 it('allows both physical maxima and suggests turning off limits', () => {
 	const source = {
 		build_method: 'docker',
