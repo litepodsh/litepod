@@ -328,6 +328,13 @@ fn validate_domain_markers(decoded: &DecodedTemplate) -> Result<(), AppError> {
         .map_err(|error| AppError::ValidationError(format!("Template domain marker: {error}")))
 }
 
+/// Same check `ComposeFileStore::write_content` runs, done before anything is
+/// created so a refused template (a reserved service name, a bind mount) reaches
+/// the user as a validation error instead of a generic internal one.
+fn validate_compose(compose: &str) -> Result<(), AppError> {
+    deployment::compose::validate_tenant_compose(compose, true).map_err(AppError::ValidationError)
+}
+
 fn generated_name(id: &str) -> String {
     const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
     let mut rng = rand::rng();
@@ -350,6 +357,7 @@ pub async fn create_application(
         crate::templates::secrets::substitute_placeholder_secrets(&decoded.environment);
     deployment::validate_environment_content(&decoded.environment)?;
     validate_domain_markers(&decoded)?;
+    validate_compose(&decoded.compose)?;
     let id = uuid::Uuid::now_v7().to_string();
     let application = project_cmd::create_application_with_id(
         state,
@@ -475,6 +483,16 @@ pub async fn create_application(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn catalog_templates_refuse_reserved_service_names_as_validation_errors() {
+        let error = validate_compose("services:\n  api:\n    image: x\n").unwrap_err();
+        match error {
+            AppError::ValidationError(message) => assert!(message.contains("'api'"), "{message}"),
+            other => panic!("expected a validation error, got {other:?}"),
+        }
+        assert!(validate_compose("services:\n  kodus-api:\n    image: x\n").is_ok());
+    }
+
     #[test]
     fn catalog_templates_reject_invalid_icon_path() {
         assert!(
