@@ -10,7 +10,8 @@ export type NotificationAction =
 	| 'litepod_restart'
 	| 'server_reboot'
 	| 'database_backup'
-	| 'security_alert';
+	| 'security_alert'
+	| 'server_vulnerabilities';
 
 export type DeliveryStatus = 'pending' | 'sending' | 'delivered' | 'failed' | 'dead';
 

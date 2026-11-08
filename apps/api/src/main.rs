@@ -510,6 +510,7 @@ async fn async_main(sentry_kind: Option<&'static str>) {
     crate::security::security_events::spawn(shared_state.clone());
     crate::billing::audit::spawn(shared_state.clone());
     crate::servers::monitor::spawn(shared_state.clone());
+    crate::servers::vulnerabilities::spawn(shared_state.clone());
     crate::metrics_history::spawn(shared_state.clone());
     crate::servers::ingress::spawn_relay_supervisor(shared_state.clone());
     crate::deployment::operations::spawn_caddy_recovery(shared_state.clone());

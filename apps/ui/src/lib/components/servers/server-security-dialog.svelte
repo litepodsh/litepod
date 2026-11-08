@@ -8,6 +8,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
+	import ServerVulnerabilities from './server-vulnerabilities.svelte';
 	import {
 		applyServerSecurity,
 		auditServerSecurity,
@@ -363,6 +364,10 @@
 			<div class="flex justify-center py-10">
 				<LoaderCircleIcon class="size-5 animate-spin text-muted-foreground" />
 			</div>
+		{/if}
+
+		{#if server}
+			<ServerVulnerabilities {organizationId} serverId={server.id} />
 		{/if}
 
 		<Dialog.Footer>

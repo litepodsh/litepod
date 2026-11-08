@@ -220,6 +220,10 @@ fn action_label(action: Action) -> (&'static str, &'static str) {
             "Security Alert",
             "Trigger the action when a suspicious sign-in or a credential-stuffing pattern is detected.",
         ),
+        Action::ServerVulnerabilities => (
+            "Server Vulnerabilities",
+            "Trigger the action when a scan finds new critical or exploited vulnerabilities on a server, or stops working.",
+        ),
     }
 }
 

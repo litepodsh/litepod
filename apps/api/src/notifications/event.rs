@@ -24,10 +24,11 @@ pub enum Action {
     ServerReboot,
     DatabaseBackup,
     SecurityAlert,
+    ServerVulnerabilities,
 }
 
 impl Action {
-    pub const ALL: [Action; 8] = [
+    pub const ALL: [Action; 9] = [
         Action::AppDeploy,
         Action::AppBuildError,
         Action::LitepodBackup,
@@ -36,6 +37,7 @@ impl Action {
         Action::ServerReboot,
         Action::DatabaseBackup,
         Action::SecurityAlert,
+        Action::ServerVulnerabilities,
     ];
 
     pub fn key(self) -> &'static str {
@@ -48,6 +50,7 @@ impl Action {
             Action::ServerReboot => "server_reboot",
             Action::DatabaseBackup => "database_backup",
             Action::SecurityAlert => "security_alert",
+            Action::ServerVulnerabilities => "server_vulnerabilities",
         }
     }
 
@@ -514,6 +517,68 @@ pub fn server_reboot(
             timestamp: now_ms(),
         },
     })
+}
+
+/// New critical or actively exploited problems on a server. Only new ones, so the same list
+/// does not arrive every day.
+pub fn server_vulnerabilities(
+    organization_id: &str,
+    server_name: &str,
+    new_ids: &[String],
+    known_exploited: u32,
+    critical: u32,
+    url: Option<String>,
+) -> Event {
+    const SHOWN: usize = 10;
+    let mut ids = new_ids
+        .iter()
+        .take(SHOWN)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if new_ids.len() > SHOWN {
+        ids.push_str(&format!(" and {} more", new_ids.len() - SHOWN));
+    }
+    Event {
+        action: Action::ServerVulnerabilities,
+        scope: Scope::Organization(organization_id.to_string()),
+        payload: EventPayload {
+            action: Action::ServerVulnerabilities.key().to_string(),
+            title: format!("New urgent vulnerabilities on {server_name}"),
+            outcome: Outcome::Failure,
+            fields: vec![
+                Field::new("Server", server_name),
+                Field::new("New", ids),
+                Field::new("Critical on the server", critical.to_string()),
+                Field::new("Known exploited on the server", known_exploited.to_string()),
+            ],
+            description: None,
+            url,
+            timestamp: now_ms(),
+        },
+    }
+}
+
+/// Without this a scanner that stopped working would look like a clean server.
+pub fn server_vulnerability_scan_failed(
+    organization_id: &str,
+    server_name: &str,
+    error: &str,
+    url: Option<String>,
+) -> Event {
+    Event {
+        action: Action::ServerVulnerabilities,
+        scope: Scope::Organization(organization_id.to_string()),
+        payload: EventPayload {
+            action: Action::ServerVulnerabilities.key().to_string(),
+            title: format!("Vulnerability scan failed on {server_name}"),
+            outcome: Outcome::Failure,
+            fields: vec![Field::new("Server", server_name)],
+            description: Some(sanitize_description(error)),
+            url,
+            timestamp: now_ms(),
+        },
+    }
 }
 
 /// The message the "Test Notification" button sends. Uses `Info` so a test can
