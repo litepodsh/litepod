@@ -149,6 +149,10 @@ pub async fn ensure_setup_token(state: &SharedState) {
 
 /// The install's one-time token: `SETUP_TOKEN`, or the one `ensure_setup_token` generated.
 fn configured_setup_token() -> Option<String> {
+    // Debug builds are local dev: skip the token so the first admin can be created freely.
+    if cfg!(debug_assertions) {
+        return None;
+    }
     std::env::var("SETUP_TOKEN")
         .ok()
         .filter(|token| !token.is_empty())
