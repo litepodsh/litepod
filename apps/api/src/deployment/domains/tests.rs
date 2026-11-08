@@ -2016,7 +2016,12 @@ async fn an_oversized_page_is_refused_and_changes_nothing() {
     .await
     .unwrap_err();
     assert!(matches!(refused, AppError::ValidationError(_)));
-    assert!(!maintenance::get(&state, "application-1").await.unwrap().enabled);
+    assert!(
+        !maintenance::get(&state, "application-1")
+            .await
+            .unwrap()
+            .enabled
+    );
     cleanup(path);
 }
 
@@ -2101,7 +2106,10 @@ async fn an_uploaded_maintenance_site_is_refused_for_a_public_edge_application()
         "{refused:?}"
     );
     assert!(
-        !maintenance::get(&state, "application-edge").await.unwrap().enabled,
+        !maintenance::get(&state, "application-edge")
+            .await
+            .unwrap()
+            .enabled,
         "a refused request must not leave the mode on in the database"
     );
     cleanup(path);
@@ -2166,7 +2174,12 @@ async fn deleting_the_last_basic_auth_user_unprotects_the_domains() {
     let _ = std::fs::remove_file(path);
 }
 
-fn path_request(host: &str, path: Option<&str>, port: i64, https: Option<bool>) -> CreateDomainRequest {
+fn path_request(
+    host: &str,
+    path: Option<&str>,
+    port: i64,
+    https: Option<bool>,
+) -> CreateDomainRequest {
     CreateDomainRequest {
         path: path.map(Into::into),
         server_id: None,
@@ -2202,10 +2215,18 @@ fn normalize_path_cases() {
     assert_eq!(normalize_path(None).unwrap(), None);
     assert_eq!(normalize_path(Some("")).unwrap(), None);
     assert_eq!(normalize_path(Some(" / ")).unwrap(), None);
-    assert_eq!(normalize_path(Some("/api/")).unwrap().as_deref(), Some("/api"));
-    assert_eq!(normalize_path(Some("/API/v1")).unwrap().as_deref(), Some("/api/v1"));
+    assert_eq!(
+        normalize_path(Some("/api/")).unwrap().as_deref(),
+        Some("/api")
+    );
+    assert_eq!(
+        normalize_path(Some("/API/v1")).unwrap().as_deref(),
+        Some("/api/v1")
+    );
     let long = format!("/{}", "a".repeat(200));
-    for bad in ["api", "//", "/api//x", "/../x", "/a/./b", "/a b", "/a*", "/a?x", &long] {
+    for bad in [
+        "api", "//", "/api//x", "/../x", "/a/./b", "/a b", "/a*", "/a?x", &long,
+    ] {
         assert!(normalize_path(Some(bad)).is_err(), "{bad} must be rejected");
     }
 }
@@ -2213,17 +2234,29 @@ fn normalize_path_cases() {
 #[tokio::test]
 async fn path_domain_needs_a_root_and_copies_its_https() {
     let (state, path) = test_state(false).await;
-    let orphan = create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None))
-        .await
-        .unwrap_err();
+    let orphan = create(
+        &state,
+        "application-1",
+        path_request("a.example.com", Some("/api"), 3000, None),
+    )
+    .await
+    .unwrap_err();
     assert!(error_text(orphan).contains("a.example.com"));
 
-    create(&state, "application-1", path_request("a.example.com", None, 80, Some(true)))
-        .await
-        .unwrap();
-    let api = create(&state, "application-1", path_request("a.example.com", Some("/api/"), 3000, Some(false)))
-        .await
-        .unwrap();
+    create(
+        &state,
+        "application-1",
+        path_request("a.example.com", None, 80, Some(true)),
+    )
+    .await
+    .unwrap();
+    let api = create(
+        &state,
+        "application-1",
+        path_request("a.example.com", Some("/api/"), 3000, Some(false)),
+    )
+    .await
+    .unwrap();
     assert!(api.https, "a path domain inherits its root's HTTPS");
     assert_eq!(api.path.as_deref(), Some("/api"));
     assert_eq!(api.url, "https://a.example.com/api");
@@ -2233,22 +2266,68 @@ async fn path_domain_needs_a_root_and_copies_its_https() {
 #[tokio::test]
 async fn same_host_and_path_is_a_conflict_on_any_port() {
     let (state, path) = test_state(false).await;
-    create(&state, "application-1", path_request("a.example.com", None, 80, None)).await.unwrap();
-    create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None)).await.unwrap();
-    assert!(create(&state, "application-1", path_request("a.example.com", Some("/api"), 4000, None)).await.is_err());
-    assert!(create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None)).await.is_err());
-    create(&state, "application-1", path_request("a.example.com", Some("/docs"), 3000, None)).await.unwrap();
+    create(
+        &state,
+        "application-1",
+        path_request("a.example.com", None, 80, None),
+    )
+    .await
+    .unwrap();
+    create(
+        &state,
+        "application-1",
+        path_request("a.example.com", Some("/api"), 3000, None),
+    )
+    .await
+    .unwrap();
+    assert!(
+        create(
+            &state,
+            "application-1",
+            path_request("a.example.com", Some("/api"), 4000, None)
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        create(
+            &state,
+            "application-1",
+            path_request("a.example.com", Some("/api"), 3000, None)
+        )
+        .await
+        .is_err()
+    );
+    create(
+        &state,
+        "application-1",
+        path_request("a.example.com", Some("/docs"), 3000, None),
+    )
+    .await
+    .unwrap();
     // A second root on the same host is still a conflict.
-    assert!(create(&state, "application-1", path_request("a.example.com", None, 81, None)).await.is_err());
+    assert!(
+        create(
+            &state,
+            "application-1",
+            path_request("a.example.com", None, 81, None)
+        )
+        .await
+        .is_err()
+    );
     cleanup(path);
 }
 
 #[tokio::test]
 async fn paths_are_rejected_for_local_hosts() {
     let (state, path) = test_state(false).await;
-    let error = create(&state, "application-1", path_request("localhost", Some("/api"), 10_500, None))
-        .await
-        .unwrap_err();
+    let error = create(
+        &state,
+        "application-1",
+        path_request("localhost", Some("/api"), 10_500, None),
+    )
+    .await
+    .unwrap_err();
     assert!(error_text(error).contains("local hosts"));
     cleanup(path);
 }
@@ -2256,12 +2335,33 @@ async fn paths_are_rejected_for_local_hosts() {
 #[tokio::test]
 async fn root_with_paths_cannot_be_deleted_or_renamed() {
     let (state, path) = test_state(false).await;
-    let root = create(&state, "application-1", path_request("a.example.com", None, 80, None)).await.unwrap();
-    let api = create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None)).await.unwrap();
+    let root = create(
+        &state,
+        "application-1",
+        path_request("a.example.com", None, 80, None),
+    )
+    .await
+    .unwrap();
+    let api = create(
+        &state,
+        "application-1",
+        path_request("a.example.com", Some("/api"), 3000, None),
+    )
+    .await
+    .unwrap();
 
     let error = delete(&state, "application-1", &root.id).await.unwrap_err();
     assert!(error_text(error).contains("/api"));
-    assert!(update(&state, "application-1", &root.id, path_update(Some("b.example.com"), None)).await.is_err());
+    assert!(
+        update(
+            &state,
+            "application-1",
+            &root.id,
+            path_update(Some("b.example.com"), None)
+        )
+        .await
+        .is_err()
+    );
 
     delete(&state, "application-1", &api.id).await.unwrap();
     delete(&state, "application-1", &root.id).await.unwrap();
@@ -2271,11 +2371,30 @@ async fn root_with_paths_cannot_be_deleted_or_renamed() {
 #[tokio::test]
 async fn root_https_change_propagates_to_paths() {
     let (state, path) = test_state(false).await;
-    let root = create(&state, "application-1", path_request("a.example.com", None, 80, None)).await.unwrap();
-    let api = create(&state, "application-1", path_request("a.example.com", Some("/api"), 3000, None)).await.unwrap();
+    let root = create(
+        &state,
+        "application-1",
+        path_request("a.example.com", None, 80, None),
+    )
+    .await
+    .unwrap();
+    let api = create(
+        &state,
+        "application-1",
+        path_request("a.example.com", Some("/api"), 3000, None),
+    )
+    .await
+    .unwrap();
     assert_eq!(api.url, "http://a.example.com/api");
 
-    update(&state, "application-1", &root.id, path_update(None, Some(true))).await.unwrap();
+    update(
+        &state,
+        "application-1",
+        &root.id,
+        path_update(None, Some(true)),
+    )
+    .await
+    .unwrap();
     let api = get(&state, "application-1", &api.id).await.unwrap();
     assert!(api.https);
     assert_eq!(api.url, "https://a.example.com/api");

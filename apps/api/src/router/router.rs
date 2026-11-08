@@ -33,11 +33,9 @@ use crate::{
         application_networks, assistant, auth, backup, billing, caddy_console, catalog_templates,
         compose, containers, dashboard, database_backup, debug, deployments, git_providers,
         github_app, icons, invitations, maintenance, maintenance_site, mcp, notifications, oauth,
-        onboarding,
-        organization_apps, organizations, permissions, personal_access_tokens, podman_console,
-        projects, runtime, scheduled_tasks, security_events, server_groups, servers, sessions,
-        settings, system,
-        templates, users, webhooks,
+        onboarding, organization_apps, organizations, permissions, personal_access_tokens,
+        podman_console, projects, runtime, scheduled_tasks, security_events, server_groups,
+        servers, sessions, settings, system, templates, users, webhooks,
     },
     podman::terminal,
 };
@@ -46,12 +44,7 @@ use crate::{
 // `{*name}` (the old `*name` is parsed as a literal segment and silently matches
 // nothing but `/health`). Covers every non-UI route; UI/asset paths hit the
 // fallback and stay out of the metrics.
-const METRICS_ALLOWED_PATHS: &[&str] = &[
-    "/api/v1/{*path}",
-    "/deploy/{*path}",
-    "/health",
-    "/docs",
-];
+const METRICS_ALLOWED_PATHS: &[&str] = &["/api/v1/{*path}", "/deploy/{*path}", "/health", "/docs"];
 
 #[derive(OpenApi)]
 #[openapi(paths(
@@ -1747,12 +1740,7 @@ mod tests {
     fn metrics_allowlist_contains_only_product_routes() {
         assert_eq!(
             METRICS_ALLOWED_PATHS,
-            &[
-                "/api/v1/{*path}",
-                "/deploy/{*path}",
-                "/health",
-                "/docs",
-            ],
+            &["/api/v1/{*path}", "/deploy/{*path}", "/health", "/docs",],
         );
         assert!(!METRICS_ALLOWED_PATHS.contains(&"/metrics"));
         assert!(

@@ -103,12 +103,10 @@ fn without_session(request: &Request) -> bool {
         .iter()
         .filter_map(|value| value.to_str().ok())
         .any(|cookies| {
-            cookies
-                .split(';')
-                .any(|cookie| {
-                    let cookie = cookie.trim_start();
-                    cookie.starts_with("session_token=") || cookie.starts_with("__Host-session_token=")
-                })
+            cookies.split(';').any(|cookie| {
+                let cookie = cookie.trim_start();
+                cookie.starts_with("session_token=") || cookie.starts_with("__Host-session_token=")
+            })
         });
     !session_cookie
 }

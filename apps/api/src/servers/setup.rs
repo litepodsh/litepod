@@ -1988,10 +1988,17 @@ mod tests {
             0,
             &format!("aaaa api.example.com 42000 true automatic - - {page}\n"),
         );
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let fragment = std::fs::read_to_string(dir.join("routes.d/aaaa.caddy")).unwrap();
         assert!(fragment.contains("<h1>Back soon</h1>"), "{fragment}");
-        assert!(fragment.contains("LITEPOD_MAINTENANCE_EOF 503"), "{fragment}");
+        assert!(
+            fragment.contains("LITEPOD_MAINTENANCE_EOF 503"),
+            "{fragment}"
+        );
         assert!(!fragment.contains("reverse_proxy"), "{fragment}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2012,18 +2019,38 @@ mod tests {
                  cccc maint.example.com 42002 true automatic - - {page} {page}\n"
             ),
         );
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let fragment = std::fs::read_to_string(dir.join("routes.d/aaaa.caddy")).unwrap();
-        assert!(fragment.contains("reverse_proxy 127.0.0.1:42000"), "{fragment}");
-        assert!(fragment.contains("{http.error.status_code} in [502, 503, 504]"), "{fragment}");
-        assert!(fragment.contains("<h1>Down</h1>\nLITEPOD_ERROR_EOF {http.error.status_code}"), "{fragment}");
+        assert!(
+            fragment.contains("reverse_proxy 127.0.0.1:42000"),
+            "{fragment}"
+        );
+        assert!(
+            fragment.contains("{http.error.status_code} in [502, 503, 504]"),
+            "{fragment}"
+        );
+        assert!(
+            fragment.contains("<h1>Down</h1>\nLITEPOD_ERROR_EOF {http.error.status_code}"),
+            "{fragment}"
+        );
         assert!(fragment.find("reverse_proxy").unwrap() < fragment.find("handle_errors").unwrap());
         let protected = std::fs::read_to_string(dir.join("routes.d/bbbb.caddy")).unwrap();
-        assert!(protected.contains("basic_auth") && protected.contains("handle_errors"), "{protected}");
+        assert!(
+            protected.contains("basic_auth") && protected.contains("handle_errors"),
+            "{protected}"
+        );
         // In maintenance nothing is proxied, so there is no error page to add.
         let maintenance = std::fs::read_to_string(dir.join("routes.d/cccc.caddy")).unwrap();
         assert!(!maintenance.contains("handle_errors"), "{maintenance}");
-        let failed = run_sync(&dir, 0, "aaaa api.example.com 42000 true automatic - - - not*base64\n");
+        let failed = run_sync(
+            &dir,
+            0,
+            "aaaa api.example.com 42000 true automatic - - - not*base64\n",
+        );
         assert!(!failed.status.success());
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -73,7 +73,9 @@ fn proxy_peer() -> Option<IpAddr> {
     static CADDY: Mutex<Option<(Instant, Option<IpAddr>)>> = Mutex::new(None);
     const TTL: Duration = Duration::from_secs(60);
 
-    let mut cache = CADDY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut cache = CADDY
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some((at, ip)) = *cache
         && at.elapsed() < TTL
     {
@@ -503,7 +505,10 @@ mod account_key_tests {
         // The raw address never appears in the store key (it is digested).
         let key = account_login_key("victim@example.com");
         assert!(key.starts_with("litepod:login-account:"));
-        assert!(!key.contains("victim@example.com"), "email leaked into key: {key}");
+        assert!(
+            !key.contains("victim@example.com"),
+            "email leaked into key: {key}"
+        );
     }
 }
 
@@ -610,9 +615,10 @@ mod forwarded_for_tests {
         // A private or public peer is only trusted when it is the proxy itself.
         assert!(!trusted_proxy_peer("10.89.0.2".parse().unwrap(), None));
         assert!(!trusted_proxy_peer("203.0.113.9".parse().unwrap(), None));
-        assert!(
-            trusted_proxy_peer("10.89.0.2".parse().unwrap(), Some("10.89.0.2".parse().unwrap()))
-        );
+        assert!(trusted_proxy_peer(
+            "10.89.0.2".parse().unwrap(),
+            Some("10.89.0.2".parse().unwrap())
+        ));
         // IPv6 unique-local (fc00::/7) is a tenant range, not the proxy.
         assert!(!trusted_proxy_peer("fc00::1".parse().unwrap(), None));
     }

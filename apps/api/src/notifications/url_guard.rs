@@ -14,9 +14,9 @@ use url::{Host, Url};
 
 use super::provider::ProviderKind;
 
-pub use crate::security::ssrf::resolve_validated;
 #[cfg(test)]
 use crate::security::ssrf::is_public;
+pub use crate::security::ssrf::resolve_validated;
 
 /// Exact hosts, plus suffixes for tenant-specific hostnames.
 struct HostRule {

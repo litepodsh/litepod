@@ -128,7 +128,9 @@ fn vet_submodule_url(raw: &str, parent_host: &str, allow_private: bool) -> Resul
         }
     }
     if !resolved {
-        return Err(format!("Submodule host {host} did not resolve to any address"));
+        return Err(format!(
+            "Submodule host {host} did not resolve to any address"
+        ));
     }
     Ok(host.eq_ignore_ascii_case(parent_host))
 }
@@ -152,9 +154,7 @@ fn update_submodules(
         let send_credentials = vet_submodule_url(&submodule_url, parent_host, allow_private)
             .map_err(|e| format!("Submodule '{name}': {e}"))?;
         let mut callbacks = git2::RemoteCallbacks::new();
-        if send_credentials
-            && let Some((username, password)) = credentials
-        {
+        if send_credentials && let Some((username, password)) = credentials {
             let username = username.to_string();
             let password = password.to_string();
             callbacks.credentials(move |_url, username_from_url, _allowed| {
@@ -1111,37 +1111,38 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
         // `allow_private` carries to the submodule guard: private addresses are
         // tolerated only for an explicitly self-hosted provider, never for an
         // anonymous public clone.
-        let (credentials, allow_private): (Option<(String, String)>, bool) = if let Some(
-            provider_id,
-        ) =
-            source.git_provider_id.clone()
-        {
-            let (provider_host, allow_private) =
-                git_providers::provider_host_url(state, &provider_id)
+        let (credentials, allow_private): (Option<(String, String)>, bool) =
+            if let Some(provider_id) = source.git_provider_id.clone() {
+                let (provider_host, allow_private) =
+                    git_providers::provider_host_url(state, &provider_id)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                crate::security::ssrf::validate_for_host(
+                    repository_url,
+                    &provider_host,
+                    allow_private,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+                let _ = super::history::append(state, run_id, "info", "Resolving Git credentials")
+                    .await;
+                // Resolved per deploy: GitHub App installation tokens live one hour, so the clone must
+                // use a token minted now rather than anything persisted on the provider row.
+                let resolved = git_providers::resolve_credentials(state, &provider_id)
                     .await
                     .map_err(|e| e.to_string())?;
-            crate::security::ssrf::validate_for_host(repository_url, &provider_host, allow_private)
-                .await
-                .map_err(|e| e.to_string())?;
-            let _ =
-                super::history::append(state, run_id, "info", "Resolving Git credentials").await;
-            // Resolved per deploy: GitHub App installation tokens live one hour, so the clone must
-            // use a token minted now rather than anything persisted on the provider row.
-            let resolved = git_providers::resolve_credentials(state, &provider_id)
-                .await
-                .map_err(|e| e.to_string())?;
-            (Some((resolved.username, resolved.secret)), allow_private)
-        } else {
-            // No saved provider: anonymous public clone, or credentials the user
-            // embedded in the pasted URL and that were saved (encrypted) at source-save time.
-            crate::security::ssrf::validate_public_url(repository_url)
-                .await
-                .map_err(|e| e.to_string())?;
-            let credentials = git_providers::application_git_credentials(state, application_id)
-                .await
-                .map_err(|e| e.to_string())?;
-            (credentials, false)
-        };
+                (Some((resolved.username, resolved.secret)), allow_private)
+            } else {
+                // No saved provider: anonymous public clone, or credentials the user
+                // embedded in the pasted URL and that were saved (encrypted) at source-save time.
+                crate::security::ssrf::validate_public_url(repository_url)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let credentials = git_providers::application_git_credentials(state, application_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                (credentials, false)
+            };
         let _ =
             super::history::append(state, run_id, "info", "Preparing repository workspace").await;
         let _ = super::history::append(state, run_id, "info", "Cloning repository").await;
@@ -1390,7 +1391,10 @@ mod tests {
             Ok(false)
         );
         // Relative submodule resolves against the parent's remote → same host.
-        assert_eq!(vet_submodule_url("../sibling.git", "example.org", false), Ok(true));
+        assert_eq!(
+            vet_submodule_url("../sibling.git", "example.org", false),
+            Ok(true)
+        );
         // scp/ssh-style carries no HTTP token.
         assert_eq!(
             vet_submodule_url("git@github.com:acme/lib.git", "github.com", false),
@@ -1401,7 +1405,14 @@ mod tests {
     #[test]
     fn submodule_pointing_at_an_internal_address_is_refused() {
         // Literal private/link-local IPs resolve to themselves (no DNS needed).
-        assert!(vet_submodule_url("http://169.254.169.254/latest/meta-data", "github.com", false).is_err());
+        assert!(
+            vet_submodule_url(
+                "http://169.254.169.254/latest/meta-data",
+                "github.com",
+                false
+            )
+            .is_err()
+        );
         assert!(vet_submodule_url("http://127.0.0.1/x", "github.com", false).is_err());
         // Allowed when the provider is explicitly self-hosted.
         assert_eq!(

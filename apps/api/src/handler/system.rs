@@ -292,7 +292,9 @@ pub async fn post_apply_update_handler(
                 return (
                     StatusCode::CONFLICT,
                     Json(ApiResponse::<UpdateApplyResponse> {
-                        error: Some(format!("update not started: backup before update failed to start: {error}")),
+                        error: Some(format!(
+                            "update not started: backup before update failed to start: {error}"
+                        )),
                         data: None,
                     }),
                 )
@@ -327,13 +329,20 @@ pub async fn post_apply_update_handler(
                 tracing::error!(%error, "updater: backup before update failed; update cancelled");
                 let mut s = state_for_task.update_state.write().await;
                 if s.channel == channel && s.latest_version == target {
-                    s.last_check_note = format!("update cancelled: backup before update failed: {error}");
+                    s.last_check_note =
+                        format!("update cancelled: backup before update failed: {error}");
                 }
                 return;
             }
         }
-        if let Err(e) =
-            updater::apply_release(&state_for_task, target.clone(), channel, core_targets, app_digest).await
+        if let Err(e) = updater::apply_release(
+            &state_for_task,
+            target.clone(),
+            channel,
+            core_targets,
+            app_digest,
+        )
+        .await
         {
             tracing::error!(error = %e, "updater: manual install failed");
             let mut s = state_for_task.update_state.write().await;

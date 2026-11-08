@@ -140,8 +140,16 @@ async fn maintenance_is_stored_and_changes_nothing_until_confirmed() {
     .unwrap();
     assert_eq!(action.status, "pending");
     assert_eq!(action.tool, SET_MAINTENANCE);
-    assert!(action.title.starts_with("Turn on maintenance"), "{}", action.title);
-    assert!(action.summary.contains("migrating the database"), "{}", action.summary);
+    assert!(
+        action.title.starts_with("Turn on maintenance"),
+        "{}",
+        action.title
+    );
+    assert!(
+        action.summary.contains("migrating the database"),
+        "{}",
+        action.summary
+    );
     assert!(action.route.ends_with("?tab=advanced"), "{}", action.route);
     assert!(
         !deployment::maintenance::get(&state, &target.application_id)
@@ -206,7 +214,10 @@ async fn an_unusable_maintenance_page_is_refused_before_it_is_stored() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(refused, crate::dtos::response::AppError::ValidationError(_)));
+    assert!(matches!(
+        refused,
+        crate::dtos::response::AppError::ValidationError(_)
+    ));
 
     cleanup_database(&path);
 }

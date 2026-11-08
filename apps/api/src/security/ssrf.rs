@@ -184,11 +184,10 @@ fn embedded_ipv4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     let segments = ip.segments();
     let octets = ip.octets();
     // NAT64 well-known prefix 64:ff9b::/96 — low 32 bits are the v4.
-    if segments[0] == 0x0064
-        && segments[1] == 0xff9b
-        && segments[2..6] == [0, 0, 0, 0]
-    {
-        return Some(Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]));
+    if segments[0] == 0x0064 && segments[1] == 0xff9b && segments[2..6] == [0, 0, 0, 0] {
+        return Some(Ipv4Addr::new(
+            octets[12], octets[13], octets[14], octets[15],
+        ));
     }
     // 6to4 2002::/16 — the v4 sits in bits 16..48.
     if segments[0] == 0x2002 {
@@ -278,10 +277,10 @@ mod tests {
             "::1",
             "::ffff:127.0.0.1",
             // NAT64 and 6to4 wrapping a private/link-local v4 must not pass.
-            "64:ff9b::a9fe:a9fe",   // 169.254.169.254 (cloud metadata)
-            "64:ff9b::7f00:1",      // 127.0.0.1
-            "2002:c0a8:1::1",       // 192.168.0.1
-            "2002:a9fe:a9fe::",     // 169.254.169.254
+            "64:ff9b::a9fe:a9fe", // 169.254.169.254 (cloud metadata)
+            "64:ff9b::7f00:1",    // 127.0.0.1
+            "2002:c0a8:1::1",     // 192.168.0.1
+            "2002:a9fe:a9fe::",   // 169.254.169.254
         ] {
             assert!(
                 !is_public(IpAddr::from_str(candidate).unwrap()),

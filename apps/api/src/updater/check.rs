@@ -395,7 +395,10 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            manifest.channel(UpdateChannel::Stable).unwrap().app_digest(),
+            manifest
+                .channel(UpdateChannel::Stable)
+                .unwrap()
+                .app_digest(),
             Err(ManifestError::InvalidDigest { .. })
         ));
 
@@ -417,8 +420,12 @@ mod tests {
             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ));
         assert!(!is_valid_digest("sha256:short"));
-        assert!(!is_valid_digest("sha512:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-        assert!(!is_valid_digest("sha256:not-hex-not-hex-not-hex-not-hex-not-hex-not-hex-not-hex-not-hex"));
+        assert!(!is_valid_digest(
+            "sha512:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ));
+        assert!(!is_valid_digest(
+            "sha256:not-hex-not-hex-not-hex-not-hex-not-hex-not-hex-not-hex-not-hex"
+        ));
         assert!(!is_valid_digest("v0.1.22"));
     }
 }

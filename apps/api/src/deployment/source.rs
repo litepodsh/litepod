@@ -760,12 +760,17 @@ mod tests {
         );
         assert!(has_token(&state, "application-1").await.unwrap());
         let conn = crate::git::repositories::db::get_conn(&state).await;
-        let stored: Option<String> =
-            sqlx::query_scalar("SELECT deploy_token_digest FROM applications WHERE id = 'application-1'")
-                .fetch_one(&conn)
-                .await
-                .unwrap();
-        assert_ne!(stored.as_deref(), Some(first.as_str()), "never stored in the clear");
+        let stored: Option<String> = sqlx::query_scalar(
+            "SELECT deploy_token_digest FROM applications WHERE id = 'application-1'",
+        )
+        .fetch_one(&conn)
+        .await
+        .unwrap();
+        assert_ne!(
+            stored.as_deref(),
+            Some(first.as_str()),
+            "never stored in the clear"
+        );
 
         let rotated = rotate_token(&state, "application-1").await.unwrap();
         assert_ne!(rotated, first);

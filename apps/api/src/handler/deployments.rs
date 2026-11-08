@@ -496,9 +496,11 @@ pub async fn get_maintenance_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::AppRead>,
 ) -> Result<impl IntoResponse, AppError> {
-    Ok(ok(
-        deployment::maintenance::get(&state, &app.application_id).await?
-    ))
+    Ok(ok(deployment::maintenance::get(
+        &state,
+        &app.application_id,
+    )
+    .await?))
 }
 
 /// Keeps an uploaded ZIP as the application's maintenance site.
@@ -524,8 +526,8 @@ pub async fn upload_maintenance_site_handler(
     let maintenance =
         deployment::maintenance::upload_site(&state, &app.application_id, &bytes).await?;
     // The files are not logged: only that a site was uploaded, and which one.
-    let metadata = serde_json::json!({ "site": maintenance.site.as_ref().map(|site| &site.id) })
-        .to_string();
+    let metadata =
+        serde_json::json!({ "site": maintenance.site.as_ref().map(|site| &site.id) }).to_string();
     audit_log::record(
         &state,
         &app.organization_id,
@@ -574,8 +576,7 @@ pub async fn update_maintenance_handler(
 ) -> Result<impl IntoResponse, AppError> {
     let previous = deployment::maintenance::get(&state, &app.application_id).await?;
     let page_changed = request.page_html.is_some();
-    let maintenance =
-        deployment::maintenance::update(&state, &app.application_id, request).await?;
+    let maintenance = deployment::maintenance::update(&state, &app.application_id, request).await?;
     if maintenance.enabled != previous.enabled || page_changed {
         // The page body is not logged: only that the mode or the page changed.
         let metadata =
@@ -612,7 +613,9 @@ pub async fn get_error_page_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::AppRead>,
 ) -> Result<impl IntoResponse, AppError> {
-    Ok(ok(deployment::error_page::get(&state, &app.application_id).await?))
+    Ok(ok(
+        deployment::error_page::get(&state, &app.application_id).await?
+    ))
 }
 
 pub async fn update_error_page_handler(

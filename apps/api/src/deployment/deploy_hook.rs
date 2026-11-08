@@ -86,9 +86,10 @@ pub async fn application_for_token(state: &SharedState, token: &str) -> Result<S
 /// Hashes tokens stored in the clear before migration 0091, so existing deploy URLs
 /// keep working. Runs at boot; once done it finds nothing.
 pub async fn hash_legacy_tokens(pool: &sqlx::SqlitePool) -> Result<u64, sqlx::Error> {
-    let rows = sqlx::query("SELECT id, deploy_token FROM applications WHERE deploy_token IS NOT NULL")
-        .fetch_all(pool)
-        .await?;
+    let rows =
+        sqlx::query("SELECT id, deploy_token FROM applications WHERE deploy_token IS NOT NULL")
+            .fetch_all(pool)
+            .await?;
     let mut hashed = 0;
     for row in rows {
         let id: String = row.try_get(0)?;

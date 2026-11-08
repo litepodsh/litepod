@@ -41,7 +41,11 @@ async fn secure(state: &SharedState) -> bool {
 }
 
 fn build(token: &str, secure: bool, max_age: CookieDuration) -> Cookie<'static> {
-    let name = if secure { HOST_SESSION_COOKIE } else { SESSION_COOKIE };
+    let name = if secure {
+        HOST_SESSION_COOKIE
+    } else {
+        SESSION_COOKIE
+    };
     build_named(name, token, secure, max_age)
 }
 
@@ -67,7 +71,12 @@ pub async fn add_session_cookie(state: &SharedState, jar: CookieJar, token: Stri
     let jar = jar.add(build(&token, secure, CookieDuration::days(3)));
     if secure {
         // Drop a session cookie from before the `__Host-` rename.
-        jar.add(build_named(SESSION_COOKIE, "", true, CookieDuration::seconds(0)))
+        jar.add(build_named(
+            SESSION_COOKIE,
+            "",
+            true,
+            CookieDuration::seconds(0),
+        ))
     } else {
         jar
     }
@@ -78,9 +87,19 @@ pub async fn add_session_cookie(state: &SharedState, jar: CookieJar, token: Stri
 /// original alongside it.
 pub async fn clear_session_cookie(state: &SharedState, jar: CookieJar) -> CookieJar {
     let secure = secure(state).await;
-    let jar = jar.add(build_named(SESSION_COOKIE, "", secure, CookieDuration::seconds(0)));
+    let jar = jar.add(build_named(
+        SESSION_COOKIE,
+        "",
+        secure,
+        CookieDuration::seconds(0),
+    ));
     if secure {
-        jar.add(build_named(HOST_SESSION_COOKIE, "", true, CookieDuration::seconds(0)))
+        jar.add(build_named(
+            HOST_SESSION_COOKIE,
+            "",
+            true,
+            CookieDuration::seconds(0),
+        ))
     } else {
         jar
     }
@@ -128,7 +147,10 @@ mod tests {
         assert_eq!(secure.path(), Some("/"));
         assert_eq!(secure.domain(), None);
         assert_eq!(secure.secure(), Some(true));
-        assert_eq!(build("t", false, CookieDuration::days(1)).name(), SESSION_COOKIE);
+        assert_eq!(
+            build("t", false, CookieDuration::days(1)).name(),
+            SESSION_COOKIE
+        );
 
         let legacy = CookieJar::new().add(Cookie::new(SESSION_COOKIE, "old"));
         assert_eq!(session_token(&legacy).as_deref(), Some("old"));

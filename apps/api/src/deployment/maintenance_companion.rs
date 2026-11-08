@@ -111,12 +111,13 @@ async fn create(state: &SharedState, parent_id: &str) -> Result<String, AppError
         return Ok(id);
     }
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let parent = sqlx::query("SELECT environment_id, name, server_id FROM applications WHERE id = ?1")
-        .bind(parent_id)
-        .fetch_optional(&conn)
-        .await
-        .map_err(db)?
-        .ok_or(AppError::ApplicationNotFound)?;
+    let parent =
+        sqlx::query("SELECT environment_id, name, server_id FROM applications WHERE id = ?1")
+            .bind(parent_id)
+            .fetch_optional(&conn)
+            .await
+            .map_err(db)?
+            .ok_or(AppError::ApplicationNotFound)?;
     let environment_id: String = parent.try_get(0).map_err(db)?;
     let parent_name: String = parent.try_get(1).map_err(db)?;
     let server_id: Option<String> = parent.try_get(2).map_err(db)?;
@@ -147,11 +148,7 @@ async fn create(state: &SharedState, parent_id: &str) -> Result<String, AppError
 
 /// Keeps `zip` as the companion's source and queues its Railpack build. Returns
 /// immediately; the build's outcome arrives through [`on_build_finished`].
-pub async fn build(
-    state: &SharedState,
-    parent_id: &str,
-    zip: &[u8],
-) -> Result<(), AppError> {
+pub async fn build(state: &SharedState, parent_id: &str, zip: &[u8]) -> Result<(), AppError> {
     let companion = create(state, parent_id).await?;
     // A rebuild replaces the container behind the route. Until it is parked again
     // the static copy serves, and `on_build_finished` puts the new build back.
@@ -204,13 +201,14 @@ pub async fn build(
 /// it down (so a server reboot does not revive it).
 async fn park(state: &SharedState, companion: &str) -> Result<(), AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let container: String =
-        sqlx::query_scalar("SELECT container_name FROM application_deployments WHERE application_id = ?1")
-            .bind(companion)
-            .fetch_optional(&conn)
-            .await
-            .map_err(db)?
-            .ok_or(AppError::ApplicationNotFound)?;
+    let container: String = sqlx::query_scalar(
+        "SELECT container_name FROM application_deployments WHERE application_id = ?1",
+    )
+    .bind(companion)
+    .fetch_optional(&conn)
+    .await
+    .map_err(db)?
+    .ok_or(AppError::ApplicationNotFound)?;
     // `restore` boots a container only when the user wants it running, and
     // parking is exactly "the user wants it stopped".
     sqlx::query("UPDATE applications SET boot_policy = 'restore' WHERE id = ?1")
@@ -257,9 +255,7 @@ pub async fn on_build_finished(
                 }
                 marked
             }
-            Err(error) => {
-                set_status(state, &parent, "failed", Some(&error.to_string())).await
-            }
+            Err(error) => set_status(state, &parent, "failed", Some(&error.to_string())).await,
         },
         Err(error) => set_status(state, &parent, "failed", Some(error)).await,
     };
@@ -288,7 +284,11 @@ pub async fn teardown(state: &SharedState, parent_id: &str) {
 /// How long a started companion has to answer its health check.
 const HEALTH_BUDGET: Duration = Duration::from_secs(30);
 
-pub(crate) async fn set_live(state: &SharedState, parent_id: &str, live: bool) -> Result<(), AppError> {
+pub(crate) async fn set_live(
+    state: &SharedState,
+    parent_id: &str,
+    live: bool,
+) -> Result<(), AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     sqlx::query("UPDATE application_maintenance SET companion_live = ?1, updated_at = ?2 WHERE application_id = ?3")
         .bind(i64::from(live))
@@ -324,7 +324,8 @@ pub(crate) async fn live_upstream(
     let status: String = row.try_get(1).map_err(db)?;
     // `status` follows what Podman reports, so a container that died while live
     // stops being routed the next time a route is built.
-    Ok((status == "running" && !container.is_empty()).then(|| format!("{container}:{CONTAINER_PORT}")))
+    Ok((status == "running" && !container.is_empty())
+        .then(|| format!("{container}:{CONTAINER_PORT}")))
 }
 
 /// Waits for the started container to answer `GET /health` with a success.
@@ -336,7 +337,8 @@ async fn wait_healthy(
     // Same reachability rule as a normal rollout: in dev the API sits outside the
     // container network and uses the published loopback port.
     let (host, port) = if state.dev_mode {
-        let published = super::rollout::published_port(runtime, container, CONTAINER_PORT as u16).await?;
+        let published =
+            super::rollout::published_port(runtime, container, CONTAINER_PORT as u16).await?;
         ("127.0.0.1".to_string(), published)
     } else {
         (container.to_string(), CONTAINER_PORT as u16)
@@ -376,18 +378,22 @@ pub async fn activate(state: &SharedState, parent_id: &str) -> Result<(), String
         return Err("A compiled maintenance page is not available on remote servers yet".into());
     }
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let container: String =
-        sqlx::query_scalar("SELECT container_name FROM application_deployments WHERE application_id = ?1")
-            .bind(&companion)
-            .fetch_one(&conn)
-            .await
-            .map_err(|e| e.to_string())?;
+    let container: String = sqlx::query_scalar(
+        "SELECT container_name FROM application_deployments WHERE application_id = ?1",
+    )
+    .bind(&companion)
+    .fetch_one(&conn)
+    .await
+    .map_err(|e| e.to_string())?;
     // A container someone removed is not recreated here: rebuilding takes minutes
     // and activation must be quick. The caller serves the static copy instead.
     runtime
         .podman(&[OsString::from("start"), OsString::from(&container)])
         .await
-        .map_err(|_| "The maintenance page's container is missing; upload the ZIP again to rebuild it".to_string())?;
+        .map_err(|_| {
+            "The maintenance page's container is missing; upload the ZIP again to rebuild it"
+                .to_string()
+        })?;
     if let Err(error) = wait_healthy(state, &runtime, &container).await {
         let _ = runtime
             .podman(&[OsString::from("stop"), OsString::from(&container)])
@@ -400,7 +406,9 @@ pub async fn activate(state: &SharedState, parent_id: &str) -> Result<(), String
         .execute(&conn)
         .await
         .map_err(|e| e.to_string())?;
-    set_live(state, parent_id, true).await.map_err(|e| e.to_string())
+    set_live(state, parent_id, true)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Takes the companion out of service and stops it. Marks it not live first, so
@@ -417,11 +425,13 @@ pub async fn deactivate(state: &SharedState, parent_id: &str) {
 
 async fn enabled_now(state: &SharedState, parent_id: &str) -> bool {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query_scalar::<_, i64>("SELECT enabled FROM application_maintenance WHERE application_id = ?1")
-        .bind(parent_id)
-        .fetch_optional(&conn)
-        .await
-        .ok()
-        .flatten()
-        .is_some_and(|enabled| enabled != 0)
+    sqlx::query_scalar::<_, i64>(
+        "SELECT enabled FROM application_maintenance WHERE application_id = ?1",
+    )
+    .bind(parent_id)
+    .fetch_optional(&conn)
+    .await
+    .ok()
+    .flatten()
+    .is_some_and(|enabled| enabled != 0)
 }

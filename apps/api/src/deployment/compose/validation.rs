@@ -508,7 +508,9 @@ mod tests {
             "  cp:\n    external:\n      name: litepod-control\n",
             "  litepod-control:\n    external: true\n",
         ] {
-            let compose = format!("services:\n  web:\n    image: x\n    networks: [cp, litepod-control]\nnetworks:\n{networks}");
+            let compose = format!(
+                "services:\n  web:\n    image: x\n    networks: [cp, litepod-control]\nnetworks:\n{networks}"
+            );
             assert!(
                 validate_tenant_compose(&compose, true)
                     .unwrap_err()

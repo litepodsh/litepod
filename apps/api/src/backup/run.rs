@@ -221,7 +221,9 @@ pub async fn wait_for(state: &SharedState, id: &str) -> Result<(), AppError> {
             "success" => return Ok(()),
             "failed" => {
                 return Err(AppError::InternalError(
-                    record.error_message.unwrap_or_else(|| "the backup failed".into()),
+                    record
+                        .error_message
+                        .unwrap_or_else(|| "the backup failed".into()),
                 ));
             }
             _ => {}
@@ -580,7 +582,10 @@ mod tests {
     #[tokio::test]
     async fn backup_before_update_is_off_until_the_default_target_enables_it() {
         let (state, path) = crate::testing::test_state().await;
-        assert!(!config::backup_before_update(&state).await.unwrap(), "no target yet");
+        assert!(
+            !config::backup_before_update(&state).await.unwrap(),
+            "no target yet"
+        );
 
         let request = config::UpdateS3ConfigRequest {
             endpoint_url: "https://s3.example".into(),
@@ -596,11 +601,20 @@ mod tests {
         config::save(&state, &request, "secret").await.unwrap();
         assert!(!config::backup_before_update(&state).await.unwrap());
 
-        let on = config::UpdateS3ConfigRequest { backup_before_update: true, ..request };
+        let on = config::UpdateS3ConfigRequest {
+            backup_before_update: true,
+            ..request
+        };
         let saved = config::save(&state, &on, "secret").await.unwrap();
         assert!(saved.backup_before_update);
         assert!(config::backup_before_update(&state).await.unwrap());
-        assert!(config::load_dto(&state).await.unwrap().unwrap().backup_before_update);
+        assert!(
+            config::load_dto(&state)
+                .await
+                .unwrap()
+                .unwrap()
+                .backup_before_update
+        );
         crate::testing::cleanup_database(&path);
     }
 }

@@ -1,6 +1,5 @@
 use axum::{
-    Extension,
-    Json,
+    Extension, Json,
     extract::{Query, State},
     response::IntoResponse,
 };
@@ -202,4 +201,3 @@ pub async fn update_retention_handler(
     .await;
     Ok(ok(retention_dto(&state).await?))
 }
-

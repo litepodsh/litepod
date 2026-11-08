@@ -15,30 +15,126 @@ use std::path::{Path, PathBuf};
 
 /// `(file, text found in the statement, why companions are meant to be seen)`.
 const ALLOWED: &[(&str, &str, &str)] = &[
-    ("deployment/compose/store.rs", "SELECT id FROM applications", "host-port reservation must see every live application, companions included"),
-    ("deployment/deploy_hook.rs", "WHERE deploy_token_digest = ?1", "a lookup by unique token; a companion has none"),
-    ("deployment/deploy_hook.rs", "WHERE deploy_token IS NOT NULL", "one-time hashing of legacy tokens; a companion has none"),
-    ("deployment/domains/caddy_sync.rs", "LEFT JOIN applications a ON a.id = d.application_id", "starts from domains; a companion has none"),
-    ("deployment/domains/validate.rs", "FROM application_domains d", "starts from domains; a companion has none"),
-    ("metrics_history/requests.rs", "FROM application_domains d", "starts from domains; a companion has none"),
-    ("servers/ingress.rs", "FROM application_domains domains", "starts from domains; a companion has none"),
-    ("servers/ingress.rs", "FROM application_deployments d", "only collects server ids to reconcile; a companion adds none its parent's server lacks"),
-    ("deployment/queue.rs", "const JOB_JOINS", "the build queue shows the companion's build, named \"Maintenance page · <app>\", so a stuck page build is visible"),
-    ("assistant/tools.rs", "JOIN applications a ON a.id = d.application_id", "a map keyed by application id, only read for applications that are listed"),
-    ("deployment/domains/caddy_sync.rs", "SELECT id, name FROM applications WHERE server_id", "names for edge routes, which are built from domains a companion lacks"),
-    ("deployment/resource_networks.rs", "INNER JOIN applications consumer", "starts from network links, which a companion has none of"),
-    ("deployment/rollout.rs", "WHERE d.application_id = ?1", "by one application id"),
-    ("metrics_history/mod.rs", "JOIN applications a ON a.id", "container ownership for sampling; a companion's container is sampled like any other"),
-    ("servers/groups.rs", "JOIN applications a ON a.id = r.application_id", "starts from replicas of server groups, which a companion has none"),
-    ("servers/ingress.rs", "SELECT id FROM applications WHERE server_id = ?1 LIMIT 1", "only asks whether any application is on the server"),
-    ("servers/monitor.rs", "JOIN applications a ON a.id = d.application_id", "reconciles every container Podman reports, the companion's included"),
-    ("servers/boot_restore.rs", "JOIN applications a ON a.id = d.application_id", "restores by policy; a parked companion is desired=stopped and stays down"),
-    ("servers/repository.rs", "FROM deployment_jobs j JOIN applications a", "a companion's build also needs its images and cache left alone while it runs"),
-    ("servers/repository.rs", "SELECT COUNT(*) FROM applications WHERE server_id = ?1", "a server with a companion still hosts its parent, so it is never empty"),
-    ("notifications/repository.rs", "JOIN applications a ON a.id = r.application_id", "a failed page build is worth a notification, named \"Maintenance page · <app>\""),
-    ("git/git_providers/provider.rs", "WHERE git_provider_id = ?1", "a companion is built from an upload and has no git provider"),
-    ("git/repositories/project.rs", "SELECT a.id FROM applications a", "teardown lists every id, companions included, to remove their containers"),
-    ("servers/repository.rs", "FROM applications WHERE server_id = 'local'", "a local companion would strand when the local server is removed, just like an application"),
+    (
+        "deployment/compose/store.rs",
+        "SELECT id FROM applications",
+        "host-port reservation must see every live application, companions included",
+    ),
+    (
+        "deployment/deploy_hook.rs",
+        "WHERE deploy_token_digest = ?1",
+        "a lookup by unique token; a companion has none",
+    ),
+    (
+        "deployment/deploy_hook.rs",
+        "WHERE deploy_token IS NOT NULL",
+        "one-time hashing of legacy tokens; a companion has none",
+    ),
+    (
+        "deployment/domains/caddy_sync.rs",
+        "LEFT JOIN applications a ON a.id = d.application_id",
+        "starts from domains; a companion has none",
+    ),
+    (
+        "deployment/domains/validate.rs",
+        "FROM application_domains d",
+        "starts from domains; a companion has none",
+    ),
+    (
+        "metrics_history/requests.rs",
+        "FROM application_domains d",
+        "starts from domains; a companion has none",
+    ),
+    (
+        "servers/ingress.rs",
+        "FROM application_domains domains",
+        "starts from domains; a companion has none",
+    ),
+    (
+        "servers/ingress.rs",
+        "FROM application_deployments d",
+        "only collects server ids to reconcile; a companion adds none its parent's server lacks",
+    ),
+    (
+        "deployment/queue.rs",
+        "const JOB_JOINS",
+        "the build queue shows the companion's build, named \"Maintenance page · <app>\", so a stuck page build is visible",
+    ),
+    (
+        "assistant/tools.rs",
+        "JOIN applications a ON a.id = d.application_id",
+        "a map keyed by application id, only read for applications that are listed",
+    ),
+    (
+        "deployment/domains/caddy_sync.rs",
+        "SELECT id, name FROM applications WHERE server_id",
+        "names for edge routes, which are built from domains a companion lacks",
+    ),
+    (
+        "deployment/resource_networks.rs",
+        "INNER JOIN applications consumer",
+        "starts from network links, which a companion has none of",
+    ),
+    (
+        "deployment/rollout.rs",
+        "WHERE d.application_id = ?1",
+        "by one application id",
+    ),
+    (
+        "metrics_history/mod.rs",
+        "JOIN applications a ON a.id",
+        "container ownership for sampling; a companion's container is sampled like any other",
+    ),
+    (
+        "servers/groups.rs",
+        "JOIN applications a ON a.id = r.application_id",
+        "starts from replicas of server groups, which a companion has none",
+    ),
+    (
+        "servers/ingress.rs",
+        "SELECT id FROM applications WHERE server_id = ?1 LIMIT 1",
+        "only asks whether any application is on the server",
+    ),
+    (
+        "servers/monitor.rs",
+        "JOIN applications a ON a.id = d.application_id",
+        "reconciles every container Podman reports, the companion's included",
+    ),
+    (
+        "servers/boot_restore.rs",
+        "JOIN applications a ON a.id = d.application_id",
+        "restores by policy; a parked companion is desired=stopped and stays down",
+    ),
+    (
+        "servers/repository.rs",
+        "FROM deployment_jobs j JOIN applications a",
+        "a companion's build also needs its images and cache left alone while it runs",
+    ),
+    (
+        "servers/repository.rs",
+        "SELECT COUNT(*) FROM applications WHERE server_id = ?1",
+        "a server with a companion still hosts its parent, so it is never empty",
+    ),
+    (
+        "notifications/repository.rs",
+        "JOIN applications a ON a.id = r.application_id",
+        "a failed page build is worth a notification, named \"Maintenance page · <app>\"",
+    ),
+    (
+        "git/git_providers/provider.rs",
+        "WHERE git_provider_id = ?1",
+        "a companion is built from an upload and has no git provider",
+    ),
+    (
+        "git/repositories/project.rs",
+        "SELECT a.id FROM applications a",
+        "teardown lists every id, companions included, to remove their containers",
+    ),
+    (
+        "servers/repository.rs",
+        "FROM applications WHERE server_id = 'local'",
+        "a local companion would strand when the local server is removed, just like an application",
+    ),
 ];
 
 fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -68,7 +164,11 @@ fn statement(lines: &[&str], at: usize) -> String {
         start -= 1;
     }
     let mut end = at;
-    while end + 1 < lines.len() && end < at + 8 && !lines[end].contains("\",") && !lines[end].trim_end().ends_with("\")") {
+    while end + 1 < lines.len()
+        && end < at + 8
+        && !lines[end].contains("\",")
+        && !lines[end].trim_end().ends_with("\")")
+    {
         end += 1;
     }
     lines[start..=end].join("\n")
@@ -78,7 +178,10 @@ fn statement(lines: &[&str], at: usize) -> String {
 /// bare `id = ?`. A longer column (`organization_id = ?`) is not one.
 fn by_single_id(statement: &str) -> bool {
     // Only the spaces around `=` go, so a word boundary before `id` survives.
-    let compact = statement.replace(" = ", "=").replace(" =", "=").replace("= ", "=");
+    let compact = statement
+        .replace(" = ", "=")
+        .replace(" =", "=")
+        .replace("= ", "=");
     let bytes = compact.as_bytes();
     let mut from = 0;
     while let Some(found) = compact[from..].find("id=?") {
@@ -108,7 +211,11 @@ fn every_listing_of_applications_hides_the_maintenance_companion() {
 
     let mut offenders = Vec::new();
     for file in files {
-        let relative = file.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
+        let relative = file
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         if is_test_file(&relative) {
             continue;
         }

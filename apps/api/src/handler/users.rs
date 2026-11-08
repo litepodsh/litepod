@@ -292,7 +292,11 @@ async fn apply_disabled(
         state,
         Some(user_id),
         auth_user,
-        if disabled { "user.disabled" } else { "user.enabled" },
+        if disabled {
+            "user.disabled"
+        } else {
+            "user.enabled"
+        },
         None,
     )
     .await;
@@ -470,20 +474,15 @@ mod tests {
     /// (403). Asserted on the handler, because that is where the gate lives.
     #[tokio::test]
     async fn the_admin_portal_answers_only_the_cloud_sysadmin() {
-        for (is_cloud, expected_admin) in [
-            (true, StatusCode::OK),
-            (false, StatusCode::NOT_FOUND),
-        ] {
+        for (is_cloud, expected_admin) in [(true, StatusCode::OK), (false, StatusCode::NOT_FOUND)] {
             let (state, path) = test_state_for(is_cloud).await;
             crate::git::repositories::user::make_sysadmin(&state, "editor")
                 .await
                 .unwrap();
 
-            let admin = admin_list_users_handler(
-                State(state.clone()),
-                Extension(sysadmin_user("editor")),
-            )
-            .await;
+            let admin =
+                admin_list_users_handler(State(state.clone()), Extension(sysadmin_user("editor")))
+                    .await;
             let admin_status = match admin {
                 Ok(response) => response.into_response().status(),
                 Err(error) => error.into_response().status(),

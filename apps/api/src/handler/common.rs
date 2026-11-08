@@ -85,10 +85,7 @@ pub async fn check_application(
 ///
 /// Off-cloud the answer is 404, not 403: a self-hosted instance has no Admin
 /// portal, so the surface must not even advertise itself there.
-pub async fn require_cloud_sysadmin(
-    state: &SharedState,
-    user: &AuthUser,
-) -> Result<(), AppError> {
+pub async fn require_cloud_sysadmin(state: &SharedState, user: &AuthUser) -> Result<(), AppError> {
     if !state.is_cloud {
         return Err(AppError::ResourceNotFound);
     }

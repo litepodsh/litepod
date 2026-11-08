@@ -130,7 +130,8 @@ pub(crate) async fn reconcile_domain_route(
     // A remote application's routes live on its server, not in the central
     // Caddy: the edge fragment (or private-relay route) is rebuilt from the
     // database, which now carries the authentication block.
-    if !domain.is_local && !domains::application_uses_local_caddy(state, &domain.application_id).await?
+    if !domain.is_local
+        && !domains::application_uses_local_caddy(state, &domain.application_id).await?
     {
         return crate::servers::ingress::sync_domain(state, &domain).await;
     }
@@ -281,9 +282,13 @@ pub(crate) async fn recover_missing_caddy_routes(state: &SharedState) -> Result<
         }
         for (route, auth, maintenance, certificate) in &apps {
             // A path route owns no TLS: its root's entry checks and restores that.
-            if route_present(config, &route.route_id, &route.host, route.https && route.path.is_none())
-                && (route.path.is_some()
-                    || crate::deployment::certificates::matches_config(
+            if route_present(
+                config,
+                &route.route_id,
+                &route.host,
+                route.https && route.path.is_none(),
+            ) && (route.path.is_some()
+                || crate::deployment::certificates::matches_config(
                     config,
                     &route.route_id,
                     route.https,
@@ -422,7 +427,9 @@ pub(super) fn apply_app_domain_to_config(
         .and_then(|errors| errors.get_mut("routes"))
         .and_then(serde_json::Value::as_array_mut)
     {
-        errors.retain(|route| route.get("@id").and_then(serde_json::Value::as_str) != Some(errors_id.as_str()));
+        errors.retain(|route| {
+            route.get("@id").and_then(serde_json::Value::as_str) != Some(errors_id.as_str())
+        });
     }
     // shortcut: no companion-death fallback on path routes, add a path matcher to errors_route if users hit it
     if let Some(page) = maintenance.filter(|page| page.companion.is_some() && path.is_none()) {
@@ -672,15 +679,15 @@ pub(super) fn prune_orphans_in_config(
             .and_then(|errors| errors.get_mut("routes"))
             .and_then(serde_json::Value::as_array_mut)
         {
-            errors.retain(|route| {
-                match route.get("@id").and_then(serde_json::Value::as_str) {
+            errors.retain(
+                |route| match route.get("@id").and_then(serde_json::Value::as_str) {
                     Some(id) => match id.strip_suffix("-maint-errors") {
                         Some(base) => keep_route_ids.contains(base),
                         None => true,
                     },
                     None => true,
-                }
-            });
+                },
+            );
         }
         // Only prune host-keyed entries for hosts that lost their route and are
         // not still claimed by something we keep.
@@ -770,7 +777,9 @@ pub(super) fn apply_app_domain_removal_to_config(
         .and_then(|errors| errors.get_mut("routes"))
         .and_then(serde_json::Value::as_array_mut)
     {
-        errors.retain(|route| route.get("@id").and_then(serde_json::Value::as_str) != Some(errors_id.as_str()));
+        errors.retain(|route| {
+            route.get("@id").and_then(serde_json::Value::as_str) != Some(errors_id.as_str())
+        });
     }
     // Another route (a path domain or its root) still serves this host: keep its TLS.
     let host_still_routed = server

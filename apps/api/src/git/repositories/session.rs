@@ -351,14 +351,35 @@ mod tests {
                 .to_string()
         };
         let (old, recent, live) = (generate_token(), generate_token(), generate_token());
-        create_session(&state, "old", "editor", &old, &ago(11), None).await.unwrap();
-        create_session(&state, "recent", "editor", &recent, &ago(9), None).await.unwrap();
-        create_session(&state, "live", "editor", &live, &ago(-1), None).await.unwrap();
+        create_session(&state, "old", "editor", &old, &ago(11), None)
+            .await
+            .unwrap();
+        create_session(&state, "recent", "editor", &recent, &ago(9), None)
+            .await
+            .unwrap();
+        create_session(&state, "live", "editor", &live, &ago(-1), None)
+            .await
+            .unwrap();
 
         assert_eq!(purge_expired(&state).await.unwrap(), 1);
-        assert!(get_session_by_token_result(&state, &old).await.unwrap().is_none());
-        assert!(get_session_by_token_result(&state, &recent).await.unwrap().is_some());
-        assert!(get_session_by_token_result(&state, &live).await.unwrap().is_some());
+        assert!(
+            get_session_by_token_result(&state, &old)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            get_session_by_token_result(&state, &recent)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            get_session_by_token_result(&state, &live)
+                .await
+                .unwrap()
+                .is_some()
+        );
 
         cleanup_database(&path);
     }

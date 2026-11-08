@@ -948,7 +948,14 @@ pub async fn maintenance_restart_handler(
     if result.success {
         repository::set_state(&state, &server.id, ServerState::Offline).await?;
     }
-    record_connection_event(&state, &organization_id, &org.user, &server, "server.restarted").await;
+    record_connection_event(
+        &state,
+        &organization_id,
+        &org.user,
+        &server,
+        "server.restarted",
+    )
+    .await;
     Ok(ok(maintenance_dto(result)))
 }
 

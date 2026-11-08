@@ -82,9 +82,12 @@ pub async fn list_handler(
     Query(query): Query<FileListQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let runtime = target(&state, &app.application_id, &container_id).await?;
-    Ok(ok(
-        container_files::list(&runtime, &container_id, query.path.as_deref()).await?,
-    ))
+    Ok(ok(container_files::list(
+        &runtime,
+        &container_id,
+        query.path.as_deref(),
+    )
+    .await?))
 }
 
 pub async fn read_handler(
@@ -94,9 +97,12 @@ pub async fn read_handler(
     Query(query): Query<FilePathQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let runtime = target(&state, &app.application_id, &container_id).await?;
-    Ok(ok(
-        container_files::read_file(&runtime, &container_id, &query.path).await?,
-    ))
+    Ok(ok(container_files::read_file(
+        &runtime,
+        &container_id,
+        &query.path,
+    )
+    .await?))
 }
 
 pub async fn save_handler(
@@ -115,7 +121,14 @@ pub async fn save_handler(
         request.content,
     )
     .await?;
-    audit(&state, &app, "container.file_updated", &container_id, &query.path).await;
+    audit(
+        &state,
+        &app,
+        "container.file_updated",
+        &container_id,
+        &query.path,
+    )
+    .await;
     Ok(ok(result))
 }
 
@@ -135,7 +148,14 @@ pub async fn create_handler(
         request.content.unwrap_or_default().into_bytes(),
     )
     .await?;
-    audit(&state, &app, "container.file_created", &container_id, &request.path).await;
+    audit(
+        &state,
+        &app,
+        "container.file_created",
+        &container_id,
+        &request.path,
+    )
+    .await;
     Ok(ok(result))
 }
 
@@ -165,7 +185,14 @@ pub async fn upload_handler(
         bytes.to_vec(),
     )
     .await?;
-    audit(&state, &app, "container.file_uploaded", &container_id, &query.path).await;
+    audit(
+        &state,
+        &app,
+        "container.file_uploaded",
+        &container_id,
+        &query.path,
+    )
+    .await;
     Ok(ok(result))
 }
 
@@ -178,7 +205,14 @@ pub async fn download_handler(
     let runtime = target(&state, &app.application_id, &container_id).await?;
     let (bytes, mime) =
         container_files::read_file_bytes(&runtime, &container_id, &query.path).await?;
-    audit(&state, &app, "container.file_downloaded", &container_id, &query.path).await;
+    audit(
+        &state,
+        &app,
+        "container.file_downloaded",
+        &container_id,
+        &query.path,
+    )
+    .await;
     let filename = std::path::Path::new(&query.path)
         .file_name()
         .unwrap_or_default()
@@ -187,8 +221,10 @@ pub async fn download_handler(
     let mut response = Response::new(axum::body::Body::from(bytes));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_str(&mime.unwrap_or_else(|| "application/octet-stream".into()))
-            .map_err(|error| AppError::InternalError(error.to_string()))?,
+        axum::http::HeaderValue::from_str(
+            &mime.unwrap_or_else(|| "application/octet-stream".into()),
+        )
+        .map_err(|error| AppError::InternalError(error.to_string()))?,
     );
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
