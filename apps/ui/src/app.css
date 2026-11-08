@@ -375,7 +375,9 @@
    `round`: `rounded-full` plus an exact `size-*` token, which is how avatars,
    status dots and radio pips are built. Matching the whole token (start or
    space before it) avoids false positives from arbitrary selectors such as
-   `[&_svg:not([class*='size-'])]:size-4` inside the button variants. */
+   `[&_svg:not([class*='size-'])]:size-4` inside the button variants.
+   Switches stay round too: a squircle track turns boxy and no longer matches
+   the round thumb or the soft switch's clip-path fill. */
 @layer base {
 	@supports (corner-shape: squircle) {
 		*,
@@ -387,17 +389,23 @@
 		:is(
 			[class*='rounded-full'][class^='size-'],
 			[class*='rounded-full'][class*=' size-'],
-			[class*='rounded-[50%]']
+			[class*='rounded-[50%]'],
+			[data-slot^='switch'],
+			[data-slot^='soft-switch']
 		),
 		:is(
 			[class*='rounded-full'][class^='size-'],
 			[class*='rounded-full'][class*=' size-'],
-			[class*='rounded-[50%]']
+			[class*='rounded-[50%]'],
+			[data-slot^='switch'],
+			[data-slot^='soft-switch']
 		)::before,
 		:is(
 			[class*='rounded-full'][class^='size-'],
 			[class*='rounded-full'][class*=' size-'],
-			[class*='rounded-[50%]']
+			[class*='rounded-[50%]'],
+			[data-slot^='switch'],
+			[data-slot^='soft-switch']
 		)::after {
 			corner-shape: round;
 		}
