@@ -19,6 +19,7 @@ pub struct HelperRelease {
     pub summary: &'static str,
     pub changes: &'static [&'static str],
     /// SHA-256 of the script as released, so editing it without a new entry fails a test.
+    #[cfg(test)]
     pub script_sha256: &'static str,
 }
 
@@ -30,18 +31,21 @@ pub const CHANGELOG: &[HelperRelease] = &[
             "Reports its own version (`serverctl version`)",
             "Applies basic authentication to domains (`basic-auth-check`)",
         ],
+        #[cfg(test)]
         script_sha256: "80482650597e907796ceb2528462baaf74991437eab2f986924431894a843f1b",
     },
     HelperRelease {
         version: 2,
         summary: "Maintenance mode on public-edge servers",
         changes: &["Serves a 503 maintenance page in place of the app (`maintenance-check`)"],
+        #[cfg(test)]
         script_sha256: "28cade95a3e28d65aa0e8f48e26a1bf3209aae828bd3a7576aca7b05bd6a480d",
     },
     HelperRelease {
         version: 3,
         summary: "Error page on public-edge servers",
         changes: &["Serves a page when the app does not answer (502/503/504) (`error-page-check`)"],
+        #[cfg(test)]
         script_sha256: "12e612c0cd945fc0846fb2b0d253aad324e1747a35b2128a57544359bb6338cd",
     },
 ];

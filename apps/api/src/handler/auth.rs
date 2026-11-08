@@ -27,9 +27,9 @@ use crate::security::middleware::rate_limit::{
 };
 use crate::security::middleware::request_context::RequestContext;
 use crate::state::state::SharedState;
-use crate::utils::cookie::{
-    SESSION_COOKIE, add_session_cookie, clear_session_cookie, session_token,
-};
+#[cfg(test)]
+use crate::utils::cookie::SESSION_COOKIE;
+use crate::utils::cookie::{add_session_cookie, clear_session_cookie, session_token};
 
 /// First sign-in of a new account: the baseline `login_anomaly` compares later
 /// logins against.

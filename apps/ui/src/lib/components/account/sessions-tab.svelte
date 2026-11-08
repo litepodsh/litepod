@@ -8,6 +8,7 @@
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 	import DeleteConfirmControl from '#lib/components/custom/delete-confirm-control.svelte';
 	import LogOut from '@lucide/svelte/icons/log-out';
+	import MonitorX from '@lucide/svelte/icons/monitor-x';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import { toast, toastError } from '#lib/utils/toast.js';
 	import { UseAsyncResource } from '#lib/hooks/use-async-resource.svelte.js';
@@ -110,48 +111,57 @@
 <SettingsSection
 	title={t('account.sessions.title')}
 	description={t('account.sessions.description')}>
-	{#snippet aside()}
-		{#if sessions.length > 0}
-			<div class="mt-3 flex flex-wrap items-center gap-2">
-				{#if sessions.some((s) => !s.is_current && !isClosed(s))}
+	{#if sessions.length > 0}
+		<div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+			{#if sessions.some((s) => !s.is_current && !isClosed(s))}
+				<div class="flex min-w-0 flex-col gap-2 xl:flex-row xl:items-center">
 					<Button
-						variant="outline"
+						variant="destructive"
 						size="sm"
+						class="h-auto min-h-7 w-full justify-start whitespace-normal py-2 text-left xl:w-auto xl:shrink-0"
 						onclick={handleRevokeOthers}
 						disabled={revokingOthers}>
+						<MonitorX />
 						{revokingOthers ? t('account.sessions.revoking') : t('account.sessions.revoke_others')}
 					</Button>
-				{/if}
-				<AlertDialog.Root>
-					<AlertDialog.Trigger>
-						{#snippet child({ props })}
-							<Button {...props} variant="destructive" size="sm" disabled={revokingAll}>
-								<LogOut />
-								{t('account.sessions.revoke_all')}
-							</Button>
-						{/snippet}
-					</AlertDialog.Trigger>
-					<AlertDialog.Content>
-						<AlertDialog.Header>
-							<AlertDialog.Title>{t('account.sessions.revoke_all_title')}</AlertDialog.Title>
-							<AlertDialog.Description>
-								{t('account.sessions.revoke_all_description')}
-							</AlertDialog.Description>
-						</AlertDialog.Header>
-						<AlertDialog.Footer>
-							<AlertDialog.Cancel>{t('account.common.cancel')}</AlertDialog.Cancel>
-							<DeleteConfirmControl
-								label={t('account.sessions.revoke_all')}
-								pendingLabel={t('account.sessions.revoking')}
-								disabled={revokingAll}
-								onconfirm={handleRevokeAll} />
-						</AlertDialog.Footer>
-					</AlertDialog.Content>
-				</AlertDialog.Root>
-			</div>
-		{/if}
-	{/snippet}
-
+					<p class="text-xs text-muted-foreground sm:max-w-[36ch]">
+						{t('account.sessions.revoke_others_description')}
+					</p>
+				</div>
+			{/if}
+			<AlertDialog.Root>
+				<AlertDialog.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="outline"
+							size="sm"
+							class="w-full justify-start text-destructive hover:text-destructive sm:w-auto xl:shrink-0"
+							disabled={revokingAll}>
+							<LogOut />
+							{t('account.sessions.revoke_all')}
+						</Button>
+					{/snippet}
+				</AlertDialog.Trigger>
+				<AlertDialog.Content>
+					<AlertDialog.Header>
+						<AlertDialog.Title>{t('account.sessions.revoke_all_title')}</AlertDialog.Title>
+						<AlertDialog.Description>
+							{t('account.sessions.revoke_all_description')}
+						</AlertDialog.Description>
+					</AlertDialog.Header>
+					<AlertDialog.Footer>
+						<AlertDialog.Cancel>{t('account.common.cancel')}</AlertDialog.Cancel>
+						<DeleteConfirmControl
+							label={t('account.sessions.revoke_all')}
+							pendingLabel={t('account.sessions.revoking')}
+							disabled={revokingAll}
+							onconfirm={handleRevokeAll} />
+					</AlertDialog.Footer>
+				</AlertDialog.Content>
+			</AlertDialog.Root>
+		</div>
+	{/if}
 	{#if sessionsResource.loading}
 		<SkeletonRows rows={3} height="h-16" label={t('account.sessions.loading')} />
 	{:else if sessions.length === 0}

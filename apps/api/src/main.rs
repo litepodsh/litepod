@@ -5,7 +5,12 @@
 use dotenvy::dotenv;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{
+    EnvFilter,
+    filter::{LevelFilter, filter_fn},
+    layer::{Layer, SubscriberExt},
+    util::SubscriberInitExt,
+};
 
 use crate::router::router::create_router;
 use crate::state::state::{AppState, SharedState};
@@ -208,7 +213,19 @@ async fn async_main(sentry_kind: Option<&'static str>) {
         .with(env_filter)
         .with(stdout_layer)
         .with(loki_layer)
-        .with(sentry::integrations::tracing::layer())
+        .with(sentry::integrations::tracing::SpanLayer::new().with_filter(LevelFilter::INFO))
+        .with(
+            sentry::integrations::tracing::BreadcrumbLayer::new().with_filter(filter_fn(
+                |metadata| {
+                    matches!(
+                        *metadata.level(),
+                        tracing::Level::WARN | tracing::Level::INFO
+                    )
+                },
+            )),
+        )
+        .with(sentry::integrations::tracing::ErrorLayer::new().with_filter(LevelFilter::ERROR))
+        .with(sentry::integrations::tracing::LogLayer::new().with_filter(LevelFilter::INFO))
         .init();
 
     match sentry_kind {

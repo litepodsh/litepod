@@ -11,6 +11,7 @@
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { loadNerdFont } from '#lib/utils/lazy-nerd-font.js';
 	import { loadMonaco } from '#lib/utils/load-monaco.js';
+	import { formatVolumeFile } from '#lib/utils/volume-file-format.js';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
 	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
@@ -50,6 +51,7 @@
 		return (
 			(
 				{
+					xml: 'xml',
 					html: 'html',
 					css: 'css',
 					js: 'javascript',
@@ -204,57 +206,13 @@
 	}
 	async function formatEditor(path: string, announce: boolean) {
 		if (!editor) return;
-		const extension = path.split('.').pop()?.toLowerCase();
-		const parser = (
-			{
-				json: 'json',
-				jsonc: 'json',
-				js: 'babel',
-				mjs: 'babel',
-				cjs: 'babel',
-				ts: 'typescript',
-				tsx: 'typescript',
-				html: 'html',
-				htm: 'html',
-				svg: 'html',
-				css: 'css',
-				scss: 'css',
-				less: 'css',
-				md: 'markdown',
-				mdx: 'mdx',
-				yml: 'yaml',
-				yaml: 'yaml',
-			} as Record<string, string>
-		)[extension ?? ''];
-		if (!parser) {
-			if (announce) toast.error(t('projects.volume_files.format_unavailable'));
-			return;
-		}
 		formatting = true;
 		try {
-			const source = editor.getValue();
-			const prettier = await import('prettier/standalone');
-			const [babel, estree, html, markdown, postcss, typescript, yaml] = await Promise.all([
-				import('prettier/plugins/babel'),
-				import('prettier/plugins/estree'),
-				import('prettier/plugins/html'),
-				import('prettier/plugins/markdown'),
-				import('prettier/plugins/postcss'),
-				import('prettier/plugins/typescript'),
-				import('prettier/plugins/yaml'),
-			]);
-			const formatted = await prettier.format(source, {
-				parser,
-				plugins: [
-					babel.default,
-					estree.default,
-					html.default,
-					markdown.default,
-					postcss.default,
-					typescript.default,
-					yaml.default,
-				],
-			});
+			const formatted = await formatVolumeFile(path, editor.getValue());
+			if (formatted === null) {
+				if (announce) toast.error(t('projects.volume_files.format_unavailable'));
+				return;
+			}
 			if (selected?.path === path) editor.setValue(formatted);
 			if (announce) toast.success(t('projects.volume_files.formatted_toast'));
 		} catch (error) {
