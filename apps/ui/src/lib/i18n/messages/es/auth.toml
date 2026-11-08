@@ -54,8 +54,14 @@ logging_out = "Cerrando sesión…"
 
 [not_found]
 error = "Algo salió mal"
+error_lede = "El panel no pudo completar la solicitud. Inténtalo de nuevo en unos segundos; si sigue pasando, revisa los logs del servidor."
+eyebrow_error = "Error del panel"
+eyebrow_not_found = "No encontrada"
 go_home = "Ir al inicio"
+not_found_lede = "Esta dirección no existe o ya no está disponible. Revisa el enlace o vuelve al inicio."
 page_not_found = "Página no encontrada"
+retry = "Reintentar"
+time = "hora"
 
 [register]
 accept_invitation = "Aceptar invitación"

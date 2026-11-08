@@ -54,8 +54,14 @@ logging_out = "Logging out…"
 
 [not_found]
 error = "Something went wrong"
-go_home = "Go Home"
+error_lede = "The panel could not complete the request. Try again in a few seconds; if it keeps happening, check the server logs."
+eyebrow_error = "Panel error"
+eyebrow_not_found = "Not found"
+go_home = "Go home"
+not_found_lede = "This address does not exist or is no longer available. Check the link or go back home."
 page_not_found = "Page not found"
+retry = "Retry"
+time = "time"
 
 [register]
 accept_invitation = "Accept invitation"
