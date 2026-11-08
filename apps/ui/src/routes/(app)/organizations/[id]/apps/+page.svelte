@@ -72,7 +72,8 @@
 			label={t('common.org_apps.all_projects')}
 			searchPlaceholder={t('projects.common.search_projects')}
 			emptyText={t('projects.common.no_project_found')}
-			size="sm" />
+			size="sm"
+			triggerClass="h-9" />
 	</div>
 
 	<section class="lp-raised overflow-hidden rounded-2xl border bg-card">
