@@ -231,11 +231,13 @@
    classes so they land in Tailwind's utilities layer: unlayered CSS outranks
    every layer, which would let these silently clobber `ring-*` and `shadow-*`
    (both are box-shadow in v4) and kill focus rings.
-   Edge-only - no fill changes, so contrast is untouched. */
+   Edge-only - no fill changes, so contrast is untouched.
+   Offsets stay vertical: a diagonal inset copy of a squircle does not follow
+   the superellipse and leaves lopsided slivers at two corners. */
 @utility lp-raised {
 	box-shadow:
-		inset 1px 1px 0 var(--lp-bevel),
-		inset -1px -1px 0 var(--lp-emboss),
+		inset 0 1px 0 var(--lp-bevel),
+		inset 0 -1px 0 var(--lp-emboss),
 		0 1px 1px
 			color-mix(in oklch, var(--lp-shadow) calc(5% * var(--lp-shadow-strength)), transparent);
 }
@@ -248,12 +250,12 @@
 		color-mix(in oklch, var(--lp-shadow) calc(8% * var(--lp-shadow-strength)), transparent);
 }
 
-/* A deeper well for inputs and segmented tracks: shade top-left, light bottom-right. */
+/* A deeper well for inputs and segmented tracks: shade on top, light along the bottom. */
 @utility lp-well {
 	box-shadow:
-		inset 1px 1px 2px
+		inset 0 1px 2px
 			color-mix(in oklch, var(--lp-shadow) calc(8% * var(--lp-shadow-strength)), transparent),
-		inset -1px -1px 0 var(--lp-bevel);
+		inset 0 -1px 0 var(--lp-bevel);
 }
 
 /* Engraved separators: a dark hairline with a light line under it. */
@@ -292,12 +294,12 @@
 			color-mix(in oklch, var(--lp-shadow) calc(9% * var(--lp-shadow-strength)), transparent);
 }
 
-/* The reference panel: diagonal bevel plus a short, soft drop. Cards use it
+/* The reference panel: top light, bottom shade, plus a short, soft drop. Cards use it
    with a hairline border, so the edge reads even where the drop is clipped. */
 @utility lp-panel {
 	box-shadow:
-		inset 1px 1px 0 var(--lp-bevel),
-		inset -1px -1px 0 var(--lp-emboss),
+		inset 0 1px 0 var(--lp-bevel),
+		inset 0 -1px 0 var(--lp-emboss),
 		0 1px 2px
 			color-mix(in oklch, var(--lp-shadow) calc(5% * var(--lp-shadow-strength)), transparent),
 		0 10px 28px -16px

@@ -70,8 +70,8 @@
 		border-radius: inherit;
 		background-color: var(--lp-deep);
 		box-shadow:
-			inset 1px 1px 2px color-mix(in srgb, var(--lp-emboss) 80%, transparent),
-			inset -1px -1px 2px color-mix(in srgb, var(--lp-bevel) 80%, transparent);
+			inset 0 1px 2px color-mix(in srgb, var(--lp-emboss) 80%, transparent),
+			inset 0 -1px 2px color-mix(in srgb, var(--lp-bevel) 80%, transparent);
 		transition: box-shadow 280ms var(--lp-ease);
 	}
 
@@ -94,8 +94,8 @@
 		[data-slot='soft-checkbox'][data-state='indeterminate'] [data-slot='soft-checkbox-surface']
 	) {
 		box-shadow:
-			inset 1px 1px 2px rgb(0 0 0 / 0.128),
-			inset -1px -1px 2px rgb(255 255 255 / 0.16);
+			inset 0 1px 2px rgb(0 0 0 / 0.128),
+			inset 0 -1px 2px rgb(255 255 255 / 0.16);
 	}
 
 	:global(

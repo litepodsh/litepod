@@ -255,8 +255,8 @@
 	}
 	.tile {
 		box-shadow:
-			inset 1px 1px 0 var(--lp-bevel),
-			inset -1px -1px 0 var(--lp-emboss);
+			inset 0 1px 0 var(--lp-bevel),
+			inset 0 -1px 0 var(--lp-emboss);
 	}
 	.chip {
 		display: inline-flex;
@@ -267,8 +267,8 @@
 		border-radius: 6px;
 		background: var(--muted);
 		box-shadow:
-			inset 1px 1px 0 var(--lp-bevel),
-			inset -1px -1px 0 var(--lp-emboss);
+			inset 0 1px 0 var(--lp-bevel),
+			inset 0 -1px 0 var(--lp-emboss);
 		color: var(--muted-foreground);
 		font-size: 12px;
 		white-space: nowrap;

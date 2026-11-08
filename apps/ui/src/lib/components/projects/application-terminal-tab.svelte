@@ -591,8 +591,8 @@
 		background: #0c0e12;
 		color: #43c983;
 		box-shadow:
-			inset 1px 1px 0 rgb(255 255 255 / 0.06),
-			inset -1px -1px 0 rgb(0 0 0 / 0.4);
+			inset 0 1px 0 rgb(255 255 255 / 0.06),
+			inset 0 -1px 0 rgb(0 0 0 / 0.4);
 	}
 	.status-ok {
 		background: color-mix(in oklch, var(--success) 14%, transparent);
