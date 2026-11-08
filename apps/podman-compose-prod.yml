@@ -23,7 +23,7 @@ services:
     networks: [control]
 
   app:
-    image: ${LITEPOD_IMAGE_REPO:-docker.io/litepod/litepod}:${LITEPOD_IMAGE_TAG:-v0.3.34}
+    image: ${LITEPOD_IMAGE_REPO:-docker.io/litepod/litepod}:${LITEPOD_IMAGE_TAG:-v0.3.35}
     container_name: litepod-api
     environment:
       APP_ENV: production
@@ -58,7 +58,7 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL in apps/.env}
       CORS_ORIGINS: ${PUBLIC_URL:?Set PUBLIC_URL in apps/.env}
       LITEPOD_IMAGE_REPO: ${LITEPOD_IMAGE_REPO:-docker.io/litepod/litepod}
-      LITEPOD_IMAGE_TAG: ${LITEPOD_IMAGE_TAG:-v0.3.34}
+      LITEPOD_IMAGE_TAG: ${LITEPOD_IMAGE_TAG:-v0.3.35}
       LITEPOD_UPDATE_CHANNEL: ${LITEPOD_UPDATE_CHANNEL:-stable}
       LITEPOD_VERSION_MANIFEST_URL: ${LITEPOD_VERSION_MANIFEST_URL:-https://litepod.sh/version.json}
       LITEPOD_UPDATE_INTERVAL: ${LITEPOD_UPDATE_INTERVAL:-3600}
