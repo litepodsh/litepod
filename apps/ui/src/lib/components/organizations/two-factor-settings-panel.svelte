@@ -33,7 +33,9 @@
 
 	let saving = $state(false);
 
-	const withoutTwoFactor = $derived(members.filter((member) => member.two_factor_enabled === false));
+	const withoutTwoFactor = $derived(
+		members.filter((member) => member.two_factor_enabled === false),
+	);
 	/** The API refuses to turn the requirement on for an admin who has no second
 	 *  factor (they would lock themselves out); say so up front. The SysAdmin is
 	 *  exempt from the requirement, so is not held back. */
@@ -52,7 +54,9 @@
 			organization.require_two_factor = updated.require_two_factor;
 		} catch (error) {
 			organization.require_two_factor = previous;
-			toast.error(error instanceof Error ? error.message : t('organizations.two_factor.update_failed'));
+			toast.error(
+				error instanceof Error ? error.message : t('organizations.two_factor.update_failed'),
+			);
 		} finally {
 			saving = false;
 		}

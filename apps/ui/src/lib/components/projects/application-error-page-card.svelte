@@ -65,7 +65,9 @@
 		data !== null &&
 			(source !== savedSource || (source === 'html' && draft !== (data.page_html ?? ''))),
 	);
-	const previewHtml = $derived(source === 'html' && draft.trim() ? draft : (data?.default_html ?? ''));
+	const previewHtml = $derived(
+		source === 'html' && draft.trim() ? draft : (data?.default_html ?? ''),
+	);
 
 	async function setEnabled(enabled: boolean) {
 		saving = true;
@@ -73,7 +75,9 @@
 			adopt(
 				await updateErrorPage(organizationId, projectId, environmentId, applicationId, { enabled }),
 			);
-			toast.success(t(enabled ? 'projects.error_page.turned_on' : 'projects.error_page.turned_off'));
+			toast.success(
+				t(enabled ? 'projects.error_page.turned_on' : 'projects.error_page.turned_off'),
+			);
 		} catch (err) {
 			toastError(err, t('projects.error_page.update_failed'));
 		} finally {

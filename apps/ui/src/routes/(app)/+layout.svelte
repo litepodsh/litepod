@@ -88,7 +88,9 @@
 
 <CommandPalette />
 <UpdateOverlay />
-<Sidebar.Provider bind:open={sidebarOpen} class={sidebarSide.current === 'right' ? 'flex-row-reverse' : ''}>
+<Sidebar.Provider
+	bind:open={sidebarOpen}
+	class={sidebarSide.current === 'right' ? 'flex-row-reverse' : ''}>
 	<AppSidebar
 		bind:organizations
 		active={activeOrganization}

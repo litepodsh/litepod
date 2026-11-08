@@ -797,7 +797,9 @@
 							aria-label={t('projects.application_general.rotate_deploy_url')}
 							><RefreshCwIcon class="size-4" /></Button>
 					</div>
-					<p class="text-xs font-medium">{t('projects.application_general.deploy_url_shown_once')}</p>
+					<p class="text-xs font-medium">
+						{t('projects.application_general.deploy_url_shown_once')}
+					</p>
 				{:else}
 					<div class="flex flex-wrap items-center gap-2">
 						<p class="text-xs text-muted-foreground">
@@ -805,7 +807,11 @@
 								? t('projects.application_general.deploy_url_configured')
 								: t('projects.application_general.deploy_url_none')}
 						</p>
-						<Button variant="outline" size="sm" disabled={busy} onclick={() => void onRotateDeployHook()}>
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={busy}
+							onclick={() => void onRotateDeployHook()}>
 							<RefreshCwIcon class="size-4" />
 							{deployHook.configured
 								? t('projects.application_general.rotate_deploy_url')
@@ -894,7 +900,8 @@
 						heading={t('projects.application_general.source_zip_heading')}
 						description={t('projects.application_general.source_zip_description')}
 						validate={validateSourceZip}
-						onMultipleFiles={() => toast.error(t('projects.application_general.one_file_at_a_time'))}
+						onMultipleFiles={() =>
+							toast.error(t('projects.application_general.one_file_at_a_time'))}
 						onUpload={uploadSourceZip}
 						allowDelete={false}
 						downloadUrl={sourceArchiveDownloadUrl}

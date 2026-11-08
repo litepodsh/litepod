@@ -62,7 +62,10 @@
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel disabled={busy}>{t('organizations.common.cancel')}</AlertDialog.Cancel>
-			<Button variant={user?.disabled ? 'default' : 'destructive'} disabled={busy} onclick={confirm}>
+			<Button
+				variant={user?.disabled ? 'default' : 'destructive'}
+				disabled={busy}
+				onclick={confirm}>
 				{user?.disabled
 					? t('organizations.members.enable_action')
 					: t('organizations.members.disable_action')}

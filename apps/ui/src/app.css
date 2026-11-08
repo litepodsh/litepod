@@ -397,15 +397,33 @@
 
 /* Height animation for tree collapsibles; bits-ui feeds the measured height in. */
 @keyframes lp-collapsible-down {
-	from { height: 0; overflow: hidden; }
-	to { height: var(--bits-collapsible-content-height); overflow: hidden; }
+	from {
+		height: 0;
+		overflow: hidden;
+	}
+	to {
+		height: var(--bits-collapsible-content-height);
+		overflow: hidden;
+	}
 }
 @keyframes lp-collapsible-up {
-	from { height: var(--bits-collapsible-content-height); overflow: hidden; }
-	to { height: 0; overflow: hidden; }
+	from {
+		height: var(--bits-collapsible-content-height);
+		overflow: hidden;
+	}
+	to {
+		height: 0;
+		overflow: hidden;
+	}
 }
-.lp-collapsible[data-state='open'] { animation: lp-collapsible-down 0.2s ease-out; }
-.lp-collapsible[data-state='closed'] { animation: lp-collapsible-up 0.2s ease-out; }
+.lp-collapsible[data-state='open'] {
+	animation: lp-collapsible-down 0.2s ease-out;
+}
+.lp-collapsible[data-state='closed'] {
+	animation: lp-collapsible-up 0.2s ease-out;
+}
 @media (prefers-reduced-motion: reduce) {
-	.lp-collapsible { animation: none !important; }
+	.lp-collapsible {
+		animation: none !important;
+	}
 }

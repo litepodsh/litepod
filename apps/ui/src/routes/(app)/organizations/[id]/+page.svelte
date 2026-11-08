@@ -48,13 +48,7 @@
 	const organizationId = page.params.id!;
 	/** Every tab `?tab=` may name. A value missing here silently reloads onto
 	 *  People, which is what used to happen to `assistant`. */
-	const TABS = [
-		'members',
-		'access',
-		'authentication',
-		'backup-storage',
-		'audit-logs',
-	];
+	const TABS = ['members', 'access', 'authentication', 'backup-storage', 'audit-logs'];
 
 	function tabFromUrl() {
 		const t = page.url.searchParams.get('tab');

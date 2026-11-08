@@ -170,7 +170,10 @@
 		if (!totpChallenge || loading) return;
 		// Accept the six-digit TOTP or an eight-character recovery code; ignore
 		// anything else the user may have typed or pasted.
-		const code = totpCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+		const code = totpCode
+			.toUpperCase()
+			.replace(/[^A-Z0-9]/g, '')
+			.slice(0, 8);
 		if (!code) return;
 		error = '';
 		loading = true;
@@ -205,7 +208,10 @@
 	// Keep the code field to alphanumerics, uppercase, and at most eight characters.
 	// The first complete TOTP (six digits) or recovery code (eight chars) submits itself.
 	$effect(() => {
-		const cleaned = totpCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+		const cleaned = totpCode
+			.toUpperCase()
+			.replace(/[^A-Z0-9]/g, '')
+			.slice(0, 8);
 		if (cleaned !== totpCode) {
 			totpCode = cleaned;
 		} else if (isCompleteCode(cleaned) && !totpAutoSubmitted) {
@@ -231,7 +237,11 @@
 		clipboard
 			.readText()
 			.then((text) => {
-				const code = text.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+				const code = text
+					.trim()
+					.toUpperCase()
+					.replace(/[^A-Z0-9]/g, '')
+					.slice(0, 8);
 				if (totpChallenge && !loading && !totpCode && isCompleteCode(code)) totpCode = code;
 			})
 			.catch(() => {

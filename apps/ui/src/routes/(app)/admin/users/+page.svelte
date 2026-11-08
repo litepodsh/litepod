@@ -118,7 +118,8 @@
 			</p>
 			{#if !loading}
 				<p class="mt-1 inline-flex items-center gap-1.5 text-sm font-medium">
-					<i class="size-2 rounded-full {onlineCount > 0 ? 'bg-success' : 'bg-muted-foreground/40'}"
+					<i
+						class="size-2 rounded-full {onlineCount > 0 ? 'bg-success' : 'bg-muted-foreground/40'}"
 						aria-hidden="true"></i>
 					{t('operations.users.online_count', { count: onlineCount })}
 				</p>
@@ -215,7 +216,9 @@
 										{@const action = [activityLabel(user.recent_action), user.recent_action_target]
 											.filter(Boolean)
 											.join(' · ')}
-										<p class="text-muted-foreground mt-0.5 max-w-56 truncate text-xs" title={action}>
+										<p
+											class="text-muted-foreground mt-0.5 max-w-56 truncate text-xs"
+											title={action}>
 											{action}
 										</p>
 									{/if}

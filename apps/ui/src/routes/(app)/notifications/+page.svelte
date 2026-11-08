@@ -8,8 +8,11 @@
 	onMount(async () => {
 		const organization = resolveSelectedOrganization(await listOrganizations().catch(() => []));
 		if (!organization) return void goto('/organizations', { replace: true });
-		void goto(`/organizations/${encodeURIComponent(organization.id)}/integrations?tab=notifications`, {
-			replace: true,
-		});
+		void goto(
+			`/organizations/${encodeURIComponent(organization.id)}/integrations?tab=notifications`,
+			{
+				replace: true,
+			},
+		);
 	});
 </script>

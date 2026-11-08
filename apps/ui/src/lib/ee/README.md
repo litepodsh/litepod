@@ -6,9 +6,9 @@ These panels are for self-hosted instances. On Litepod Cloud the API has no endp
 
 The matching API code lives in [`apps/api/src/ee`](../../../../api/src/ee/README.md).
 
-| Feature | Where | Shown in |
-| --- | --- | --- |
-| Single sign-on and SCIM | `sso/` | Organization page, login page |
+| Feature                          | Where       | Shown in                                                             |
+| -------------------------------- | ----------- | -------------------------------------------------------------------- |
+| Single sign-on and SCIM          | `sso/`      | Organization page, login page                                        |
 | White-label: name, logo, favicon | `branding/` | System → Branding; applied in the root layout, header and login page |
 
 ## Adding a feature here

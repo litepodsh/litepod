@@ -79,9 +79,9 @@
 		const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
 		const item = link?.closest('li');
 		if (!link || !item) return;
-		const links = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLAnchorElement>('a[href]')].filter(
-			(a) => a.getClientRects().length,
-		);
+		const links = [
+			...(event.currentTarget as HTMLElement).querySelectorAll<HTMLAnchorElement>('a[href]'),
+		].filter((a) => a.getClientRects().length);
 		const trigger = item.querySelector<HTMLElement>(':scope > [data-slot="collapsible-trigger"]');
 		const expanded = trigger?.getAttribute('aria-expanded') === 'true';
 		let next: HTMLElement | null | undefined;
@@ -89,10 +89,16 @@
 		else if (event.key === 'ArrowUp') next = links[links.indexOf(link) - 1];
 		else if (event.key === 'ArrowRight' && trigger) {
 			if (!expanded) trigger.click();
-			else next = item.querySelector<HTMLAnchorElement>(':scope > [data-slot="collapsible-content"] a[href]');
+			else
+				next = item.querySelector<HTMLAnchorElement>(
+					':scope > [data-slot="collapsible-content"] a[href]',
+				);
 		} else if (event.key === 'ArrowLeft') {
 			if (trigger && expanded) trigger.click();
-			else next = item.parentElement?.closest('li')?.querySelector<HTMLAnchorElement>(':scope > a[href]');
+			else
+				next = item.parentElement
+					?.closest('li')
+					?.querySelector<HTMLAnchorElement>(':scope > a[href]');
 		} else return;
 		event.preventDefault();
 		next?.focus();
@@ -100,7 +106,8 @@
 </script>
 
 <Sidebar.Root collapsible="icon" side={sidebarSide.current}>
-	<Sidebar.Header class="h-(--app-header-height) shrink-0 justify-center border-b border-transparent py-0">
+	<Sidebar.Header
+		class="h-(--app-header-height) shrink-0 justify-center border-b border-transparent py-0">
 		<Sidebar.Menu>
 			<Sidebar.MenuItem>
 				<OrgSwitcher bind:organizations {active} loading={!organizationsLoaded} />
@@ -147,23 +154,27 @@
 						{/snippet}
 					</Sidebar.GroupLabel>
 					<Collapsible.Content class="lp-collapsible">
-				<Sidebar.Menu onkeydown={treeKeys}>
-					{#each projects.slice(0, PROJECT_LIMIT) as project (project.id)}
-							<ProjectTreeItem {project} {path} onNavigate={closeOnPhone} />
-						{/each}
-						{#if projects.length > PROJECT_LIMIT}
-						<Sidebar.MenuItem>
-							<Sidebar.MenuButton class="text-sidebar-foreground/70">
-								{#snippet child({ props })}
-									<a href="/projects" onclick={closeOnPhone} use:preloadOnHover={'/projects'} {...props}>
-										<EllipsisIcon />
-										<span>{t('menu.sidebar.all_projects')}</span>
-									</a>
-								{/snippet}
-							</Sidebar.MenuButton>
-						</Sidebar.MenuItem>
-					{/if}
-				</Sidebar.Menu>
+						<Sidebar.Menu onkeydown={treeKeys}>
+							{#each projects.slice(0, PROJECT_LIMIT) as project (project.id)}
+								<ProjectTreeItem {project} {path} onNavigate={closeOnPhone} />
+							{/each}
+							{#if projects.length > PROJECT_LIMIT}
+								<Sidebar.MenuItem>
+									<Sidebar.MenuButton class="text-sidebar-foreground/70">
+										{#snippet child({ props })}
+											<a
+												href="/projects"
+												onclick={closeOnPhone}
+												use:preloadOnHover={'/projects'}
+												{...props}>
+												<EllipsisIcon />
+												<span>{t('menu.sidebar.all_projects')}</span>
+											</a>
+										{/snippet}
+									</Sidebar.MenuButton>
+								</Sidebar.MenuItem>
+							{/if}
+						</Sidebar.Menu>
 					</Collapsible.Content>
 				</Sidebar.Group>
 			</Collapsible.Root>

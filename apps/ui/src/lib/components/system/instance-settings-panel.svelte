@@ -123,7 +123,9 @@
 			toast.success(t('account.settings.success.error_page_saved'));
 		} catch (err) {
 			errorPageEnabled = !enabled;
-			toast.error(err instanceof Error ? err.message : t('account.settings.errors.save_error_page'));
+			toast.error(
+				err instanceof Error ? err.message : t('account.settings.errors.save_error_page'),
+			);
 		} finally {
 			savingErrorPage = false;
 		}
@@ -286,7 +288,9 @@
 	<AlertDialog.Content>
 		<AlertDialog.Header>
 			<AlertDialog.Title
-				>{t('account.settings.restart_confirm_title', { target: confirmTarget })}</AlertDialog.Title>
+				>{t('account.settings.restart_confirm_title', {
+					target: confirmTarget,
+				})}</AlertDialog.Title>
 			<AlertDialog.Description>
 				{#if confirmTarget}
 					{infrastructureTargets.find((item) => item.key === confirmTarget)?.description}

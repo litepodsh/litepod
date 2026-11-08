@@ -257,7 +257,8 @@
 				)}</Button>
 			<Button variant="outline" disabled={busy} onclick={() => void onGenerate()}
 				>{t('projects.dialogs_common.random_sslip')}</Button>
-			<Button disabled={busy} onclick={() => add()}>{t('projects.dialogs_common.add_domain')}</Button>
+			<Button disabled={busy} onclick={() => add()}
+				>{t('projects.dialogs_common.add_domain')}</Button>
 		</div>
 	</div>
 
@@ -316,7 +317,8 @@
 								href={domain.url}
 								target="_blank"
 								rel="noreferrer"
-								>{#if domain.path}<span class="font-normal text-muted-foreground">{domain.host}</span
+								>{#if domain.path}<span class="font-normal text-muted-foreground"
+										>{domain.host}</span
 									><span class="font-mono">{domain.path}</span>{:else}{domain.host}{/if}</a>
 							{#if domain.is_primary}<span
 									class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"

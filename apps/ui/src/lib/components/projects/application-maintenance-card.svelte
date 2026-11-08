@@ -95,7 +95,9 @@
 			source !== 'site' &&
 			(source !== savedSource(data) || (source === 'html' && draft !== (data.custom_html ?? ''))),
 	);
-	const previewHtml = $derived(source === 'html' && draft.trim() ? draft : (data?.default_html ?? ''));
+	const previewHtml = $derived(
+		source === 'html' && draft.trim() ? draft : (data?.default_html ?? ''),
+	);
 
 	function size(bytes: number) {
 		return bytes >= 1024 * 1024
@@ -232,9 +234,7 @@
 				<div class="min-w-0">
 					<Label for="maintenance-enabled">{t('projects.maintenance.switch')}</Label>
 					<p class="mt-1 text-sm text-muted-foreground">
-						{data.enabled
-							? t('projects.maintenance.on_hint')
-							: t('projects.maintenance.off_hint')}
+						{data.enabled ? t('projects.maintenance.on_hint') : t('projects.maintenance.off_hint')}
 					</p>
 				</div>
 				<SoftSwitch

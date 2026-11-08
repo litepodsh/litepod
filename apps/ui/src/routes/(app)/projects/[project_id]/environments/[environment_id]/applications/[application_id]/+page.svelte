@@ -844,9 +844,15 @@
 						.catch(() => [])
 				: [];
 			if (
-				['postgres', 'mariadb', 'dragonflydb', 'keydb', 'sqlserver', 'mongodb', 'clickhouse'].includes(
-					app.template_kind ?? '',
-				) &&
+				[
+					'postgres',
+					'mariadb',
+					'dragonflydb',
+					'keydb',
+					'sqlserver',
+					'mongodb',
+					'clickhouse',
+				].includes(app.template_kind ?? '') &&
 				activeTab === 'domains'
 			) {
 				activeTab = defaultTab;

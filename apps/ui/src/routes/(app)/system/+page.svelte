@@ -202,10 +202,7 @@
 					{t('operations.system.org_scope')}
 					<span
 						class="lp-raised inline-flex h-6 items-center gap-1.5 rounded-md bg-muted px-2 text-xs font-medium text-foreground">
-						<OrganizationIcon
-							icon={organization.icon}
-							bg={organization.icon_bg}
-							class="size-3.5" />
+						<OrganizationIcon icon={organization.icon} bg={organization.icon_bg} class="size-3.5" />
 						{organization.name}
 					</span>
 				</p>

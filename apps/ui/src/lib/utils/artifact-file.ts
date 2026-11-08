@@ -19,7 +19,9 @@ function decodeLeadingText(bytes: Uint8Array) {
 
 /** The text after any BOM, whitespace and leading comments, which the API skips too. */
 function documentStart(bytes: Uint8Array) {
-	let rest = decodeLeadingText(bytes).replace(/^\uFEFF/, '').trimStart();
+	let rest = decodeLeadingText(bytes)
+		.replace(/^\uFEFF/, '')
+		.trimStart();
 	while (rest.startsWith('<!--')) {
 		const end = rest.indexOf('-->');
 		if (end < 0) break;

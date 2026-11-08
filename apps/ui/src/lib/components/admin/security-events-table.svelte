@@ -6,10 +6,7 @@
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import { Switch } from '#lib/components/ui/switch/index.js';
 	import * as Empty from '#lib/components/ui/empty/index.js';
-	import {
-		listSecurityEvents,
-		type SecurityEvent,
-	} from '#lib/clients/admin-security-client.js';
+	import { listSecurityEvents, type SecurityEvent } from '#lib/clients/admin-security-client.js';
 	import { toast } from '#lib/utils/toast.js';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -150,7 +147,8 @@
 								<div class="flex flex-wrap items-center gap-1.5">
 									<code class="text-xs">{event.action}</code>
 									{#if event.flag}
-										<Badge variant="destructive">{t(`operations.security.flag_${event.flag}`)}</Badge>
+										<Badge variant="destructive"
+											>{t(`operations.security.flag_${event.flag}`)}</Badge>
 									{/if}
 								</div>
 								{#if event.metadata && event.action !== 'auth.login_failed'}
@@ -188,7 +186,9 @@
 							<td class="text-muted-foreground p-3" title={event.asn ?? undefined}>
 								{place(event) || '—'}
 							</td>
-							<td class="text-muted-foreground max-w-64 truncate p-3 text-xs" title={event.user_agent ?? undefined}>
+							<td
+								class="text-muted-foreground max-w-64 truncate p-3 text-xs"
+								title={event.user_agent ?? undefined}>
 								{event.user_agent ?? '—'}
 							</td>
 						</tr>

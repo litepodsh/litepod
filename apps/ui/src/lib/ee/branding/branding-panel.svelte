@@ -15,7 +15,11 @@
 	let logoUrl = $state('');
 	let faviconUrl = $state('');
 
-	function fill(value: { name: string | null; logo_url: string | null; favicon_url: string | null }) {
+	function fill(value: {
+		name: string | null;
+		logo_url: string | null;
+		favicon_url: string | null;
+	}) {
 		name = value.name ?? '';
 		logoUrl = value.logo_url ?? '';
 		faviconUrl = value.favicon_url ?? '';

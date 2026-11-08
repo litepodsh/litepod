@@ -32,7 +32,8 @@
 	}
 
 	async function revoke(connection: McpConnection) {
-		if (!confirm(t('operations.users.mcp_revoke_confirm', { client: connection.client_name }))) return;
+		if (!confirm(t('operations.users.mcp_revoke_confirm', { client: connection.client_name })))
+			return;
 		revoking = connection.id;
 		try {
 			await revokeUserMcpConnection(userId, connection.id);

@@ -444,7 +444,8 @@ vec3 ground(float lng, float lat) {
 			}
 			if (point) spots.push({ point, yaw });
 		}
-		if (!spots.length && import.meta.env.DEV) console.warn('[server-globe] no spot for the spacesuits');
+		if (!spots.length && import.meta.env.DEV)
+			console.warn('[server-globe] no spot for the spacesuits');
 		return spots;
 	}
 
@@ -627,7 +628,10 @@ vec3 ground(float lng, float lat) {
 			// LVLH, like the real ISS: top to zenith, along-track axis on the velocity, truss across it.
 			const { up, fwd, side, basis } = issAxes;
 			up.set(x, y, z).normalize();
-			fwd.set(next.x - x, next.y - y, next.z - z).projectOnPlane(up).normalize();
+			fwd
+				.set(next.x - x, next.y - y, next.z - z)
+				.projectOnPlane(up)
+				.normalize();
 			side.crossVectors(fwd, up);
 			// The model's truss is X and its top Z (see loadIssDetail), so along-track is Y.
 			wrapper.quaternion.setFromRotationMatrix(basis.makeBasis(side, fwd, up));

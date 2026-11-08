@@ -46,7 +46,7 @@ const publicEdgeServer: Server = {
 		caddy_version: '2.8',
 		swap_bytes: null,
 		swap_recommended: false,
-			helper: null,
+		helper: null,
 		capacity: { cpu_cores: 2, memory_bytes: 1, disk_free_bytes: 1 },
 	},
 	last_error: null,
@@ -218,10 +218,13 @@ describe('ApplicationDomainsTab routes', () => {
 
 	it('lists each route right under its host', () => {
 		renderRoutes();
-		const order = screen
-			.getAllByRole('link')
-			.map((link) => link.textContent?.replace(/\s+/g, ''));
-		expect(order).toEqual(['b.example.com', 'a.example.com', 'a.example.com/api', 'a.example.com/api/v2']);
+		const order = screen.getAllByRole('link').map((link) => link.textContent?.replace(/\s+/g, ''));
+		expect(order).toEqual([
+			'b.example.com',
+			'a.example.com',
+			'a.example.com/api',
+			'a.example.com/api/v2',
+		]);
 	});
 
 	it('opens a new domain on the same host from Add route', async () => {

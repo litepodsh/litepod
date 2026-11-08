@@ -127,7 +127,12 @@
 	const hasPath = $derived(!isLocal && path.trim() !== '' && path.trim() !== '/');
 	// Mirrors the API's normalization, for the title and the preview only.
 	const normalizedPath = $derived(
-		hasPath ? `/${path.trim().replace(/^\/+|\/+$/g, '').toLowerCase()}` : '',
+		hasPath
+			? `/${path
+					.trim()
+					.replace(/^\/+|\/+$/g, '')
+					.toLowerCase()}`
+			: '',
 	);
 
 	// People type or paste whole addresses: `https://example.com/api/` fills both fields.
@@ -446,14 +451,14 @@
 								>{/if}
 						</div>
 						<p class="text-xs text-muted-foreground">
-						{hasPath
-							? t('projects.domain_form.path_preview', {
-									url: `${normalizedHost || t('projects.domain_form.host_placeholder')}${normalizedPath}/users`,
-								})
-							: isLocal
-								? t('projects.domain_form.description')
-								: `${t('projects.domain_form.description')} ${t('projects.domain_form.path_hint')}`}
-					</p>
+							{hasPath
+								? t('projects.domain_form.path_preview', {
+										url: `${normalizedHost || t('projects.domain_form.host_placeholder')}${normalizedPath}/users`,
+									})
+								: isLocal
+									? t('projects.domain_form.description')
+									: `${t('projects.domain_form.description')} ${t('projects.domain_form.path_hint')}`}
+						</p>
 					</div>
 					{#if wwwVariant}
 						<div class="flex items-center justify-between gap-3">
@@ -478,93 +483,93 @@
 						class={`-mt-3 grid transition-[grid-template-rows,opacity] duration-300 ease-[var(--lp-ease)] motion-reduce:transition-none ${showDns ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
 						inert={!showDns}>
 						<div class="min-h-0 overflow-hidden pt-3">
-						{#if !isLocal}
-							{@const result = dnsCheck.result}
-							<div class="lp-well grid gap-2 rounded-[10px] bg-muted p-3 text-xs">
-								<div class="flex flex-wrap items-center justify-between gap-2">
-									<span class="font-semibold">DNS</span>
-									<span class="flex flex-wrap items-center gap-2" aria-live="polite">
-										{#if isSslip}
-											<span class="flex items-center gap-1.5 text-success"
-												><CircleCheckIcon class="size-3.5" />{t(
-													'projects.domain_form.dns_sslip',
-												)}</span>
-										{:else if dnsCheck.loading}
-											<span class="flex items-center gap-1.5 text-muted-foreground"
-												><LoaderCircleIcon
-													class="size-3.5 animate-spin motion-reduce:animate-none" />{t(
-													'projects.domain_form.dns_checking',
-												)}</span>
-										{:else if dnsCheck.error || result?.status === 'error'}
-											<span
-												class="flex items-center gap-1.5 text-destructive"
-												title={dnsCheck.error ?? result?.message ?? undefined}
-												><CircleAlertIcon class="size-3.5" />{t(
-													'projects.domain_form.dns_error',
-												)}</span>
-										{:else if result?.status === 'valid'}
-											<span class="flex items-center gap-1.5 text-success"
-												><CircleCheckIcon class="size-3.5" />{t('projects.domain_form.dns_ok', {
-													target: result.resolved_addresses.join(', '),
-												})}</span>
-										{:else if result?.status === 'cdn'}
-											<span class="flex items-center gap-1.5 text-success"
-												><CircleCheckIcon class="size-3.5" />{t('projects.domain_form.dns_cdn', {
-													provider: result.cdn_provider ?? 'CDN',
-												})}</span>
-										{:else if result?.status === 'invalid'}
-											<span class="flex items-center gap-1.5 text-warning"
-												><CircleAlertIcon class="size-3.5" />{t(
-													'projects.domain_form.dns_mismatch',
-												)}</span>
-										{:else if result?.status === 'unresolved'}
-											<span class="flex items-center gap-1.5 text-warning"
-												><CircleAlertIcon class="size-3.5" />{t(
-													'projects.domain_form.dns_missing',
-												)}</span>
-										{/if}
-										{#if canCheckDns && !dnsCheck.loading && (result || dnsCheck.error)}
-											<Button
-												type="button"
-												variant="outline"
-												size="sm"
-												class="h-7 px-2 text-xs"
-												onclick={() => void checkDns(normalizedHost, serverId)}
-												><RefreshCwIcon class="size-3.5" />{t(
-													'projects.domain_form.dns_check_again',
-												)}</Button>
-										{/if}
-									</span>
-								</div>
-								{#if !isSslip && !dnsCheck.loading && (dnsCheck.error || result?.status === 'error')}
-									<p class="break-words text-muted-foreground">
-										{dnsCheck.error ?? result?.message}
-									</p>
-								{:else if !isSslip && !dnsCheck.loading && dnsFound && result?.status !== 'valid'}
-									<p class="font-mono break-all text-muted-foreground">
-										{t('projects.domain_form.dns_found', { records: dnsFound })}
-									</p>
-								{/if}
-								{#if !isSslip && dnsTarget}
-									<div
-										class="grid grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-x-2.5 gap-y-1 font-mono">
-										<span class="font-sans text-[11.5px] text-muted-foreground"
-											>{t('projects.domain_form.dns_type')}</span>
-										<span class="font-sans text-[11.5px] text-muted-foreground"
-											>{t('projects.domain_form.dns_name')}</span>
-										<span class="font-sans text-[11.5px] text-muted-foreground"
-											>{t('projects.domain_dns.value')}</span>
-										<span>{dnsRecordType}</span>
-										<span class="truncate">{dnsRecordName}</span>
-										<CopyButton
-											value={dnsTarget}
-											revealOnHover={false}
-											class="min-w-0 justify-between"
-											errorMessage={t('projects.domain_dns.copy_failed')} />
+							{#if !isLocal}
+								{@const result = dnsCheck.result}
+								<div class="lp-well grid gap-2 rounded-[10px] bg-muted p-3 text-xs">
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<span class="font-semibold">DNS</span>
+										<span class="flex flex-wrap items-center gap-2" aria-live="polite">
+											{#if isSslip}
+												<span class="flex items-center gap-1.5 text-success"
+													><CircleCheckIcon class="size-3.5" />{t(
+														'projects.domain_form.dns_sslip',
+													)}</span>
+											{:else if dnsCheck.loading}
+												<span class="flex items-center gap-1.5 text-muted-foreground"
+													><LoaderCircleIcon
+														class="size-3.5 animate-spin motion-reduce:animate-none" />{t(
+														'projects.domain_form.dns_checking',
+													)}</span>
+											{:else if dnsCheck.error || result?.status === 'error'}
+												<span
+													class="flex items-center gap-1.5 text-destructive"
+													title={dnsCheck.error ?? result?.message ?? undefined}
+													><CircleAlertIcon class="size-3.5" />{t(
+														'projects.domain_form.dns_error',
+													)}</span>
+											{:else if result?.status === 'valid'}
+												<span class="flex items-center gap-1.5 text-success"
+													><CircleCheckIcon class="size-3.5" />{t('projects.domain_form.dns_ok', {
+														target: result.resolved_addresses.join(', '),
+													})}</span>
+											{:else if result?.status === 'cdn'}
+												<span class="flex items-center gap-1.5 text-success"
+													><CircleCheckIcon class="size-3.5" />{t('projects.domain_form.dns_cdn', {
+														provider: result.cdn_provider ?? 'CDN',
+													})}</span>
+											{:else if result?.status === 'invalid'}
+												<span class="flex items-center gap-1.5 text-warning"
+													><CircleAlertIcon class="size-3.5" />{t(
+														'projects.domain_form.dns_mismatch',
+													)}</span>
+											{:else if result?.status === 'unresolved'}
+												<span class="flex items-center gap-1.5 text-warning"
+													><CircleAlertIcon class="size-3.5" />{t(
+														'projects.domain_form.dns_missing',
+													)}</span>
+											{/if}
+											{#if canCheckDns && !dnsCheck.loading && (result || dnsCheck.error)}
+												<Button
+													type="button"
+													variant="outline"
+													size="sm"
+													class="h-7 px-2 text-xs"
+													onclick={() => void checkDns(normalizedHost, serverId)}
+													><RefreshCwIcon class="size-3.5" />{t(
+														'projects.domain_form.dns_check_again',
+													)}</Button>
+											{/if}
+										</span>
 									</div>
-								{/if}
-							</div>
-						{/if}
+									{#if !isSslip && !dnsCheck.loading && (dnsCheck.error || result?.status === 'error')}
+										<p class="break-words text-muted-foreground">
+											{dnsCheck.error ?? result?.message}
+										</p>
+									{:else if !isSslip && !dnsCheck.loading && dnsFound && result?.status !== 'valid'}
+										<p class="font-mono break-all text-muted-foreground">
+											{t('projects.domain_form.dns_found', { records: dnsFound })}
+										</p>
+									{/if}
+									{#if !isSslip && dnsTarget}
+										<div
+											class="grid grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-x-2.5 gap-y-1 font-mono">
+											<span class="font-sans text-[11.5px] text-muted-foreground"
+												>{t('projects.domain_form.dns_type')}</span>
+											<span class="font-sans text-[11.5px] text-muted-foreground"
+												>{t('projects.domain_form.dns_name')}</span>
+											<span class="font-sans text-[11.5px] text-muted-foreground"
+												>{t('projects.domain_dns.value')}</span>
+											<span>{dnsRecordType}</span>
+											<span class="truncate">{dnsRecordName}</span>
+											<CopyButton
+												value={dnsTarget}
+												revealOnHover={false}
+												class="min-w-0 justify-between"
+												errorMessage={t('projects.domain_dns.copy_failed')} />
+										</div>
+									{/if}
+								</div>
+							{/if}
 						</div>
 					</div>
 				</section>

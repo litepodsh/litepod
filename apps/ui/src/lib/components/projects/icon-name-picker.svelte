@@ -80,12 +80,7 @@
 					{isNamedIcon(highlighted) ? label(highlighted) : ''}
 				</span>
 				{#if value}
-					<Button
-						type="button"
-						variant="ghost"
-						size="xs"
-						class="shrink-0"
-						onclick={() => pick('')}>
+					<Button type="button" variant="ghost" size="xs" class="shrink-0" onclick={() => pick('')}>
 						<XIcon class="size-3" />
 						{t('projects.projects.icon_remove')}
 					</Button>

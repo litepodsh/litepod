@@ -33,7 +33,7 @@
 	import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import CopyIcon from '@lucide/svelte/icons/copy';
-import InfoIcon from '@lucide/svelte/icons/info';
+	import InfoIcon from '@lucide/svelte/icons/info';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';

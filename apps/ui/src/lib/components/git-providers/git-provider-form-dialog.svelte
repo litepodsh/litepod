@@ -290,113 +290,116 @@
 					placeholder="https://github.com" />
 			</div>
 			{#if !isOauth}
-			<div class="grid gap-2">
-				<Label for="provider-username">{t('git-providers.form-dialog.username')}</Label>
-				<Input
-					id="provider-username"
-					bind:value={username}
-					oninput={clearTest}
-					maxlength={200}
-					placeholder="octocat" />
-			</div>
-			<div class="grid gap-2">
-				<Label for="provider-password"
-					>{t('git-providers.form-dialog.password')}
-					{#if provider}<span class="text-muted-foreground"
-							>{t('git-providers.form-dialog.password_keep')}</span
-						>{/if}</Label>
-				<Input id="provider-password" type="password" bind:value={password} oninput={clearTest} />
-			</div>
-			<section
-				class="grid gap-3 rounded-lg border bg-muted/30 p-3"
-				aria-label={t('git-providers.form-dialog.test_title')}>
-				<div>
-					<h3 class="text-sm font-medium">{t('git-providers.form-dialog.test_title')}</h3>
-					{#if providerType === 'generic'}
-						<p class="mt-1 text-xs text-muted-foreground">
-							{t('git-providers.form-dialog.test_hint_generic')}
-						</p>
-					{:else}
-						<p class="mt-1 text-xs text-muted-foreground">
-							{t('git-providers.form-dialog.test_hint')}
-						</p>
-					{/if}
+				<div class="grid gap-2">
+					<Label for="provider-username">{t('git-providers.form-dialog.username')}</Label>
+					<Input
+						id="provider-username"
+						bind:value={username}
+						oninput={clearTest}
+						maxlength={200}
+						placeholder="octocat" />
 				</div>
-				{#if providerType === 'generic'}
-					<div class="grid gap-2">
-						<Label for="provider-test-repo">{t('git-providers.form-dialog.test_repo_label')}</Label>
-						<Input
-							id="provider-test-repo"
-							bind:value={testRepoUrl}
-							oninput={clearTest}
-							placeholder="https://git.example.com/organization/app.git" />
-					</div>
-				{/if}
-				<div>
-					<div class="flex flex-wrap items-center gap-2">
-						<Button
-							type="button"
-							variant="outline"
-							onclick={() => void testConnection()}
-							disabled={!canTest || testing}>
-							{#if testing}<LoaderCircleIcon class="size-4 animate-spin" />
-								{t('git-providers.form-dialog.testing')}{:else}{t(
-									'git-providers.form-dialog.test',
-								)}{/if}
-						</Button>
-						{#if !password}
-							<span class="text-xs text-muted-foreground"
-								>{t('git-providers.form-dialog.test_needs_password')}</span>
+				<div class="grid gap-2">
+					<Label for="provider-password"
+						>{t('git-providers.form-dialog.password')}
+						{#if provider}<span class="text-muted-foreground"
+								>{t('git-providers.form-dialog.password_keep')}</span
+							>{/if}</Label>
+					<Input id="provider-password" type="password" bind:value={password} oninput={clearTest} />
+				</div>
+				<section
+					class="grid gap-3 rounded-lg border bg-muted/30 p-3"
+					aria-label={t('git-providers.form-dialog.test_title')}>
+					<div>
+						<h3 class="text-sm font-medium">{t('git-providers.form-dialog.test_title')}</h3>
+						{#if providerType === 'generic'}
+							<p class="mt-1 text-xs text-muted-foreground">
+								{t('git-providers.form-dialog.test_hint_generic')}
+							</p>
+						{:else}
+							<p class="mt-1 text-xs text-muted-foreground">
+								{t('git-providers.form-dialog.test_hint')}
+							</p>
 						{/if}
 					</div>
-					{#if testError}
-						<p
-							class="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
-							{testError}
-						</p>
-					{:else if testedRepositories !== null}
-						<div class="grid gap-2" aria-live="polite">
-							<p class="flex items-center gap-1 text-xs font-medium text-success">
-								<CircleCheckIcon class="size-4" />
-								{providerType === 'generic'
-									? t('git-providers.form-dialog.test_success_generic')
-									: testedRepositories.length === 1
-										? t('git-providers.form-dialog.test_success_one', {
-												count: testedRepositories.length,
-											})
-										: t('git-providers.form-dialog.test_success_many', {
-												count: testedRepositories.length,
-											})}
-							</p>
-							{#if testedRepositories.length > 0}
-								<ul class="max-h-52 space-y-2 overflow-y-auto rounded-md border bg-background p-2">
-									{#each testedRepositories as repository (repository.clone_url)}
-										<li class="grid gap-1 border-b pb-2 last:border-0 last:pb-0">
-											<div class="flex items-center gap-2">
-												<span class="min-w-0 truncate text-sm font-medium"
-													>{repository.full_name}</span
-												><span class="rounded-full bg-muted px-1.5 py-0.5 text-[10px]"
-													>{repository.private
-														? t('git-providers.form-dialog.repo_private')
-														: t('git-providers.form-dialog.repo_public')}</span
-												>{#if repository.default_branch}<span class="text-xs text-muted-foreground"
-														>{repository.default_branch}</span
-													>{/if}
-											</div>
-											<code class="truncate text-[11px] text-muted-foreground"
-												>{repository.clone_url}</code>
-										</li>
-									{/each}
-								</ul>
-							{:else}
-								<p class="text-xs text-muted-foreground">
-									{t('git-providers.form-dialog.test_no_repos')}
-								</p>
-							{/if}
+					{#if providerType === 'generic'}
+						<div class="grid gap-2">
+							<Label for="provider-test-repo"
+								>{t('git-providers.form-dialog.test_repo_label')}</Label>
+							<Input
+								id="provider-test-repo"
+								bind:value={testRepoUrl}
+								oninput={clearTest}
+								placeholder="https://git.example.com/organization/app.git" />
 						</div>
 					{/if}
-				</div>
-			</section>
+					<div>
+						<div class="flex flex-wrap items-center gap-2">
+							<Button
+								type="button"
+								variant="outline"
+								onclick={() => void testConnection()}
+								disabled={!canTest || testing}>
+								{#if testing}<LoaderCircleIcon class="size-4 animate-spin" />
+									{t('git-providers.form-dialog.testing')}{:else}{t(
+										'git-providers.form-dialog.test',
+									)}{/if}
+							</Button>
+							{#if !password}
+								<span class="text-xs text-muted-foreground"
+									>{t('git-providers.form-dialog.test_needs_password')}</span>
+							{/if}
+						</div>
+						{#if testError}
+							<p
+								class="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+								{testError}
+							</p>
+						{:else if testedRepositories !== null}
+							<div class="grid gap-2" aria-live="polite">
+								<p class="flex items-center gap-1 text-xs font-medium text-success">
+									<CircleCheckIcon class="size-4" />
+									{providerType === 'generic'
+										? t('git-providers.form-dialog.test_success_generic')
+										: testedRepositories.length === 1
+											? t('git-providers.form-dialog.test_success_one', {
+													count: testedRepositories.length,
+												})
+											: t('git-providers.form-dialog.test_success_many', {
+													count: testedRepositories.length,
+												})}
+								</p>
+								{#if testedRepositories.length > 0}
+									<ul
+										class="max-h-52 space-y-2 overflow-y-auto rounded-md border bg-background p-2">
+										{#each testedRepositories as repository (repository.clone_url)}
+											<li class="grid gap-1 border-b pb-2 last:border-0 last:pb-0">
+												<div class="flex items-center gap-2">
+													<span class="min-w-0 truncate text-sm font-medium"
+														>{repository.full_name}</span
+													><span class="rounded-full bg-muted px-1.5 py-0.5 text-[10px]"
+														>{repository.private
+															? t('git-providers.form-dialog.repo_private')
+															: t('git-providers.form-dialog.repo_public')}</span
+													>{#if repository.default_branch}<span
+															class="text-xs text-muted-foreground"
+															>{repository.default_branch}</span
+														>{/if}
+												</div>
+												<code class="truncate text-[11px] text-muted-foreground"
+													>{repository.clone_url}</code>
+											</li>
+										{/each}
+									</ul>
+								{:else}
+									<p class="text-xs text-muted-foreground">
+										{t('git-providers.form-dialog.test_no_repos')}
+									</p>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				</section>
 			{/if}
 		</form>
 		<Dialog.Footer class="shrink-0 border-t border-border bg-popover/50 px-6 py-4">

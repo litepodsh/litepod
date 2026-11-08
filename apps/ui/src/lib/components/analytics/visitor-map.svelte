@@ -175,8 +175,7 @@
 	<div class="grid min-w-0 gap-0 lg:grid-cols-[minmax(0,1fr)_300px]">
 		<div class="relative min-w-0 px-3 pt-4 pb-2 sm:px-5" bind:this={box}>
 			{#if failed}
-				<div
-					class="grid aspect-[960/470] place-items-center text-sm text-muted-foreground">
+				<div class="grid aspect-[960/470] place-items-center text-sm text-muted-foreground">
 					{t('analytics.geo.map_failed')}
 				</div>
 			{:else if !shapes}
@@ -282,8 +281,7 @@
 		</div>
 
 		<div class="lp-groove-t flex min-w-0 flex-col lg:border-t-0 lg:border-l lg:shadow-none">
-			<p
-				class="flex items-baseline justify-between px-5 pt-4 pb-2 text-xs text-muted-foreground">
+			<p class="flex items-baseline justify-between px-5 pt-4 pb-2 text-xs text-muted-foreground">
 				<span>{t('analytics.geo.countries_count', { count: ranked.length })}</span>
 				<span class="tabular-nums">
 					{shown === 'visitors'
