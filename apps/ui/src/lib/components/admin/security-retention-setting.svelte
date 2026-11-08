@@ -20,7 +20,9 @@
 			current = await getSecurityEventRetention();
 			days = current.retention_days;
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : t('operations.security.retention_failed'));
+			toast.error(
+				error instanceof Error ? error.message : t('operations.security.retention_failed'),
+			);
 		}
 	});
 
@@ -35,14 +37,17 @@
 			toast.success(t('operations.security.retention_updated'));
 		} catch (error) {
 			days = current.retention_days;
-			toast.error(error instanceof Error ? error.message : t('operations.security.retention_failed'));
+			toast.error(
+				error instanceof Error ? error.message : t('operations.security.retention_failed'),
+			);
 		} finally {
 			saving = false;
 		}
 	}
 </script>
 
-<div class="flex flex-col gap-3 rounded-2xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+<div
+	class="flex flex-col gap-3 rounded-2xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
 	<div class="min-w-0">
 		<Label for="security-retention-days">{t('operations.security.retention')}</Label>
 		<p class="mt-1 text-sm text-muted-foreground">

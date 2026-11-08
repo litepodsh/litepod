@@ -155,7 +155,13 @@ async fn send(state: &SharedState, email: &str, code: &str) -> Result<(), ()> {
     let text = format!(
         "Your Litepod verification code is {code}\n\nEnter it on the verification page to confirm your email. It expires in 2 hours.\n\nDidn't ask for this code? Ignore this email and no account will be created. Never share this code with anyone."
     );
-    deliver(email, "Your litepod verification code", code_email_html(code), Some(text)).await
+    deliver(
+        email,
+        "Your litepod verification code",
+        code_email_html(code),
+        Some(text),
+    )
+    .await
 }
 
 /// Sent instead of an `AlreadyExists` error when someone tries to register an
@@ -168,7 +174,13 @@ async fn send_already_registered_notice(email: &str) -> Result<(), ()> {
          and use the password reset link on the sign-in page if you've forgotten your password.</p>\
          <p>If it wasn't you, you can safely ignore this message.</p>"
         .to_string();
-    deliver(email, "Someone tried to sign up with your email", html, None).await
+    deliver(
+        email,
+        "Someone tried to sign up with your email",
+        html,
+        None,
+    )
+    .await
 }
 
 async fn issue(state: &SharedState, state_value: &VerificationState) -> Result<String, AppError> {

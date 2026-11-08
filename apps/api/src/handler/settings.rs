@@ -121,7 +121,11 @@ pub async fn update_error_page_handler(
         None,
         &user,
         "settings.error_page_updated",
-        Some(if request.enabled { "enabled" } else { "disabled" }),
+        Some(if request.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }),
     )
     .await;
     get_error_page_handler(State(state), Extension(user)).await

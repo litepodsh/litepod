@@ -15,9 +15,9 @@ use crate::{
         project::CreateApplicationRequest,
         response::AppError,
         template::{
-            ClickHouseResourceDetailDto, ClickHouseTemplateConfigUpdate, ClickHouseTemplateCreatedDto,
-            ClickHouseTemplateInput, ClickHouseTemplatePreviewDto, TemplateVariableDto,
-            TemplateVolumeDto,
+            ClickHouseResourceDetailDto, ClickHouseTemplateConfigUpdate,
+            ClickHouseTemplateCreatedDto, ClickHouseTemplateInput, ClickHouseTemplatePreviewDto,
+            TemplateVariableDto, TemplateVolumeDto,
         },
     },
     state::state::SharedState,
@@ -336,8 +336,7 @@ pub async fn update_resource(
         input.database_name.is_some() || input.database_user.is_some() || input.password.is_some();
     if credentials_changed && deployment_state.status != "not_deployed" {
         return Err(AppError::ValidationError(
-            "Database credentials can only be edited before the first ClickHouse deployment"
-                .into(),
+            "Database credentials can only be edited before the first ClickHouse deployment".into(),
         ));
     }
     let database_name = input.database_name.unwrap_or(current_database_name);
@@ -840,28 +839,34 @@ mod tests {
         )
         .unwrap();
 
-        assert!(preview
-            .compose
-            .contains("image: docker.io/clickhouse/clickhouse-server:24.8"));
+        assert!(
+            preview
+                .compose
+                .contains("image: docker.io/clickhouse/clickhouse-server:24.8")
+        );
         let network_key =
             crate::deployment::resource_networks::network_key(&preview.template_instance_id);
         let network_name =
             crate::deployment::resource_networks::network_name(&preview.template_instance_id);
-        assert!(preview
-            .compose
-            .contains(&format!("    networks:\n      {network_key}: {{}}")));
+        assert!(
+            preview
+                .compose
+                .contains(&format!("    networks:\n      {network_key}: {{}}"))
+        );
         assert!(preview.compose.contains(&format!(
             "networks:\n  {network_key}:\n    external: true\n    name: {network_name}\n"
         )));
         assert!(!preview.compose.contains("litepod_proxy"));
         assert!(!preview.compose.contains("litepod-network"));
-        assert!(preview
-            .compose
-            .contains("CLICKHOUSE_DB: ${CLICKHOUSE_DB}"));
+        assert!(preview.compose.contains("CLICKHOUSE_DB: ${CLICKHOUSE_DB}"));
         assert_eq!(preview.variables[0].name, "CLICKHOUSE_DB");
         assert_eq!(preview.database_name, "default");
         assert_eq!(preview.public_connection_string, None);
-        assert!(preview.private_connection_string.contains("clickhouse-main"));
+        assert!(
+            preview
+                .private_connection_string
+                .contains("clickhouse-main")
+        );
     }
 
     #[test]
@@ -909,15 +914,19 @@ mod tests {
         )
         .unwrap();
 
-        assert!(preview
-            .compose
-            .contains("image: clickhouse/clickhouse-server:25.3"));
+        assert!(
+            preview
+                .compose
+                .contains("image: clickhouse/clickhouse-server:25.3")
+        );
         assert_eq!(
             preview.public_connection_string.as_deref(),
             Some("clickhouse://default:pa%3Ass%2F%40word@db.example.com:29000/default")
         );
-        assert!(preview
-            .private_connection_string
-            .contains("store-prod-clickhouse-main-a3f91c-clickhouse:9000"));
+        assert!(
+            preview
+                .private_connection_string
+                .contains("store-prod-clickhouse-main-a3f91c-clickhouse:9000")
+        );
     }
 }

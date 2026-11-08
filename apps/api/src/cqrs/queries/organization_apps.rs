@@ -112,7 +112,8 @@ LEFT JOIN application_deployments d ON d.application_id = a.id
 WHERE p.organization_id = ?1 AND a.maintenance_for IS NULL
 ORDER BY a.updated_at DESC";
 
-const DOMAINS_SQL: &str = "SELECT d.application_id, d.id, d.host, d.port, d.https, d.is_primary, d.path
+const DOMAINS_SQL: &str =
+    "SELECT d.application_id, d.id, d.host, d.port, d.https, d.is_primary, d.path
 FROM application_domains d
 INNER JOIN applications a ON a.id = d.application_id
 INNER JOIN environments e ON e.id = a.environment_id
@@ -278,15 +279,14 @@ pub async fn list_organization_apps_stats(
     // The sampler's last snapshot when it is recent; a live read, all servers at
     // once, only where it has none (first seconds after boot, or a server it skips).
     let by_server = by_server.into_iter().collect::<Vec<_>>();
-    let snapshots = futures_util::future::join_all(by_server.iter().map(
-        |(server_id, entries)| async move {
+    let snapshots =
+        futures_util::future::join_all(by_server.iter().map(|(server_id, entries)| async move {
             match crate::metrics_history::latest::fresh(server_id) {
                 Some(snapshot) => snapshot,
                 None => live_snapshot(state, server_id, entries).await,
             }
-        },
-    ))
-    .await;
+        }))
+        .await;
     for ((_, entries), snapshot) in by_server.iter().zip(snapshots) {
         for (index, name) in entries {
             let Some(metric) = snapshot.metrics.iter().find(|metric| {

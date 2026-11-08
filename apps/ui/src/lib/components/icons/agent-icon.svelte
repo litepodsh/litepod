@@ -1,10 +1,7 @@
 <script lang="ts">
 	import Bot from '@lucide/svelte/icons/bot';
 
-	let {
-		agent,
-		class: className = 'size-4'
-	}: { agent: string | null; class?: string } = $props();
+	let { agent, class: className = 'size-4' }: { agent: string | null; class?: string } = $props();
 </script>
 
 {#if agent === 'claude'}

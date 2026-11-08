@@ -219,7 +219,10 @@ mod tests {
     #[tokio::test]
     async fn purge_follows_the_default_and_an_extended_window() {
         let (state, path) = test_state_for(true).await;
-        assert_eq!(retention_days(&state).await.unwrap(), DEFAULT_RETENTION_DAYS);
+        assert_eq!(
+            retention_days(&state).await.unwrap(),
+            DEFAULT_RETENTION_DAYS
+        );
         for (id, age) in [("a-89", 89), ("b-120", 120), ("c-400", 400)] {
             seed(&state, id, age).await;
         }

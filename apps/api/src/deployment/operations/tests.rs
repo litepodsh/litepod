@@ -132,6 +132,30 @@ fn resource_log_line_describes_limited_and_unlimited_deploys() {
 }
 
 #[test]
+fn default_build_memory_leaves_a_gib_and_half_the_free_swap() {
+    let gib = 1024 * 1024 * 1024;
+    let meminfo = |available_kib: u64, swap_kib: u64| {
+        format!(
+            "MemTotal: 16000000 kB\nMemAvailable: {available_kib} kB\nSwapFree: {swap_kib} kB\n"
+        )
+    };
+    assert_eq!(
+        default_build_memory(&meminfo(8 * 1024 * 1024, 4 * 1024 * 1024)),
+        Some((7 * gib, 9 * gib))
+    );
+    // A host that is already short still gets a 1 GiB build rather than none.
+    assert_eq!(
+        default_build_memory(&meminfo(512 * 1024, 0)),
+        Some((gib, gib))
+    );
+    assert_eq!(default_build_memory("MemTotal: 16000000 kB\n"), None);
+    assert_eq!(
+        default_build_memory_log_line(7 * gib, 9 * gib),
+        "Resources: no build limit configured; capping this build at 7168 MiB RAM + 2048 MiB swap (from the server's free memory) so it cannot freeze the server"
+    );
+}
+
+#[test]
 fn deployment_identity_uses_six_characters_from_the_final_uuid_section() {
     let (name, hostname) = deployment_identity(
         "Proyecto",
@@ -287,11 +311,21 @@ fn maintenance_replaces_the_proxy_and_the_auth_challenge_but_keeps_tls() {
 
     let server = &config["apps"]["http"]["servers"]["srv0"];
     let handles = server["routes"][0]["handle"].as_array().unwrap();
-    assert_eq!(handles.len(), 1, "only the page: no auth challenge, no proxy");
+    assert_eq!(
+        handles.len(),
+        1,
+        "only the page: no auth challenge, no proxy"
+    );
     assert_eq!(handles[0]["handler"], "static_response");
     assert_eq!(handles[0]["status_code"], 503);
     // The route still terminates TLS for the host, so the page is served over HTTPS.
-    assert!(server["listen"].as_array().unwrap().iter().any(|v| v == ":443"));
+    assert!(
+        server["listen"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == ":443")
+    );
     assert!(
         server["tls_connection_policies"]
             .as_array()
@@ -335,7 +369,15 @@ fn a_live_companion_is_proxied_with_a_forced_503_and_a_per_host_fallback() {
         companion: Some("maintenance-page:80".into()),
     };
     apply_app_domain_to_config(
-        &mut config, "litepod-route-domain-1", "app.test", None, "app", 80, false, None, Some(&page),
+        &mut config,
+        "litepod-route-domain-1",
+        "app.test",
+        None,
+        "app",
+        80,
+        false,
+        None,
+        Some(&page),
     )
     .unwrap();
 
@@ -359,18 +401,43 @@ fn a_live_companion_is_proxied_with_a_forced_503_and_a_per_host_fallback() {
 
     // Rebuilding the same route is idempotent: still one fallback.
     apply_app_domain_to_config(
-        &mut config, "litepod-route-domain-1", "app.test", None, "app", 80, false, None, Some(&page),
+        &mut config,
+        "litepod-route-domain-1",
+        "app.test",
+        None,
+        "app",
+        80,
+        false,
+        None,
+        Some(&page),
     )
     .unwrap();
-    assert_eq!(config["apps"]["http"]["servers"]["srv0"]["errors"]["routes"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        config["apps"]["http"]["servers"]["srv0"]["errors"]["routes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     // Back to the application: the proxy returns and the fallback is gone.
     apply_app_domain_to_config(
-        &mut config, "litepod-route-domain-1", "app.test", None, "app", 80, false, None, None,
+        &mut config,
+        "litepod-route-domain-1",
+        "app.test",
+        None,
+        "app",
+        80,
+        false,
+        None,
+        None,
     )
     .unwrap();
     let server = &config["apps"]["http"]["servers"]["srv0"];
-    assert_eq!(server["routes"][0]["handle"][0]["upstreams"][0]["dial"], "app:80");
+    assert_eq!(
+        server["routes"][0]["handle"][0]["upstreams"][0]["dial"],
+        "app:80"
+    );
     assert!(server["errors"]["routes"].as_array().unwrap().is_empty());
 }
 
@@ -389,18 +456,33 @@ fn the_fallback_goes_with_its_route_on_delete_and_on_prune() {
             }}}}
         });
         apply_app_domain_to_config(
-            &mut config, "litepod-route-domain-1", "app.test", None, "app", 80, false, None, Some(&page),
+            &mut config,
+            "litepod-route-domain-1",
+            "app.test",
+            None,
+            "app",
+            80,
+            false,
+            None,
+            Some(&page),
         )
         .unwrap();
         config
     };
     let count = |config: &serde_json::Value| {
-        config["apps"]["http"]["servers"]["srv0"]["errors"]["routes"].as_array().unwrap().len()
+        config["apps"]["http"]["servers"]["srv0"]["errors"]["routes"]
+            .as_array()
+            .unwrap()
+            .len()
     };
 
     let mut deleted = build();
     apply_app_domain_removal_to_config(&mut deleted, "litepod-route-domain-1", "app.test").unwrap();
-    assert_eq!(count(&deleted), 0, "deleting the domain leaves no fallback behind");
+    assert_eq!(
+        count(&deleted),
+        0,
+        "deleting the domain leaves no fallback behind"
+    );
 
     let mut pruned = build();
     prune_orphans_in_config(&mut pruned, &Default::default(), &Default::default());
@@ -470,8 +552,18 @@ fn path_config() -> serde_json::Value {
 }
 
 fn push(config: &mut serde_json::Value, id: &str, path: Option<&str>) {
-    apply_app_domain_to_config(config, id, "a.example.com", path, "app", 80, true, None, None)
-        .unwrap();
+    apply_app_domain_to_config(
+        config,
+        id,
+        "a.example.com",
+        path,
+        "app",
+        80,
+        true,
+        None,
+        None,
+    )
+    .unwrap();
 }
 
 fn route_ids(config: &serde_json::Value) -> Vec<String> {
@@ -491,16 +583,27 @@ fn a_path_route_matches_host_and_prefix_and_strips_it() {
     let server = &config["apps"]["http"]["servers"]["srv0"];
     let api = &server["routes"][0];
     assert_eq!(api["@id"], "litepod-route-api");
-    assert_eq!(api["match"][0]["host"], serde_json::json!(["a.example.com"]));
-    assert_eq!(api["match"][0]["path"], serde_json::json!(["/api", "/api/*"]));
+    assert_eq!(
+        api["match"][0]["host"],
+        serde_json::json!(["a.example.com"])
+    );
+    assert_eq!(
+        api["match"][0]["path"],
+        serde_json::json!(["/api", "/api/*"])
+    );
     assert_eq!(
         api["handle"][0],
         serde_json::json!({ "handler": "rewrite", "strip_path_prefix": "/api" })
     );
     assert_eq!(api["handle"][1]["handler"], "reverse_proxy");
     // Only the root added host-level TLS.
-    assert_eq!(server["tls_connection_policies"].as_array().unwrap().len(), 1);
-    let policies = config["apps"]["tls"]["automation"]["policies"].as_array().unwrap();
+    assert_eq!(
+        server["tls_connection_policies"].as_array().unwrap().len(),
+        1
+    );
+    let policies = config["apps"]["tls"]["automation"]["policies"]
+        .as_array()
+        .unwrap();
     assert_eq!(policies.len(), 1);
     assert_eq!(policies[0]["@id"], "litepod-route-root-tls");
 }
@@ -514,7 +617,12 @@ fn path_routes_stay_ahead_of_the_root_after_a_repush() {
     push(&mut config, "litepod-route-root", None);
     assert_eq!(
         route_ids(&config),
-        ["litepod-route-v2", "litepod-route-api", "litepod-route-root", "litepod-default"]
+        [
+            "litepod-route-v2",
+            "litepod-route-api",
+            "litepod-route-root",
+            "litepod-default"
+        ]
     );
 }
 
@@ -524,10 +632,22 @@ fn removing_a_path_route_keeps_the_hosts_tls() {
     push(&mut config, "litepod-route-root", None);
     push(&mut config, "litepod-route-api", Some("/api"));
     apply_app_domain_removal_to_config(&mut config, "litepod-route-api", "a.example.com").unwrap();
-    assert_eq!(route_ids(&config), ["litepod-route-root", "litepod-default"]);
+    assert_eq!(
+        route_ids(&config),
+        ["litepod-route-root", "litepod-default"]
+    );
     let server = &config["apps"]["http"]["servers"]["srv0"];
-    assert!(server["listen"].as_array().unwrap().iter().any(|l| l == ":443"));
-    assert_eq!(server["tls_connection_policies"][0]["match"]["sni"][0], "a.example.com");
+    assert!(
+        server["listen"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|l| l == ":443")
+    );
+    assert_eq!(
+        server["tls_connection_policies"][0]["match"]["sni"][0],
+        "a.example.com"
+    );
     assert_eq!(
         config["apps"]["tls"]["automation"]["policies"][0]["@id"],
         "litepod-route-root-tls"
@@ -536,8 +656,18 @@ fn removing_a_path_route_keeps_the_hosts_tls() {
     // Once the root goes too, its TLS goes with it.
     apply_app_domain_removal_to_config(&mut config, "litepod-route-root", "a.example.com").unwrap();
     let server = &config["apps"]["http"]["servers"]["srv0"];
-    assert!(server["tls_connection_policies"].as_array().unwrap().is_empty());
-    assert!(config["apps"]["tls"]["automation"]["policies"].as_array().unwrap().is_empty());
+    assert!(
+        server["tls_connection_policies"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        config["apps"]["tls"]["automation"]["policies"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -548,7 +678,15 @@ fn basic_auth_runs_before_the_prefix_strip() {
         accounts: vec![("admin".into(), "$2a$12$hash".into())],
     };
     apply_app_domain_to_config(
-        &mut config, "litepod-route-api", "a.example.com", Some("/api"), "app", 80, true, Some(&auth), None,
+        &mut config,
+        "litepod-route-api",
+        "a.example.com",
+        Some("/api"),
+        "app",
+        80,
+        true,
+        Some(&auth),
+        None,
     )
     .unwrap();
     let handles = &config["apps"]["http"]["servers"]["srv0"]["routes"][0]["handle"];

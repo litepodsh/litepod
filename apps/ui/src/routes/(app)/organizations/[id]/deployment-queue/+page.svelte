@@ -239,7 +239,7 @@
 			<h1 class="flex flex-wrap items-center gap-2 text-xl font-semibold tracking-tight">
 				{t('organizations.queue.title')}
 				{#if activeCount > 0}<span
-						class="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning lp-raised"
+						class="rounded-full corner-soft bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning lp-raised"
 						>{t('organizations.queue.active_count', { count: activeCount })}</span
 					>{/if}
 			</h1>

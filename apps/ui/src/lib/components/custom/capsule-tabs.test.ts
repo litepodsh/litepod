@@ -20,11 +20,11 @@ it('never scrolls the page to reach the selected option', () => {
 
 it('scrolls only the capsule to reveal an option cut off on the right', () => {
 	const rect = (left: number, right: number) => ({ left, right }) as DOMRect;
-	const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
-		this: Element,
-	) {
-		return this.getAttribute('role') === 'tablist' ? rect(0, 100) : rect(80, 130);
-	});
+	const spy = vi
+		.spyOn(Element.prototype, 'getBoundingClientRect')
+		.mockImplementation(function (this: Element) {
+			return this.getAttribute('role') === 'tablist' ? rect(0, 100) : rect(80, 130);
+		});
 	const { getByRole } = render(CapsuleTabs, {
 		items: [{ value: '1h', label: '1h' }],
 		value: '1h',

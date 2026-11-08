@@ -96,8 +96,8 @@
 		border-radius: 999px;
 		background: var(--lp-raised);
 		box-shadow:
-			inset 1px 1px 0 var(--lp-bevel),
-			inset -1px -1px 0 var(--lp-emboss),
+			inset 0 1px 0 var(--lp-bevel),
+			inset 0 -1px 0 var(--lp-emboss),
 			0 4px 12px -4px
 				color-mix(in srgb, var(--lp-shadow) calc(18% * var(--lp-shadow-strength)), transparent);
 		pointer-events: none;

@@ -14,9 +14,7 @@ use crate::{
         deployment::{WorkspaceEntryDto, WorkspaceFileDto},
         response::AppError,
     },
-    podman::containers::volume_workspace::{
-        WorkspaceListing, canonical_path, is_text_file, mime,
-    },
+    podman::containers::volume_workspace::{WorkspaceListing, canonical_path, is_text_file, mime},
     servers::runtime::ServerRuntime,
 };
 
@@ -75,7 +73,11 @@ fn parse_listing(parent: &str, stdout: &str) -> Vec<WorkspaceEntryDto> {
             let path = format!("{}/{name}", parent.trim_end_matches('/'));
             let path = path.trim_start_matches('/').to_owned();
             WorkspaceEntryDto {
-                mime_type: if directory { None } else { mime(std::path::Path::new(name)) },
+                mime_type: if directory {
+                    None
+                } else {
+                    mime(std::path::Path::new(name))
+                },
                 path,
                 name: name.to_owned(),
                 kind: if directory { "directory" } else { "file" }.into(),
@@ -137,8 +139,9 @@ async fn fetch(runtime: &ServerRuntime, container: &str, path: &str) -> Result<F
         .entries()
         .map_err(|error| AppError::InternalError(format!("Could not read the file: {error}")))?;
     for entry in entries {
-        let mut entry = entry
-            .map_err(|error| AppError::InternalError(format!("Could not read the file: {error}")))?;
+        let mut entry = entry.map_err(|error| {
+            AppError::InternalError(format!("Could not read the file: {error}"))
+        })?;
         let header = entry.header().clone();
         match header.entry_type() {
             EntryType::Regular | EntryType::Continuous => {
@@ -190,13 +193,22 @@ pub async fn read_file_bytes(
     Ok((fetched.bytes, mime(std::path::Path::new(&path))))
 }
 
-fn tar_entry(name: &str, bytes: &[u8], directory: bool, meta: (u32, u64, u64)) -> Result<Vec<u8>, AppError> {
+fn tar_entry(
+    name: &str,
+    bytes: &[u8],
+    directory: bool,
+    meta: (u32, u64, u64),
+) -> Result<Vec<u8>, AppError> {
     let mut header = Header::new_gnu();
     header.set_mode(meta.0);
     header.set_uid(meta.1);
     header.set_gid(meta.2);
     header.set_size(if directory { 0 } else { bytes.len() as u64 });
-    header.set_entry_type(if directory { EntryType::Directory } else { EntryType::Regular });
+    header.set_entry_type(if directory {
+        EntryType::Directory
+    } else {
+        EntryType::Regular
+    });
     header.set_cksum();
     let mut builder = Builder::new(Vec::new());
     builder
@@ -292,8 +304,21 @@ pub async fn create_entry(
     if exists(runtime, container, &path).await {
         return Err(AppError::ValidationError(format!("{path} already exists")));
     }
-    let meta = if directory { (0o755, 0, 0) } else { (0o644, 0, 0) };
-    put(runtime, application_id, container, &path, &bytes, directory, meta).await?;
+    let meta = if directory {
+        (0o755, 0, 0)
+    } else {
+        (0o644, 0, 0)
+    };
+    put(
+        runtime,
+        application_id,
+        container,
+        &path,
+        &bytes,
+        directory,
+        meta,
+    )
+    .await?;
     let name = std::path::Path::new(&path);
     Ok(WorkspaceEntryDto {
         path: raw_path.trim_start_matches('/').into(),

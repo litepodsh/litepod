@@ -304,12 +304,12 @@
 				inherit: true,
 				rules: palette
 					? [
-						{ token: '', foreground: ink.slice(1) },
-						{ token: 'variable', foreground: info.slice(1) },
-						{ token: 'delimiter', foreground: muted.slice(1) },
-						{ token: 'string', foreground: ink.slice(1) },
-						{ token: 'comment', foreground: muted.slice(1), fontStyle: 'italic' },
-					]
+							{ token: '', foreground: ink.slice(1) },
+							{ token: 'variable', foreground: info.slice(1) },
+							{ token: 'delimiter', foreground: muted.slice(1) },
+							{ token: 'string', foreground: ink.slice(1) },
+							{ token: 'comment', foreground: muted.slice(1), fontStyle: 'italic' },
+						]
 					: [],
 				colors:
 					palette && well

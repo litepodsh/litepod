@@ -48,7 +48,8 @@
 		linux: 'Linux',
 		chromeos: 'ChromeOS',
 	};
-	const automated = (visitor: VisitorEntry) => visitor.client === 'bot' || visitor.client === 'tool';
+	const automated = (visitor: VisitorEntry) =>
+		visitor.client === 'bot' || visitor.client === 'tool';
 	const systemLabel = (key: string) => SYSTEMS[key] ?? '';
 
 	let appById = $derived(new Map((apps ?? []).map((app) => [app.application.id, app])));
@@ -98,9 +99,12 @@
 </script>
 
 <section class="lp-raised flex min-w-0 flex-col rounded-2xl border bg-card">
-	<header class="lp-groove-b flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+	<header
+		class="lp-groove-b flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
 		<div class="min-w-0">
-			<h2 class="text-[15px] font-semibold tracking-tight">{title ?? t('analytics.visitors.title')}</h2>
+			<h2 class="text-[15px] font-semibold tracking-tight">
+				{title ?? t('analytics.visitors.title')}
+			</h2>
 			<p class="mt-0.5 text-xs text-muted-foreground">
 				{subtitle ?? t('analytics.visitors.subtitle', { count: visitors.length })}
 			</p>
@@ -130,7 +134,7 @@
 			{t('analytics.visitors.filtered_by')}
 			<button
 				type="button"
-				class="flex items-center gap-1.5 rounded-full border bg-muted px-2.5 py-0.5 text-foreground hover:border-foreground/25"
+				class="flex items-center gap-1.5 rounded-full corner-soft border bg-muted px-2.5 py-0.5 text-foreground hover:border-foreground/25"
 				onclick={() => (country = null)}
 				aria-label={t('analytics.geo.clear_filter')}>
 				<span aria-hidden="true">{flag(country)}</span>
@@ -148,7 +152,8 @@
 		<div class="max-h-[34rem] overflow-auto">
 			<table class="w-full min-w-[720px] text-sm">
 				<thead class="sticky top-0 z-[1] bg-card text-left text-xs text-muted-foreground">
-					<tr class="[&>th]:px-3 [&>th]:py-2.5 [&>th]:font-medium [&>th:first-child]:pl-5 [&>th:last-child]:pr-5">
+					<tr
+						class="[&>th]:px-3 [&>th]:py-2.5 [&>th]:font-medium [&>th:first-child]:pl-5 [&>th:last-child]:pr-5">
 						<th>{t('analytics.visitors.ip')}</th>
 						<th>{t('analytics.visitors.location')}</th>
 						<th>{t('analytics.visitors.client')}</th>
@@ -191,7 +196,8 @@
 							<td class="max-w-64">
 								{#if visitor.country}
 									<span class="flex min-w-0 items-center gap-2">
-										<span class="text-base leading-none" aria-hidden="true">{flag(visitor.country)}</span>
+										<span class="text-base leading-none" aria-hidden="true"
+											>{flag(visitor.country)}</span>
 										<span class="min-w-0">
 											<span class="block truncate">
 												{visitor.city ?? countryName(visitor.country, i18n.locale)}
@@ -206,7 +212,8 @@
 										</span>
 									</span>
 								{:else}
-									<span class="text-muted-foreground">{t('analytics.visitors.unknown_location')}</span>
+									<span class="text-muted-foreground"
+										>{t('analytics.visitors.unknown_location')}</span>
 								{/if}
 							</td>
 							<td class="whitespace-nowrap">
@@ -231,7 +238,8 @@
 											<span class="block truncate text-xs text-muted-foreground"
 												>{visitor.agent}</span>
 										{:else if systemLabel(visitor.os)}
-											<span class="block text-xs text-muted-foreground">{systemLabel(visitor.os)}</span>
+											<span class="block text-xs text-muted-foreground"
+												>{systemLabel(visitor.os)}</span>
 										{/if}
 									</span>
 								</span>
@@ -239,7 +247,8 @@
 							{#if apps}
 								<td class="max-w-40 truncate">
 									{#if app}
-										<a href={app.href} class="underline-offset-4 hover:underline">{app.application.name}</a>
+										<a href={app.href} class="underline-offset-4 hover:underline"
+											>{app.application.name}</a>
 									{:else}
 										<span class="text-muted-foreground">{t('analytics.panel.other_app')}</span>
 									{/if}

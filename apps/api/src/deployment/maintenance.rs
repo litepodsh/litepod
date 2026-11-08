@@ -122,7 +122,10 @@ pub(crate) fn normalize_page(page: Option<&str>) -> Result<Option<String>, AppEr
     Ok(Some(page.to_owned()))
 }
 
-async fn fetch(state: &SharedState, application_id: &str) -> Result<Option<MaintenanceRow>, AppError> {
+async fn fetch(
+    state: &SharedState,
+    application_id: &str,
+) -> Result<Option<MaintenanceRow>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let row = sqlx::query(
         "SELECT enabled, page_html, site_id FROM application_maintenance WHERE application_id = ?1",
@@ -259,7 +262,10 @@ async fn ensure_supported(
     domains_of_app: &[crate::dtos::deployment::DomainDto],
 ) -> Result<(), AppError> {
     // shortcut: inline page only on public-edge servers, proxy the site through the edge if needed.
-    if fetch(state, application_id).await?.is_none_or(|row| row.site_id.is_none()) {
+    if fetch(state, application_id)
+        .await?
+        .is_none_or(|row| row.site_id.is_none())
+    {
         return Ok(());
     }
     for domain in domains_of_app.iter().filter(|domain| !domain.is_local) {
@@ -282,7 +288,10 @@ pub(crate) fn edge_token(payload: &MaintenancePayload) -> String {
 
 /// Rebuilds every route of the application from the database. Used when the page
 /// behind a route changes without the mode being switched.
-pub(crate) async fn refresh_routes(state: &SharedState, application_id: &str) -> Result<(), AppError> {
+pub(crate) async fn refresh_routes(
+    state: &SharedState,
+    application_id: &str,
+) -> Result<(), AppError> {
     let domains_of_app = domains::list(state, application_id).await?;
     reconcile_domains(state, &domains_of_app).await
 }
@@ -346,7 +355,13 @@ pub async fn update(
                 %error,
                 "maintenance mode could not be applied; restoring the previous state"
             );
-            write(state, application_id, before.enabled, before.page.as_deref()).await?;
+            write(
+                state,
+                application_id,
+                before.enabled,
+                before.page.as_deref(),
+            )
+            .await?;
             // Best effort: routes already switched go back to what they were.
             let _ = reconcile_domains(state, &domains_of_app).await;
             if turning_on {
@@ -398,16 +413,17 @@ pub async fn upload_site(
     let archive = bytes.to_vec();
     let unpack_into = staging.clone();
     let site_id = tokio::task::spawn_blocking(move || -> Result<String, String> {
-        let result = source_archive::unpack_bytes(&archive, &unpack_into, &SITE_LIMITS).and_then(
-            |id| {
+        let result =
+            source_archive::unpack_bytes(&archive, &unpack_into, &SITE_LIMITS).and_then(|id| {
                 if unpack_into.join("index.html").is_file() {
                     Ok(id)
                 } else {
-                    Err("The ZIP needs an index.html at its root (or inside its single top folder)"
-                        .into())
+                    Err(
+                        "The ZIP needs an index.html at its root (or inside its single top folder)"
+                            .into(),
+                    )
                 }
-            },
-        );
+            });
         if result.is_err() {
             let _ = std::fs::remove_dir_all(&unpack_into);
         }
@@ -500,12 +516,15 @@ pub(crate) async fn load_payload_for_domain(
     let site_application_id = application_id.clone();
     let site = (site_id.is_some()
         && !state.caddy_server_upstream.is_empty()
-        && site_dir(state, &application_id).join("index.html").is_file())
+        && site_dir(state, &application_id)
+            .join("index.html")
+            .is_file())
     .then(|| SiteRoute {
         application_id,
         upstream: state.caddy_server_upstream.clone(),
     });
-    let companion = super::maintenance_companion::live_upstream(state, &site_application_id).await?;
+    let companion =
+        super::maintenance_companion::live_upstream(state, &site_application_id).await?;
     Ok(Some(MaintenancePayload {
         html: page.unwrap_or_else(|| DEFAULT_PAGE.to_owned()),
         site,
@@ -729,7 +748,11 @@ pub async fn serve_site(
     }
     let host = host.split(':').next().unwrap_or_default().trim();
     let owned = domains::list(state, application_id).await.ok()?;
-    if host.is_empty() || !owned.iter().any(|domain| domain.host.eq_ignore_ascii_case(host)) {
+    if host.is_empty()
+        || !owned
+            .iter()
+            .any(|domain| domain.host.eq_ignore_ascii_case(host))
+    {
         return None;
     }
     let relative = clean_request_path(path)?;
@@ -878,7 +901,8 @@ mod tests {
         let data_dir = std::env::temp_dir().join(format!("litepod-maint-data-{}", Uuid::now_v7()));
         std::fs::create_dir_all(&data_dir).unwrap();
         let (state, path) = crate::testing::test_state_with_network("", data_dir.clone()).await;
-        let (_, _, application_id) = crate::testing::seed_application(&state, "organization-a").await;
+        let (_, _, application_id) =
+            crate::testing::seed_application(&state, "organization-a").await;
         // The seeded ssh server wants its host key confirmed before any route work;
         // the local server (seeded by the migrations) routes through the central Caddy.
         sqlx::query("UPDATE applications SET server_id = 'local' WHERE id = ?1")
@@ -915,11 +939,17 @@ mod tests {
         assert!(!uploaded.enabled, "uploading must not turn the mode on");
 
         // Off: nothing is served, even to the right host.
-        assert!(serve_site(&state, &app, "app.example.com", "/").await.is_none());
+        assert!(
+            serve_site(&state, &app, "app.example.com", "/")
+                .await
+                .is_none()
+        );
 
         update(&state, &app, turn_on()).await.unwrap();
 
-        let page = serve_site(&state, &app, "app.example.com", "/").await.unwrap();
+        let page = serve_site(&state, &app, "app.example.com", "/")
+            .await
+            .unwrap();
         assert_eq!(page.status, 503);
         assert_eq!(page.body, b"<h1>soon</h1>");
         let css = serve_site(&state, &app, "APP.example.com:443", "/css/site.css")
@@ -965,20 +995,29 @@ mod tests {
                 "{name}: {refused:?}"
             );
         }
-        let still = serve_site(&state, &app, "app.example.com", "/").await.unwrap();
-        assert_eq!(still.body, b"<h1>v1</h1>", "a refused upload must not replace the site");
+        let still = serve_site(&state, &app, "app.example.com", "/")
+            .await
+            .unwrap();
+        assert_eq!(
+            still.body, b"<h1>v1</h1>",
+            "a refused upload must not replace the site"
+        );
 
         // A good one does replace it, and leaves no scratch directories behind.
         upload_site(&state, &app, &zip_of(&[("index.html", "<h1>v2</h1>")]))
             .await
             .unwrap();
-        let now = serve_site(&state, &app, "app.example.com", "/").await.unwrap();
+        let now = serve_site(&state, &app, "app.example.com", "/")
+            .await
+            .unwrap();
         assert_eq!(now.body, b"<h1>v2</h1>");
         let leftovers = std::fs::read_dir(data_dir.join("applications").join(&app))
             .unwrap()
             .flatten()
-            .filter(|entry| entry.file_name().to_string_lossy().contains(".new-")
-                || entry.file_name().to_string_lossy().contains(".old-"))
+            .filter(|entry| {
+                entry.file_name().to_string_lossy().contains(".new-")
+                    || entry.file_name().to_string_lossy().contains(".old-")
+            })
             .count();
         assert_eq!(leftovers, 0);
 
@@ -1007,7 +1046,11 @@ mod tests {
         assert!(removed.site.is_none());
         assert!(removed.enabled, "removing the site keeps the mode on");
         assert_eq!(removed.custom_html.as_deref(), Some("<p>inline</p>"));
-        assert!(serve_site(&state, &app, "app.example.com", "/").await.is_none());
+        assert!(
+            serve_site(&state, &app, "app.example.com", "/")
+                .await
+                .is_none()
+        );
         assert!(!site_dir(&state, &app).exists());
 
         std::fs::remove_dir_all(&data_dir).unwrap();
@@ -1056,7 +1099,10 @@ mod tests {
         std::fs::remove_dir_all(&base).unwrap();
     }
 
-    async fn companion_rows(state: &SharedState, parent: &str) -> Vec<(String, String, i64, Option<String>)> {
+    async fn companion_rows(
+        state: &SharedState,
+        parent: &str,
+    ) -> Vec<(String, String, i64, Option<String>)> {
         sqlx::query_as(
             "SELECT id, build_method, container_port, server_id FROM applications WHERE maintenance_for = ?1",
         )
@@ -1077,15 +1123,25 @@ mod tests {
         let (companion, method, port, server) = rows[0].clone();
         assert_eq!(method, "railpack");
         assert_eq!(port, 80);
-        assert_eq!(server.as_deref(), Some("local"), "same server as its parent");
-        assert_eq!(first.companion_status, "building", "{:?}", first.companion_error);
+        assert_eq!(
+            server.as_deref(),
+            Some("local"),
+            "same server as its parent"
+        );
+        assert_eq!(
+            first.companion_status, "building",
+            "{:?}",
+            first.companion_error
+        );
 
         // It has no domain and is never listed.
-        let domains: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM application_domains WHERE application_id = ?1")
-            .bind(&companion)
-            .fetch_one(&state.db)
-            .await
-            .unwrap();
+        let domains: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM application_domains WHERE application_id = ?1",
+        )
+        .bind(&companion)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
         assert_eq!(domains, 0);
         let (organization, project, environment): (String, String, String) = sqlx::query_as(
             "SELECT p.organization_id, p.id, e.id FROM applications a JOIN environments e ON e.id = a.environment_id JOIN projects p ON p.id = e.project_id WHERE a.id = ?1",
@@ -1094,14 +1150,24 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .unwrap();
-        let listed = crate::git::repositories::project::list_applications(&state, &organization, &project, &environment)
-            .await
-            .unwrap();
-        assert!(listed.iter().all(|row| row.id != companion), "a companion is never listed");
+        let listed = crate::git::repositories::project::list_applications(
+            &state,
+            &organization,
+            &project,
+            &environment,
+        )
+        .await
+        .unwrap();
+        assert!(
+            listed.iter().all(|row| row.id != companion),
+            "a companion is never listed"
+        );
         assert!(listed.iter().any(|row| row.id == app));
 
         // A second upload reuses it instead of piling up hidden apps.
-        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>later</h1>")])).await.unwrap();
+        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>later</h1>")]))
+            .await
+            .unwrap();
         assert_eq!(companion_rows(&state, &app).await.len(), 1);
 
         std::fs::remove_dir_all(&data_dir).unwrap();
@@ -1114,13 +1180,23 @@ mod tests {
         update(
             &state,
             &app,
-            UpdateMaintenanceRequest { enabled: Some(true), page_html: Some("<h1>x</h1>".into()) },
+            UpdateMaintenanceRequest {
+                enabled: Some(true),
+                page_html: Some("<h1>x</h1>".into()),
+            },
         )
         .await
         .unwrap();
-        update(&state, &app, UpdateMaintenanceRequest { enabled: Some(false), page_html: Some(String::new()) })
-            .await
-            .unwrap();
+        update(
+            &state,
+            &app,
+            UpdateMaintenanceRequest {
+                enabled: Some(false),
+                page_html: Some(String::new()),
+            },
+        )
+        .await
+        .unwrap();
         assert!(companion_rows(&state, &app).await.is_empty());
 
         std::fs::remove_dir_all(&data_dir).unwrap();
@@ -1147,15 +1223,24 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .unwrap();
-        crate::cqrs::commands::project::delete_application(&state, &organization, &project, &environment, &app)
-            .await
-            .unwrap();
+        crate::cqrs::commands::project::delete_application(
+            &state,
+            &organization,
+            &project,
+            &environment,
+            &app,
+        )
+        .await
+        .unwrap();
         let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM applications WHERE id = ?1")
             .bind(&companion)
             .fetch_one(&state.db)
             .await
             .unwrap();
-        assert_eq!(left, 0, "deleting the parent leaves no hidden application behind");
+        assert_eq!(
+            left, 0,
+            "deleting the parent leaves no hidden application behind"
+        );
 
         std::fs::remove_dir_all(&data_dir).unwrap();
         crate::testing::cleanup_database(&path);
@@ -1164,19 +1249,30 @@ mod tests {
     #[tokio::test]
     async fn a_failed_build_is_recorded_and_changes_nothing_else() {
         let (state, path, data_dir, app) = app_with_domain().await;
-        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>soon</h1>")])).await.unwrap();
+        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>soon</h1>")]))
+            .await
+            .unwrap();
         update(&state, &app, turn_on()).await.unwrap();
         let companion = companion_rows(&state, &app).await[0].0.clone();
 
-        super::super::maintenance_companion::on_build_finished(&state, &companion, &Err("boom".into())).await;
+        super::super::maintenance_companion::on_build_finished(
+            &state,
+            &companion,
+            &Err("boom".into()),
+        )
+        .await;
 
         let after = get(&state, &app).await.unwrap();
         assert_eq!(after.companion_status, "failed");
         assert_eq!(after.companion_error.as_deref(), Some("boom"));
-        assert!(after.enabled, "a failed build must not turn maintenance off");
+        assert!(
+            after.enabled,
+            "a failed build must not turn maintenance off"
+        );
         assert!(after.site.is_some(), "the static copy keeps serving");
         // An ordinary application's build end is ignored.
-        super::super::maintenance_companion::on_build_finished(&state, &app, &Err("x".into())).await;
+        super::super::maintenance_companion::on_build_finished(&state, &app, &Err("x".into()))
+            .await;
         assert_eq!(get(&state, &app).await.unwrap().companion_status, "failed");
 
         std::fs::remove_dir_all(&data_dir).unwrap();
@@ -1186,7 +1282,9 @@ mod tests {
     #[tokio::test]
     async fn a_companion_is_routed_only_while_live_ready_and_running() {
         let (state, path, data_dir, app) = app_with_domain().await;
-        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>soon</h1>")])).await.unwrap();
+        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>soon</h1>")]))
+            .await
+            .unwrap();
         let companion = companion_rows(&state, &app).await[0].0.clone();
         let upstream = || super::super::maintenance_companion::live_upstream(&state, &app);
 
@@ -1198,13 +1296,30 @@ mod tests {
         assert_eq!(upstream().await.unwrap(), None);
 
         // Live but its container is stopped: still nothing.
-        sqlx::query("UPDATE application_maintenance SET companion_live = 1 WHERE application_id = ?1")
-            .bind(&app).execute(&state.db).await.unwrap();
-        assert_eq!(upstream().await.unwrap(), None, "a stopped container is never routed");
+        sqlx::query(
+            "UPDATE application_maintenance SET companion_live = 1 WHERE application_id = ?1",
+        )
+        .bind(&app)
+        .execute(&state.db)
+        .await
+        .unwrap();
+        assert_eq!(
+            upstream().await.unwrap(),
+            None,
+            "a stopped container is never routed"
+        );
 
-        sqlx::query("UPDATE application_deployments SET status = 'running' WHERE application_id = ?1")
-            .bind(&companion).execute(&state.db).await.unwrap();
-        assert_eq!(upstream().await.unwrap().as_deref(), Some("maintenance-page:80"));
+        sqlx::query(
+            "UPDATE application_deployments SET status = 'running' WHERE application_id = ?1",
+        )
+        .bind(&companion)
+        .execute(&state.db)
+        .await
+        .unwrap();
+        assert_eq!(
+            upstream().await.unwrap().as_deref(),
+            Some("maintenance-page:80")
+        );
 
         // A failed rebuild takes it out of service even though it is flagged live.
         sqlx::query("UPDATE application_maintenance SET companion_status = 'failed' WHERE application_id = ?1")
@@ -1218,20 +1333,38 @@ mod tests {
     #[tokio::test]
     async fn turning_on_with_an_unstartable_companion_falls_back_to_the_static_copy() {
         let (state, path, data_dir, app) = app_with_domain().await;
-        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>soon</h1>")])).await.unwrap();
+        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>soon</h1>")]))
+            .await
+            .unwrap();
         // Marked built, but there is no container to start (no Podman in tests).
         sqlx::query("UPDATE application_maintenance SET companion_status = 'ready' WHERE application_id = ?1")
             .bind(&app).execute(&state.db).await.unwrap();
 
         let on = update(&state, &app, turn_on()).await.unwrap();
-        assert!(on.enabled, "a companion that cannot start must not block maintenance");
-        let payload = load_payload_for_domain(&state, "domain-1").await.unwrap().unwrap();
-        assert!(payload.companion.is_none(), "nothing is routed to a container that did not start");
-        let page = serve_site(&state, &app, "app.example.com", "/").await.unwrap();
+        assert!(
+            on.enabled,
+            "a companion that cannot start must not block maintenance"
+        );
+        let payload = load_payload_for_domain(&state, "domain-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            payload.companion.is_none(),
+            "nothing is routed to a container that did not start"
+        );
+        let page = serve_site(&state, &app, "app.example.com", "/")
+            .await
+            .unwrap();
         assert_eq!(page.status, 503, "the static copy serves instead");
 
-        let live: i64 = sqlx::query_scalar("SELECT companion_live FROM application_maintenance WHERE application_id = ?1")
-            .bind(&app).fetch_one(&state.db).await.unwrap();
+        let live: i64 = sqlx::query_scalar(
+            "SELECT companion_live FROM application_maintenance WHERE application_id = ?1",
+        )
+        .bind(&app)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
         assert_eq!(live, 0);
 
         std::fs::remove_dir_all(&data_dir).unwrap();
@@ -1241,15 +1374,22 @@ mod tests {
     #[tokio::test]
     async fn removing_the_site_while_live_clears_the_flag_before_the_companion_goes() {
         let (state, path, data_dir, app) = app_with_domain().await;
-        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>soon</h1>")])).await.unwrap();
+        upload_site(&state, &app, &zip_of(&[("index.html", "<h1>soon</h1>")]))
+            .await
+            .unwrap();
         sqlx::query("UPDATE application_maintenance SET companion_live = 1, companion_status = 'ready' WHERE application_id = ?1")
             .bind(&app).execute(&state.db).await.unwrap();
 
         remove_site(&state, &app).await.unwrap();
 
         assert!(companion_rows(&state, &app).await.is_empty());
-        let live: i64 = sqlx::query_scalar("SELECT companion_live FROM application_maintenance WHERE application_id = ?1")
-            .bind(&app).fetch_one(&state.db).await.unwrap();
+        let live: i64 = sqlx::query_scalar(
+            "SELECT companion_live FROM application_maintenance WHERE application_id = ?1",
+        )
+        .bind(&app)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
         assert_eq!(live, 0);
 
         std::fs::remove_dir_all(&data_dir).unwrap();

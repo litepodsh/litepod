@@ -68,10 +68,11 @@ fn db(error: sqlx::Error) -> AppError {
 
 pub async fn load_enabled(state: &SharedState) -> Result<bool, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let enabled: Option<i64> = sqlx::query_scalar("SELECT enabled FROM error_page_settings WHERE id = 1")
-        .fetch_optional(&conn)
-        .await
-        .map_err(db)?;
+    let enabled: Option<i64> =
+        sqlx::query_scalar("SELECT enabled FROM error_page_settings WHERE id = 1")
+            .fetch_optional(&conn)
+            .await
+            .map_err(db)?;
     Ok(enabled.unwrap_or(1) != 0)
 }
 
@@ -88,7 +89,10 @@ pub async fn set_enabled(state: &SharedState, enabled: bool) -> Result<(), AppEr
     // Public-edge servers carry the page in their own manifest.
     let (_, failed) = crate::servers::ingress::reconcile_running(state).await?;
     if failed > 0 {
-        tracing::warn!(failed, "some remote servers did not take the error page setting yet");
+        tracing::warn!(
+            failed,
+            "some remote servers did not take the error page setting yet"
+        );
     }
     Ok(())
 }
@@ -109,20 +113,28 @@ pub async fn load(state: &SharedState) -> Result<Pages, AppError> {
         let page: Option<String> = row.get(2);
         match (enabled, page) {
             (false, _) => chosen.insert(domain_id, None),
-            (true, Some(page)) => chosen.insert(domain_id, Some(super::maintenance::escape_placeholders(&page))),
+            (true, Some(page)) => chosen.insert(
+                domain_id,
+                Some(super::maintenance::escape_placeholders(&page)),
+            ),
             (true, None) => None,
         };
     }
-    Ok(Pages { default_enabled: load_enabled(state).await?, chosen })
+    Ok(Pages {
+        default_enabled: load_enabled(state).await?,
+        chosen,
+    })
 }
 
 pub async fn get(state: &SharedState, application_id: &str) -> Result<ErrorPageDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query("SELECT enabled, page_html FROM application_error_page WHERE application_id = ?1")
-        .bind(application_id)
-        .fetch_optional(&conn)
-        .await
-        .map_err(db)?;
+    let row = sqlx::query(
+        "SELECT enabled, page_html FROM application_error_page WHERE application_id = ?1",
+    )
+    .bind(application_id)
+    .fetch_optional(&conn)
+    .await
+    .map_err(db)?;
     let (enabled, page_html) = row.map_or((true, None), |row| (row.get(0), row.get(1)));
     Ok(ErrorPageDto {
         enabled,
@@ -150,7 +162,9 @@ pub async fn update(
                 )));
             }
             if page.contains('\0') {
-                return Err(AppError::ValidationError("The error page must be text".into()));
+                return Err(AppError::ValidationError(
+                    "The error page must be text".into(),
+                ));
             }
             Some(page.to_owned())
         }
@@ -191,7 +205,12 @@ pub fn sync(config: &mut serde_json::Value, pages: &Pages) {
     let wanted: Vec<serde_json::Value> = server
         .get("routes")
         .and_then(serde_json::Value::as_array)
-        .map(|routes| routes.iter().filter_map(|route| error_route(route, pages)).collect())
+        .map(|routes| {
+            routes
+                .iter()
+                .filter_map(|route| error_route(route, pages))
+                .collect()
+        })
         .unwrap_or_default();
     if wanted.is_empty() && !server.contains_key("errors") {
         return;
@@ -200,7 +219,11 @@ pub fn sync(config: &mut serde_json::Value, pages: &Pages) {
         .entry("errors")
         .or_insert_with(|| serde_json::json!({}))
         .as_object_mut()
-        .map(|errors| errors.entry("routes").or_insert_with(|| serde_json::json!([])))
+        .map(|errors| {
+            errors
+                .entry("routes")
+                .or_insert_with(|| serde_json::json!([]))
+        })
         .and_then(serde_json::Value::as_array_mut)
     else {
         return;
@@ -283,11 +306,17 @@ mod tests {
     }
 
     fn on() -> Pages {
-        Pages { default_enabled: true, ..Default::default() }
+        Pages {
+            default_enabled: true,
+            ..Default::default()
+        }
     }
 
     fn error_routes(config: &serde_json::Value) -> Vec<serde_json::Value> {
-        config["apps"]["http"]["servers"]["srv0"]["errors"]["routes"].as_array().unwrap().clone()
+        config["apps"]["http"]["servers"]["srv0"]["errors"]["routes"]
+            .as_array()
+            .unwrap()
+            .clone()
     }
 
     #[test]
@@ -296,11 +325,21 @@ mod tests {
         sync(&mut config, &on());
         let routes = error_routes(&config);
         let ids: Vec<&str> = routes.iter().map(|r| r["@id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["litepod-route-a-maint-errors", "litepod-route-a-error-page", "litepod-route-b-error-page"]);
+        assert_eq!(
+            ids,
+            [
+                "litepod-route-a-maint-errors",
+                "litepod-route-a-error-page",
+                "litepod-route-b-error-page"
+            ]
+        );
         assert_eq!(routes[2]["match"][0]["host"][0], "b.example.com");
         assert_eq!(routes[2]["match"][0]["path"][1], "/api/*");
         assert_eq!(routes[2]["match"][0]["expression"], STATUS_MATCH);
-        assert_eq!(routes[1]["handle"][0]["status_code"], "{http.error.status_code}");
+        assert_eq!(
+            routes[1]["handle"][0]["status_code"],
+            "{http.error.status_code}"
+        );
     }
 
     #[test]
@@ -311,10 +350,19 @@ mod tests {
         sync(&mut config, &on());
         assert_eq!(config, once);
 
-        config["apps"]["http"]["servers"]["srv0"]["routes"].as_array_mut().unwrap().remove(0);
+        config["apps"]["http"]["servers"]["srv0"]["routes"]
+            .as_array_mut()
+            .unwrap()
+            .remove(0);
         sync(&mut config, &on());
-        let ids: Vec<String> = error_routes(&config).iter().map(|r| r["@id"].as_str().unwrap().to_owned()).collect();
-        assert_eq!(ids, ["litepod-route-a-maint-errors", "litepod-route-b-error-page"]);
+        let ids: Vec<String> = error_routes(&config)
+            .iter()
+            .map(|r| r["@id"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            ids,
+            ["litepod-route-a-maint-errors", "litepod-route-b-error-page"]
+        );
     }
 
     #[test]
@@ -322,12 +370,19 @@ mod tests {
         let mut config = config();
         sync(&mut config, &on());
         sync(&mut config, &Pages::default());
-        let ids: Vec<String> = error_routes(&config).iter().map(|r| r["@id"].as_str().unwrap().to_owned()).collect();
+        let ids: Vec<String> = error_routes(&config)
+            .iter()
+            .map(|r| r["@id"].as_str().unwrap().to_owned())
+            .collect();
         assert_eq!(ids, ["litepod-route-a-maint-errors"]);
 
         let mut empty = json!({ "apps": { "http": { "servers": { "srv0": { "routes": [] } } } } });
         sync(&mut empty, &Pages::default());
-        assert!(empty["apps"]["http"]["servers"]["srv0"].get("errors").is_none());
+        assert!(
+            empty["apps"]["http"]["servers"]["srv0"]
+                .get("errors")
+                .is_none()
+        );
     }
 
     #[test]
@@ -339,7 +394,10 @@ mod tests {
         sync(&mut config, &pages);
         let routes = error_routes(&config);
         let ids: Vec<&str> = routes.iter().map(|r| r["@id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["litepod-route-a-maint-errors", "litepod-route-a-error-page"]);
+        assert_eq!(
+            ids,
+            ["litepod-route-a-maint-errors", "litepod-route-a-error-page"]
+        );
         assert_eq!(routes[1]["handle"][0]["body"], "<h1>own</h1>");
 
         // With the default page off, an application's own page still shows.
@@ -352,10 +410,12 @@ mod tests {
 
     #[tokio::test]
     async fn reads_each_applications_choice_per_domain() {
-        let data_dir = std::env::temp_dir().join(format!("litepod-error-page-{}", uuid::Uuid::now_v7()));
+        let data_dir =
+            std::env::temp_dir().join(format!("litepod-error-page-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&data_dir).unwrap();
         let (state, _path) = crate::testing::test_state_with_network("", data_dir.clone()).await;
-        let (_, _, application_id) = crate::testing::seed_application(&state, "organization-a").await;
+        let (_, _, application_id) =
+            crate::testing::seed_application(&state, "organization-a").await;
         sqlx::query("INSERT INTO application_domains (id, application_id, host, port, https, is_primary, created_at, updated_at) VALUES ('domain-1', ?1, 'app.example.com', 80, 0, 1, 1, 1)")
             .bind(&application_id)
             .execute(&state.db)
@@ -386,7 +446,10 @@ mod tests {
             enabled: None,
             page_html: Some("x".repeat(super::super::maintenance::MAX_PAGE_BYTES + 1)),
         };
-        assert!(matches!(update(&state, &application_id, too_big).await, Err(AppError::ValidationError(_))));
+        assert!(matches!(
+            update(&state, &application_id, too_big).await,
+            Err(AppError::ValidationError(_))
+        ));
         std::fs::remove_dir_all(data_dir).ok();
     }
 
@@ -394,10 +457,32 @@ mod tests {
     fn pages_avoid_caddyfile_shorthands() {
         // A public-edge server's Caddyfile expands these even when escaped, so a
         // script's `${host}` would turn into the site's name.
-        let shorthands = ["host", "hostport", "port", "method", "path", "query", "remote", "remote_host", "remote_port", "uri", "scheme", "file", "dir", "client_ip", "upstream_hostport"];
-        for (name, page) in [("error page", PAGE), ("maintenance page", super::super::maintenance::DEFAULT_PAGE)] {
+        let shorthands = [
+            "host",
+            "hostport",
+            "port",
+            "method",
+            "path",
+            "query",
+            "remote",
+            "remote_host",
+            "remote_port",
+            "uri",
+            "scheme",
+            "file",
+            "dir",
+            "client_ip",
+            "upstream_hostport",
+        ];
+        for (name, page) in [
+            ("error page", PAGE),
+            ("maintenance page", super::super::maintenance::DEFAULT_PAGE),
+        ] {
             for shorthand in shorthands {
-                assert!(!page.contains(&format!("{{{shorthand}}}")), "{name} contains {{{shorthand}}}");
+                assert!(
+                    !page.contains(&format!("{{{shorthand}}}")),
+                    "{name} contains {{{shorthand}}}"
+                );
             }
         }
     }
@@ -410,7 +495,14 @@ mod tests {
         assert!(BODY.contains("'{http.error.status_code}'"));
         assert!(BODY.contains("'{http.request.uuid}'"));
         // Every other brace is escaped, so Caddy leaves the CSS and script alone.
-        let unescaped = BODY.replace("{http.error.status_code}", "").replace("{http.request.uuid}", "");
-        assert!(!unescaped.replace("\\{", "").replace("\\}", "").contains(['{', '}']));
+        let unescaped = BODY
+            .replace("{http.error.status_code}", "")
+            .replace("{http.request.uuid}", "");
+        assert!(
+            !unescaped
+                .replace("\\{", "")
+                .replace("\\}", "")
+                .contains(['{', '}'])
+        );
     }
 }

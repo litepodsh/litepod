@@ -820,13 +820,15 @@ async fn execute_claimed(state: SharedState, job: DeploymentJobSnapshot) {
     // Pipelines finish their own run, but one that bails out early with `?` leaves
     // it open and the UI waits on it until the next restart.
     let left_open = status == "failed"
-        && sqlx::query("SELECT 1 FROM application_deployment_runs WHERE id = ?1 AND finished_at IS NULL")
-            .bind(&job.run_id)
-            .fetch_optional(&get_conn(&state).await)
-            .await
-            .ok()
-            .flatten()
-            .is_some();
+        && sqlx::query(
+            "SELECT 1 FROM application_deployment_runs WHERE id = ?1 AND finished_at IS NULL",
+        )
+        .bind(&job.run_id)
+        .fetch_optional(&get_conn(&state).await)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
     if status == "canceled" || panicked || left_open {
         let _ =
             crate::deployment::history::finish(&state, &job.run_id, status, error.as_deref()).await;

@@ -136,7 +136,9 @@
 			toast.success(t('projects.resource_clickhouse.credentials_saved'));
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : t('projects.resource_clickhouse.credentials_failed'),
+				error instanceof Error
+					? error.message
+					: t('projects.resource_clickhouse.credentials_failed'),
 			);
 		} finally {
 			busy = false;

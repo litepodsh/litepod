@@ -35,5 +35,11 @@
 	<MetricsHistoryExplorer
 		initialRange="1h"
 		load={(window) =>
-			getApplicationMetricsHistory(organizationId, projectId, environmentId, applicationId, window)} />
+			getApplicationMetricsHistory(
+				organizationId,
+				projectId,
+				environmentId,
+				applicationId,
+				window,
+			)} />
 </section>

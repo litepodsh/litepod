@@ -189,7 +189,7 @@
 		{#snippet aside()}
 			<div class="mt-2.5">
 				<span
-					class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium {toneBadge(
+					class="inline-flex items-center gap-1.5 rounded-full corner-soft border px-2 py-0.5 text-xs font-medium {toneBadge(
 						setupState === 'enabled' ? 'ok' : 'neutral',
 					)}">
 					<span class="size-1.5 rounded-full {toneDot(setupState === 'enabled' ? 'ok' : 'neutral')}"

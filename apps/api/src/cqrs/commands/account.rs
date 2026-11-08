@@ -58,7 +58,9 @@ pub async fn change_password(
     {
         tracing::error!(%error, %user_id, "password changed but personal access tokens were not revoked");
     }
-    if let Err(error) = crate::git::repositories::oauth::revoke_all_grants_for_user(state, user_id).await {
+    if let Err(error) =
+        crate::git::repositories::oauth::revoke_all_grants_for_user(state, user_id).await
+    {
         tracing::error!(%error, %user_id, "password changed but OAuth grants were not revoked");
     }
 
@@ -325,7 +327,15 @@ mod tests {
 
         let pat = security::generate_token();
         repositories::personal_access_token::create(
-            &state, "pat-1", "viewer", "ci", &pat, "lp_abc", "[\"read\"]", None, None,
+            &state,
+            "pat-1",
+            "viewer",
+            "ci",
+            &pat,
+            "lp_abc",
+            "[\"read\"]",
+            None,
+            None,
         )
         .await
         .unwrap();

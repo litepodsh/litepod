@@ -548,7 +548,7 @@
 										aria-checked={service.service === composeService}
 										title={service.status}
 										class={cn(
-											'lp-raised inline-flex h-7 items-center gap-1.5 rounded-full border bg-card px-2.5 font-mono text-[11.5px] text-muted-foreground hover:text-foreground',
+											'lp-raised inline-flex h-7 items-center gap-1.5 rounded-full corner-soft border bg-card px-2.5 font-mono text-[11.5px] text-muted-foreground hover:text-foreground',
 											service.service === composeService &&
 												'border-primary bg-primary/8 text-foreground',
 										)}
@@ -597,7 +597,7 @@
 					{#snippet actions()}
 						<button
 							type="button"
-							class="lp-raised h-6 rounded-full border bg-card px-2.5 font-sans text-[11px] text-muted-foreground hover:text-foreground"
+							class="lp-raised h-6 rounded-full corner-soft border bg-card px-2.5 font-sans text-[11px] text-muted-foreground hover:text-foreground"
 							onclick={insertExample}
 							>{t('organizations.task_ui.insert_example', {
 								label: t(`organizations.task_ui.${example.label}`),
@@ -625,7 +625,7 @@
 							type="button"
 							aria-pressed={preset.value === cron}
 							class={cn(
-								'lp-raised h-6.5 rounded-full border bg-card px-2.5 text-[11.5px] text-muted-foreground hover:text-foreground',
+								'lp-raised h-6.5 rounded-full corner-soft border bg-card px-2.5 text-[11.5px] text-muted-foreground hover:text-foreground',
 								preset.value === cron && 'border-primary bg-primary/8 text-foreground',
 							)}
 							onclick={() => (cron = preset.value)}>{preset.label}</button>

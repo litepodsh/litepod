@@ -80,7 +80,12 @@
 </script>
 
 <svg
-	class={cn('cell-chart block h-auto w-full', toneClass[tone], hot !== null && 'hovering', className)}
+	class={cn(
+		'cell-chart block h-auto w-full',
+		toneClass[tone],
+		hot !== null && 'hovering',
+		className,
+	)}
 	viewBox="0 0 {w} {h}"
 	role="img"
 	aria-label={ariaLabel}

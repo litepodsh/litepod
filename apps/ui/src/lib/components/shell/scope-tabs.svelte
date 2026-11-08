@@ -420,8 +420,8 @@
 		border-radius: 999px;
 		background: var(--lp-raised);
 		box-shadow:
-			inset 1px 1px 0 var(--lp-bevel),
-			inset -1px -1px 0 var(--lp-emboss),
+			inset 0 1px 0 var(--lp-bevel),
+			inset 0 -1px 0 var(--lp-emboss),
 			0 4px 12px -4px
 				color-mix(in srgb, var(--lp-shadow) calc(18% * var(--lp-shadow-strength)), transparent);
 		pointer-events: none;
@@ -560,7 +560,7 @@
 		color: var(--primary);
 		opacity: 1;
 	}
-	/* A soft band of light just inside the rim, a touch brighter top-left. */
+	/* A soft band of light just inside the rim, a touch brighter on top. */
 	.ind.lens::after {
 		position: absolute;
 		inset: 0;
@@ -571,8 +571,8 @@
 			transparent 55%
 		);
 		box-shadow:
-			inset 1px 1px 1px -0.5px color-mix(in srgb, white 40%, transparent),
-			inset -1px -1px 1px -0.5px color-mix(in srgb, white 18%, transparent),
+			inset 0 1px 1px -0.5px color-mix(in srgb, white 40%, transparent),
+			inset 0 -1px 1px -0.5px color-mix(in srgb, white 18%, transparent),
 			inset 0 0 5px 1px color-mix(in srgb, white 10%, transparent),
 			inset 0 0 0 0.5px color-mix(in srgb, var(--foreground) 8%, transparent);
 		content: '';

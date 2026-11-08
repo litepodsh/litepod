@@ -85,7 +85,7 @@
 						{/if}
 						<span class="truncate font-mono text-[13px]">{domain.host}</span>
 						{#if domain.is_primary}
-							<span class="shrink-0 rounded-full px-1.5 py-px text-[10.5px] {toneClass('info')}"
+							<span class="shrink-0 rounded-full corner-soft px-1.5 py-px text-[10.5px] {toneClass('info')}"
 								>{t('common.org_apps.primary')}</span>
 						{/if}
 					</span>

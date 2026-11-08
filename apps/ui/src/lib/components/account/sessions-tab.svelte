@@ -16,7 +16,7 @@
 		revokeSession,
 		revokeAllSessions,
 		revokeOtherSessions,
-		type SessionDto
+		type SessionDto,
 	} from '#lib/clients/account-client.js';
 	import SessionDevice from './session-device.svelte';
 	import AgentIcon from '#lib/components/icons/agent-icon.svelte';
@@ -60,7 +60,9 @@
 			if (session?.kind === 'mcp') {
 				// The record stays as history, now marked closed.
 				sessionsResource.data = sessions.map((s) =>
-					s.id === id ? { ...s, closed_at: new Date().toISOString().slice(0, 19).replace('T', ' ') } : s,
+					s.id === id
+						? { ...s, closed_at: new Date().toISOString().slice(0, 19).replace('T', ' ') }
+						: s,
 				);
 			} else {
 				sessionsResource.data = sessions.filter((s) => s.id !== id);
@@ -169,7 +171,7 @@
 									<AgentIcon agent={session.agent} class="size-4" />
 									<span class="text-sm">
 										{t('account.sessions.mcp_connection', {
-											client: session.client_name ?? t('account.sessions.mcp_unknown_client')
+											client: session.client_name ?? t('account.sessions.mcp_unknown_client'),
 										})}
 									</span>
 								</div>
@@ -177,7 +179,7 @@
 								<SessionDevice userAgent={session.user_agent} />
 							{/if}
 							<span
-								class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium {toneBadge(
+								class="inline-flex items-center gap-1.5 rounded-full corner-soft border px-2 py-0.5 text-xs font-medium {toneBadge(
 									badge.tone,
 								)}">
 								<span class="size-1.5 rounded-full {toneDot(badge.tone)}"></span>

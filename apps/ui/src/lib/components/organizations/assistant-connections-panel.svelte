@@ -157,11 +157,11 @@
 				<strong class="text-sm font-semibold">{connection.name}</strong>
 				{#if connection.status === 'ok'}
 					<span
-						class="text-success rounded-full border border-current/30 bg-current/10 px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase"
+						class="text-success rounded-full corner-soft border border-current/30 bg-current/10 px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase"
 						>{t('organizations.assistant.verified')}</span>
 				{:else if connection.status === 'failed'}
 					<span
-						class="text-warning rounded-full border border-current/30 bg-current/10 px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase"
+						class="text-warning rounded-full corner-soft border border-current/30 bg-current/10 px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase"
 						>{t('organizations.assistant.not_reachable')}</span>
 				{/if}
 				{#if connection.is_default}

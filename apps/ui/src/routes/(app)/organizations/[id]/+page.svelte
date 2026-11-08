@@ -48,13 +48,7 @@
 	const organizationId = page.params.id!;
 	/** Every tab `?tab=` may name. A value missing here silently reloads onto
 	 *  People, which is what used to happen to `assistant`. */
-	const TABS = [
-		'members',
-		'access',
-		'authentication',
-		'backup-storage',
-		'audit-logs',
-	];
+	const TABS = ['members', 'access', 'authentication', 'backup-storage', 'audit-logs'];
 
 	function tabFromUrl() {
 		const t = page.url.searchParams.get('tab');
@@ -237,7 +231,7 @@
 			{#if organization.plan}<span aria-hidden="true">·</span><span>{organization.plan}</span>{/if}
 			{#if organization.is_root}
 				<span
-					class="lp-raised inline-flex h-5 items-center rounded-md bg-primary/10 px-1.5 text-[11px] font-medium text-primary"
+					class="lp-raised inline-flex h-5 items-center rounded-full corner-soft bg-primary/10 px-1.5 text-[11px] font-medium text-primary"
 					>{t('organizations.common.root')}</span>
 			{/if}
 		{/if}

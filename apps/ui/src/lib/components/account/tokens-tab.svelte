@@ -163,7 +163,7 @@
 						{t('account.tokens.granular_title')}
 						{#if grantable.some((p) => scopes[p])}
 							<span
-								class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium tabular-nums {toneBadge(
+								class="inline-flex items-center rounded-full corner-soft border px-2 py-0.5 text-xs font-medium tabular-nums {toneBadge(
 									'info',
 								)}">
 								{grantable.filter((p) => scopes[p]).length}
@@ -294,7 +294,7 @@
 							<span class="font-mono text-xs text-muted-foreground">{token.token_prefix}…</span>
 							{#if expired}
 								<span
-									class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium {toneBadge(
+									class="inline-flex items-center rounded-full corner-soft border px-2 py-0.5 text-xs font-medium {toneBadge(
 										'danger',
 									)}">{t('account.common.expired')}</span>
 							{/if}

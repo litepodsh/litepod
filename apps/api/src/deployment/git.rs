@@ -12,7 +12,10 @@ use podman_api::{Podman, opts::ImageBuildOpts};
 
 use crate::{dtos::response::AppError, git::git_providers, state::state::SharedState};
 
-use super::{BUILD_CPU_PERIOD_US, decrypted_environment, resource_limits, resource_log_line};
+use super::{
+    BUILD_CPU_PERIOD_US, decrypted_environment, default_build_memory,
+    default_build_memory_log_line, resource_limits, resource_log_line,
+};
 
 pub mod compose;
 pub mod railpack;
@@ -128,7 +131,9 @@ fn vet_submodule_url(raw: &str, parent_host: &str, allow_private: bool) -> Resul
         }
     }
     if !resolved {
-        return Err(format!("Submodule host {host} did not resolve to any address"));
+        return Err(format!(
+            "Submodule host {host} did not resolve to any address"
+        ));
     }
     Ok(host.eq_ignore_ascii_case(parent_host))
 }
@@ -152,9 +157,7 @@ fn update_submodules(
         let send_credentials = vet_submodule_url(&submodule_url, parent_host, allow_private)
             .map_err(|e| format!("Submodule '{name}': {e}"))?;
         let mut callbacks = git2::RemoteCallbacks::new();
-        if send_credentials
-            && let Some((username, password)) = credentials
-        {
+        if send_credentials && let Some((username, password)) = credentials {
             let username = username.to_string();
             let password = password.to_string();
             callbacks.credentials(move |_url, username_from_url, _allowed| {
@@ -722,6 +725,15 @@ async fn remote_docker_pipeline(
             OsString::from("--memory-swap"),
             OsString::from(limits.memswap_bytes.to_string()),
         ]);
+    } else if let Some((memory, memswap)) =
+        default_build_memory_for(state, run_id, source, Some(runtime)).await
+    {
+        build.extend([
+            OsString::from("--memory"),
+            OsString::from(memory.to_string()),
+            OsString::from("--memory-swap"),
+            OsString::from(memswap.to_string()),
+        ]);
     }
     build.push(OsString::from(&remote_repo));
     // A real Dockerfile build routinely takes minutes; stream it like the
@@ -927,6 +939,15 @@ async fn remote_railpack_pipeline(
             OsString::from("--memory-swap"),
             OsString::from(limits.memswap_bytes.to_string()),
         ]);
+    } else if let Some((memory, memswap)) =
+        default_build_memory_for(state, run_id, source, Some(runtime)).await
+    {
+        builder_run.extend([
+            OsString::from("--memory"),
+            OsString::from(memory.to_string()),
+            OsString::from("--memory-swap"),
+            OsString::from(memswap.to_string()),
+        ]);
     }
     builder_run.push(OsString::from(&builder_image));
     // A real `bun install && bun run build` (or equivalent) routinely takes
@@ -962,6 +983,34 @@ async fn remote_railpack_pipeline(
         runtime,
     )
     .await
+}
+
+/// `(memory_bytes, memswap_bytes)` for a build whose application sets no limit, read from the
+/// server that runs it (`remote`, or this host) and noted in the deploy log. `None` when a limit
+/// is configured or the server's memory cannot be read.
+async fn default_build_memory_for(
+    state: &SharedState,
+    run_id: &str,
+    source: &crate::dtos::deployment::SourceConfigDto,
+    remote: Option<&crate::servers::runtime::ServerRuntime>,
+) -> Option<(usize, usize)> {
+    if source.build_cpu_cores.is_some() || source.build_memory_mib.is_some() {
+        return None;
+    }
+    let meminfo = match remote {
+        Some(runtime) => {
+            runtime
+                .remote_command(&[OsString::from("cat"), OsString::from("/proc/meminfo")])
+                .await
+                .ok()?
+                .stdout
+        }
+        None => tokio::fs::read_to_string("/proc/meminfo").await.ok()?,
+    };
+    let (memory, memswap) = default_build_memory(&meminfo)?;
+    let line = default_build_memory_log_line(memory, memswap);
+    let _ = super::history::append(state, run_id, "info", &line).await;
+    Some((memory, memswap))
 }
 
 /// Runs a Podman step through `podman_stream` and appends each stdout/stderr
@@ -1111,37 +1160,38 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
         // `allow_private` carries to the submodule guard: private addresses are
         // tolerated only for an explicitly self-hosted provider, never for an
         // anonymous public clone.
-        let (credentials, allow_private): (Option<(String, String)>, bool) = if let Some(
-            provider_id,
-        ) =
-            source.git_provider_id.clone()
-        {
-            let (provider_host, allow_private) =
-                git_providers::provider_host_url(state, &provider_id)
+        let (credentials, allow_private): (Option<(String, String)>, bool) =
+            if let Some(provider_id) = source.git_provider_id.clone() {
+                let (provider_host, allow_private) =
+                    git_providers::provider_host_url(state, &provider_id)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                crate::security::ssrf::validate_for_host(
+                    repository_url,
+                    &provider_host,
+                    allow_private,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+                let _ = super::history::append(state, run_id, "info", "Resolving Git credentials")
+                    .await;
+                // Resolved per deploy: GitHub App installation tokens live one hour, so the clone must
+                // use a token minted now rather than anything persisted on the provider row.
+                let resolved = git_providers::resolve_credentials(state, &provider_id)
                     .await
                     .map_err(|e| e.to_string())?;
-            crate::security::ssrf::validate_for_host(repository_url, &provider_host, allow_private)
-                .await
-                .map_err(|e| e.to_string())?;
-            let _ =
-                super::history::append(state, run_id, "info", "Resolving Git credentials").await;
-            // Resolved per deploy: GitHub App installation tokens live one hour, so the clone must
-            // use a token minted now rather than anything persisted on the provider row.
-            let resolved = git_providers::resolve_credentials(state, &provider_id)
-                .await
-                .map_err(|e| e.to_string())?;
-            (Some((resolved.username, resolved.secret)), allow_private)
-        } else {
-            // No saved provider: anonymous public clone, or credentials the user
-            // embedded in the pasted URL and that were saved (encrypted) at source-save time.
-            crate::security::ssrf::validate_public_url(repository_url)
-                .await
-                .map_err(|e| e.to_string())?;
-            let credentials = git_providers::application_git_credentials(state, application_id)
-                .await
-                .map_err(|e| e.to_string())?;
-            (credentials, false)
-        };
+                (Some((resolved.username, resolved.secret)), allow_private)
+            } else {
+                // No saved provider: anonymous public clone, or credentials the user
+                // embedded in the pasted URL and that were saved (encrypted) at source-save time.
+                crate::security::ssrf::validate_public_url(repository_url)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let credentials = git_providers::application_git_credentials(state, application_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                (credentials, false)
+            };
         let _ =
             super::history::append(state, run_id, "info", "Preparing repository workspace").await;
         let _ = super::history::append(state, run_id, "info", "Cloning repository").await;
@@ -1313,6 +1363,10 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
             // Podman interprets this as memory plus swap. The user can extend
             // it past RAM via `build_swap_mib`; otherwise it equals `memory`.
             .memswap(limits.memswap_bytes);
+    } else if let Some((memory, memswap)) =
+        default_build_memory_for(state, run_id, &source, None).await
+    {
+        options = options.memory(memory).memswap(memswap);
     }
     let options = options.build();
     let images = podman.images();
@@ -1390,7 +1444,10 @@ mod tests {
             Ok(false)
         );
         // Relative submodule resolves against the parent's remote → same host.
-        assert_eq!(vet_submodule_url("../sibling.git", "example.org", false), Ok(true));
+        assert_eq!(
+            vet_submodule_url("../sibling.git", "example.org", false),
+            Ok(true)
+        );
         // scp/ssh-style carries no HTTP token.
         assert_eq!(
             vet_submodule_url("git@github.com:acme/lib.git", "github.com", false),
@@ -1401,7 +1458,14 @@ mod tests {
     #[test]
     fn submodule_pointing_at_an_internal_address_is_refused() {
         // Literal private/link-local IPs resolve to themselves (no DNS needed).
-        assert!(vet_submodule_url("http://169.254.169.254/latest/meta-data", "github.com", false).is_err());
+        assert!(
+            vet_submodule_url(
+                "http://169.254.169.254/latest/meta-data",
+                "github.com",
+                false
+            )
+            .is_err()
+        );
         assert!(vet_submodule_url("http://127.0.0.1/x", "github.com", false).is_err());
         // Allowed when the provider is explicitly self-hosted.
         assert_eq!(

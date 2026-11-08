@@ -38,6 +38,6 @@
 				>{relativeTime(job.queued_at, Date.now(), i18n.locale)}</time
 			></small>
 	</span>
-	<span class="rounded-full px-2 py-0.5 text-xs font-medium {toneClass(tone(job.status))}"
+	<span class="rounded-full corner-soft px-2 py-0.5 text-xs font-medium {toneClass(tone(job.status))}"
 		>{job.status}</span>
 </li>

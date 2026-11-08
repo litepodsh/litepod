@@ -17,11 +17,8 @@
 	import OrganizationIcon from '#lib/components/organization-icon.svelte';
 	import { preloadOnHover } from '#lib/utils/preload.js';
 
-	let {
-		project,
-		path,
-		onNavigate,
-	}: { project: ProjectDto; path: string; onNavigate: () => void } = $props();
+	let { project, path, onNavigate }: { project: ProjectDto; path: string; onNavigate: () => void } =
+		$props();
 
 	const href = $derived(`/projects/${encodeURIComponent(project.id)}`);
 	let open = $state(false);
@@ -64,7 +61,17 @@
 	<Sidebar.MenuItem>
 		<Sidebar.MenuButton isActive={path === href}>
 			{#snippet child({ props })}
-				<a {href} onclick={(event) => toggleOrGo(event, inProject, () => (open = !open), () => (open = true))} use:preloadOnHover={href} {...props}>
+				<a
+					{href}
+					onclick={(event) =>
+						toggleOrGo(
+							event,
+							inProject,
+							() => (open = !open),
+							() => (open = true),
+						)}
+					use:preloadOnHover={href}
+					{...props}>
 					{#if isNamedIcon(project.icon_url)}
 						<OrganizationIcon icon={project.icon_url} class="size-4 shrink-0" />
 					{:else if isDisplayableImageUrl(project.icon_url)}
@@ -82,10 +89,14 @@
 			<ChevronRightIcon class="size-4 transition-transform {open ? 'rotate-90' : ''}" />
 		</TreeToggle>
 		<Collapsible.Content class="lp-collapsible">
-			<Sidebar.MenuSub class="me-0 pe-0 border-transparent transition-colors hover:border-sidebar-border">
+			<Sidebar.MenuSub
+				class="me-0 pe-0 border-transparent transition-colors hover:border-sidebar-border">
 				{#each environments as env (env.id)}
 					{@const eh = envHref(env)}
-					<Collapsible.Root bind:open={() => openEnvs[env.id] ?? path.startsWith(eh), (v) => (openEnvs[env.id] = v)}>
+					<Collapsible.Root
+						bind:open={
+							() => openEnvs[env.id] ?? path.startsWith(eh), (v) => (openEnvs[env.id] = v)
+						}>
 						<Sidebar.MenuSubItem>
 							<Sidebar.MenuSubButton isActive={path === eh}>
 								{#snippet child({ props })}
@@ -132,7 +143,8 @@
 								</TreeToggle>
 							{/if}
 							<Collapsible.Content class="lp-collapsible">
-								<Sidebar.MenuSub class="ms-2 me-0 pe-0 border-transparent transition-colors hover:border-sidebar-border">
+								<Sidebar.MenuSub
+									class="ms-2 me-0 pe-0 border-transparent transition-colors hover:border-sidebar-border">
 									{#each env.applications as app (app.id)}
 										{@const ah = `${eh}/applications/${encodeURIComponent(app.id)}`}
 										<Sidebar.MenuSubItem>

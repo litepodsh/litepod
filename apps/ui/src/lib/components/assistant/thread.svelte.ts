@@ -290,11 +290,7 @@ export async function settle(
  * `failed` and keeps the reason. Without re-reading it, the card stays
  * `pending` and a second click only gets "already failed".
  */
-async function syncAction(
-	organizationId: string,
-	actionId: string,
-	card: ThreadItem | undefined,
-) {
+async function syncAction(organizationId: string, actionId: string, card: ThreadItem | undefined) {
 	if (card?.kind !== 'action' || !thread.conversationId) return;
 	try {
 		const conversation = await readConversation(organizationId, thread.conversationId);

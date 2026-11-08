@@ -515,7 +515,8 @@ mod tests {
             config.image_repo = "docker.io/litepod/litepod".into();
             config.data_dir = dir.clone();
             config.stack_env_file = (failure != "no_env").then_some(env_path.clone());
-            let result = super::apply_now(&state, "v0.1.72".into(), UpdateChannel::Stable, None).await;
+            let result =
+                super::apply_now(&state, "v0.1.72".into(), UpdateChannel::Stable, None).await;
             let calls = calls.lock().unwrap();
             if matches!(failure, "none" | "no_env") {
                 assert!(result.is_ok(), "{failure}: {result:?}; {calls:?}");

@@ -333,7 +333,9 @@
 
 			{#if probes.length}
 				<div>
-					<h3 class="mb-2 text-sm font-medium">{t('projects.application_networks.reachability')}</h3>
+					<h3 class="mb-2 text-sm font-medium">
+						{t('projects.application_networks.reachability')}
+					</h3>
 					<ul class="divide-y rounded-lg border text-sm">
 						{#each probes as probe (probe.from + ' ' + probe.to)}
 							{@const ok = probe.reason === 'reachable' || probe.reason === 'resolved'}

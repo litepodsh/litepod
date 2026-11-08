@@ -27,8 +27,7 @@
 		startedAt
 			? Math.max(
 					0,
-					((live ? now : (steps.at(-1)!.startedAt! + (steps.at(-1)!.durationMs ?? 0))) -
-						startedAt) /
+					((live ? now : steps.at(-1)!.startedAt! + (steps.at(-1)!.durationMs ?? 0)) - startedAt) /
 						1000,
 				)
 			: null,

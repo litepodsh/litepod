@@ -22,6 +22,11 @@
 	import type { TerminalSocket } from '#lib/clients/terminal-client.js';
 	import { loadNerdFont } from '#lib/utils/lazy-nerd-font.js';
 	import { loadTerminalRenderer } from '#lib/utils/terminal-renderer.js';
+	import {
+		TERMINAL_FONT_SIZE,
+		terminalFontZoom,
+		zoomedTerminalFontSize,
+	} from '#lib/utils/terminal-font-zoom.js';
 
 	let {
 		active,
@@ -45,6 +50,7 @@
 	let terminalSearch: TerminalSearch | null = null;
 	let disposeRenderer: (() => void) | null = null;
 	let progress = $state<IProgressState>({ state: 0, value: 0 });
+	let fontSize = $state<number>(TERMINAL_FONT_SIZE.initial);
 	// OSC 9;4 progress states -> bar colour (1 normal, 2 error, 3 busy, 4 paused).
 	const PROGRESS_COLOR: Record<1 | 2 | 3 | 4, string> = {
 		1: 'bg-success',
@@ -75,6 +81,23 @@
 		const size = fit.proposeDimensions();
 		if (socket?.readyState === WebSocket.OPEN && size?.cols && size.rows)
 			socket.sendResize(size.cols, size.rows);
+	}
+	function applyFontSize(next: number) {
+		if (next === fontSize) return;
+		fontSize = next;
+		if (!terminal) return;
+		terminal.options.fontSize = fontSize;
+		requestAnimationFrame(fitNow);
+	}
+	// Browser zoom (Ctrl/Cmd + -, +, 0) only resizes the terminal text; the
+	// dialog keeps the size it had when it opened.
+	function handleZoomKeydown(event: KeyboardEvent) {
+		if (!active) return;
+		const zoom = terminalFontZoom(event);
+		if (!zoom) return;
+		event.preventDefault();
+		event.stopPropagation();
+		applyFontSize(zoomedTerminalFontSize(fontSize, zoom));
 	}
 	function disconnect() {
 		socket?.close();
@@ -138,7 +161,7 @@
 		if (!host) return;
 		terminal = new Terminal({
 			fontFamily: "'Commit Mono', 'CommitMono Nerd Font Mono', monospace",
-			fontSize: 13,
+			fontSize,
 			cursorBlink: true,
 			convertEol: true,
 			rightClickSelectsWord: true,
@@ -192,6 +215,10 @@
 	}
 	$effect(() => {
 		if (active) requestAnimationFrame(fitNow);
+	});
+	onMount(() => {
+		window.addEventListener('keydown', handleZoomKeydown, { capture: true });
+		return () => window.removeEventListener('keydown', handleZoomKeydown, { capture: true });
 	});
 	onMount(() => void start());
 	onDestroy(cleanup);

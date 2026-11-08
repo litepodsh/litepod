@@ -93,12 +93,12 @@
 					<footer class="lp-groove-t mt-auto flex flex-wrap gap-1.5 pt-3.5">
 						{#if organization.plan}
 							<span
-								class="lp-raised inline-flex h-6 max-w-full items-center truncate rounded-md bg-muted px-2 text-xs text-muted-foreground"
+								class="lp-raised inline-flex h-6 max-w-full items-center truncate rounded-full corner-soft bg-muted px-2 text-xs text-muted-foreground"
 								>{organization.plan}</span>
 						{/if}
 						{#if organization.is_root}
 							<span
-								class="lp-raised inline-flex h-6 items-center rounded-md bg-primary/10 px-2 text-xs font-medium text-primary"
+								class="lp-raised inline-flex h-6 items-center rounded-full corner-soft bg-primary/10 px-2 text-xs font-medium text-primary"
 								>{t('organizations.common.root')}</span>
 						{/if}
 					</footer>

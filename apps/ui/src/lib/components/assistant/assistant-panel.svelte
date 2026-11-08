@@ -330,9 +330,7 @@
 			class="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-3 pt-3.5 pb-4">
 			{#each blocks as block, index (index)}
 				{#if block.kind === 'run'}
-					<AssistantRun
-						steps={block.steps}
-						live={thread.running && index === blocks.length - 1} />
+					<AssistantRun steps={block.steps} live={thread.running && index === blocks.length - 1} />
 				{:else}
 					{@render threadItem(block)}
 				{/if}

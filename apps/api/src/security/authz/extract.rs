@@ -694,7 +694,10 @@ mod tests {
         let (status, body) = status_of(router, "/api/v1/organizations/organization-a/probe").await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert!(body.contains("two-factor"), "{body}");
-        assert!(body.contains(crate::dtos::response::TWO_FACTOR_REQUIRED_CODE), "{body}");
+        assert!(
+            body.contains(crate::dtos::response::TWO_FACTOR_REQUIRED_CODE),
+            "{body}"
+        );
         cleanup_database(&path);
     }
 

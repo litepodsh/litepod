@@ -173,7 +173,11 @@ it('sends the path and hides HTTPS and the www twin for a path domain', async ()
 	expect(screen.queryByLabelText('Also add www.example.com')).toBeNull();
 	await fireEvent.submit(screen.getByRole('textbox', { name: 'Host' }).closest('form')!);
 	await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-	expect(onSubmit.mock.calls[0][0]).toMatchObject({ host: 'example.com', path: '/api', port: 8080 });
+	expect(onSubmit.mock.calls[0][0]).toMatchObject({
+		host: 'example.com',
+		path: '/api',
+		port: 8080,
+	});
 });
 
 it('hides the path field for local hosts', async () => {

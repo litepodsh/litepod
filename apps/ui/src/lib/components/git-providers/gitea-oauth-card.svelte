@@ -147,13 +147,13 @@
 			<LoaderCircleIcon class="size-4 animate-spin text-muted-foreground" />
 		{:else if status?.connected}
 			<span
-				class="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success dark:bg-success/20">
+				class="inline-flex items-center gap-1 rounded-full corner-soft bg-success/10 px-2 py-0.5 text-xs font-medium text-success dark:bg-success/20">
 				<CircleCheckIcon class="size-3" />
 				{t('git-providers.gitea-oauth.connected_as', { login: status.user_login })}
 			</span>
 		{:else if status?.has_client_credentials}
 			<span
-				class="inline-flex items-center gap-1 rounded-full bg-warning px-2 py-0.5 text-xs font-medium text-warning">
+				class="inline-flex items-center gap-1 rounded-full corner-soft bg-warning px-2 py-0.5 text-xs font-medium text-warning">
 				<LinkIcon class="size-3" />
 				{t('git-providers.gitea-oauth.not_connected')}
 			</span>

@@ -9,7 +9,9 @@ function read(): SidebarSide {
 	}
 }
 
-export const sidebarSide = $state<{ current: SidebarSide }>({ current: typeof localStorage === 'undefined' ? 'left' : read() });
+export const sidebarSide = $state<{ current: SidebarSide }>({
+	current: typeof localStorage === 'undefined' ? 'left' : read(),
+});
 
 export function setSidebarSide(side: SidebarSide) {
 	sidebarSide.current = side;

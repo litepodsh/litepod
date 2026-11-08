@@ -104,7 +104,7 @@
 					<span class="group relative z-10 shrink-0">
 						<button
 							type="button"
-							class="h-5 rounded-full bg-primary/10 px-1.5 text-[11.5px] font-medium text-primary"
+							class="h-5 rounded-full corner-soft bg-primary/10 px-1.5 text-[11.5px] font-medium text-primary"
 							aria-label={t('common.home.show_all_domains')}>+{app.domains.length - 1}</button>
 						<span
 							role="tooltip"
@@ -139,7 +139,7 @@
 		</span>
 		<span role="cell">
 			<span
-				class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap {toneClass(
+				class="inline-flex items-center gap-1.5 rounded-full corner-soft px-2 py-0.5 text-xs font-medium whitespace-nowrap {toneClass(
 					statusTone(app.status),
 				)}">
 				<i class="size-1.5 rounded-full bg-current"></i>

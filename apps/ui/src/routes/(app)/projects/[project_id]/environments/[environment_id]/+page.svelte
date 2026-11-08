@@ -949,7 +949,7 @@
 						searchPlaceholder={t('projects.common.search_environments')}
 						emptyText={t('projects.common.no_environment_found')} />
 					{#if currentEnvironment.is_production}<span
-							class={`rounded-full px-2 py-0.5 text-xs font-medium ${toneClass('ok')}`}>prod</span
+							class={`rounded-full corner-soft px-2 py-0.5 text-xs font-medium ${toneClass('ok')}`}>prod</span
 						>{/if}
 				</div>
 				<div class="flex gap-2">

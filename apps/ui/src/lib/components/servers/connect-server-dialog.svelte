@@ -431,7 +431,8 @@
 
 			<div class="min-h-0 overflow-y-auto px-6 py-5">
 				{#if stepError && needsSudo}
-					<div class="mb-4 space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+					<div
+						class="mb-4 space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
 						<p class="text-destructive">
 							{t('servers.connect.sudo_missing', { user: sshUser })}
 						</p>

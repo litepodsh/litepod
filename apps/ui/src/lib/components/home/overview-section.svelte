@@ -92,9 +92,7 @@
 		let statsByApp: Map<string, ApplicationStatsDto>;
 		try {
 			const items = await listOrganizationAppsStats(organizationId);
-			statsByApp = new Map(
-				items.map(({ application_id, ...stats }) => [application_id, stats]),
-			);
+			statsByApp = new Map(items.map(({ application_id, ...stats }) => [application_id, stats]));
 		} catch {
 			return;
 		}

@@ -176,6 +176,7 @@
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
+		corner-shape: round;
 		background: var(--success);
 	}
 	.sib-warn .pip {

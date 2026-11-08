@@ -97,7 +97,8 @@
 			path?: string;
 		})[];
 	};
-	const appName = (id: string) => appById.get(id)?.application.name ?? t('analytics.panel.other_app');
+	const appName = (id: string) =>
+		appById.get(id)?.application.name ?? t('analytics.panel.other_app');
 	let slowTables = $derived.by(() => {
 		const out: SlowTable[] = [
 			{
@@ -220,7 +221,9 @@
 	{#each slowTables as table (table.title)}
 		{@const slowest = Math.max(1, ...table.rows.map((row) => row.avg_ms ?? 0))}
 		<section
-			class="{table.full ? 'full' : 'half'} flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-3">
+			class="{table.full
+				? 'full'
+				: 'half'} flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-3">
 			<h3 class="text-[13px] font-medium">{table.title}</h3>
 			<div class="overflow-x-auto">
 				<table class="w-full min-w-[520px] table-fixed text-[13px] tabular-nums">
@@ -238,7 +241,9 @@
 					<tbody>
 						{#each table.rows as row (row.id)}
 							<tr class="border-t">
-								<td class="truncate py-2 pr-3 font-mono text-[12.5px] text-primary" title={row.label}>
+								<td
+									class="truncate py-2 pr-3 font-mono text-[12.5px] text-primary"
+									title={row.label}>
 									{#if row.path}<button
 											type="button"
 											class="hover:underline"
@@ -266,7 +271,8 @@
 							</tr>
 						{:else}
 							<tr class="border-t">
-								<td colspan="6" class="py-3 text-muted-foreground">{t('analytics.panel.no_rows')}</td>
+								<td colspan="6" class="py-3 text-muted-foreground"
+									>{t('analytics.panel.no_rows')}</td>
 							</tr>
 						{/each}
 					</tbody>

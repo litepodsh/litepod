@@ -94,7 +94,12 @@ async fn send(
 }
 
 async fn get(state: &SharedState, path: &str, action: &str) -> Result<Value, AppError> {
-    send(state, crate::utils::http::client().get(url(state, path)?), action).await
+    send(
+        state,
+        crate::utils::http::client().get(url(state, path)?),
+        action,
+    )
+    .await
 }
 
 /// Walks every page of a Polar list endpoint. `path` must already carry a

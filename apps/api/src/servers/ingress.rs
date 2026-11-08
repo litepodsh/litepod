@@ -288,7 +288,9 @@ pub(crate) async fn domain_is_public_edge(
     state: &SharedState,
     domain: &DomainDto,
 ) -> Result<bool, AppError> {
-    if domain.is_local || domains::application_uses_local_caddy(state, &domain.application_id).await? {
+    if domain.is_local
+        || domains::application_uses_local_caddy(state, &domain.application_id).await?
+    {
         return Ok(false);
     }
     let server = domain_server(state, domain).await?;
@@ -535,9 +537,10 @@ pub async fn sync_server_routes(
             // The auth token is appended only when set, so a helper that predates
             // basic auth still parses every unprotected line.
             // The maintenance page is the eighth field, so auth is "-" when absent.
-            let maintenance = crate::deployment::maintenance::load_payload_for_domain(state, &domain.id)
-                .await?
-                .map(|payload| crate::deployment::maintenance::edge_token(&payload));
+            let maintenance =
+                crate::deployment::maintenance::load_payload_for_domain(state, &domain.id)
+                    .await?
+                    .map(|payload| crate::deployment::maintenance::edge_token(&payload));
             if maintenance.is_some() && !maintenance_supported {
                 return Err(AppError::ValidationError(
                     "Maintenance mode needs a newer server script. Open Servers and choose Update script"

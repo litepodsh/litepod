@@ -70,7 +70,7 @@
 		else open = next;
 	}}>
 	<Dialog.Content
-		class="!flex h-[min(46rem,calc(100dvh-1rem))] max-w-[calc(100%-1rem)] !flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+		class="!flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] !flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100vw-1rem)]">
 		<Dialog.Header class="border-b bg-muted/30 px-5 py-4 pr-14"
 			><div class="flex min-w-0 items-center gap-3">
 				<span

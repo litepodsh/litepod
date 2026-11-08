@@ -3,10 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, TWO_FACTOR_REQUIRED, api } from './base-client';
 
 function respondWith(status: number, body: unknown) {
-	vi.stubGlobal(
-		'fetch',
-		vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status })),
-	);
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status })));
 }
 
 function fakeWindow(pathname: string, search = '') {

@@ -37,7 +37,7 @@
 				>+{app.domains.length - 1}</span
 			>{/if}</span>
 	<span class="justify-self-end">
-		<span class="rounded-full px-2 py-0.5 text-xs font-medium {toneClass(statusTone(app.status))}"
+		<span class="rounded-full corner-soft px-2 py-0.5 text-xs font-medium {toneClass(statusTone(app.status))}"
 			>{statusLabel}</span>
 	</span>
 </a>
