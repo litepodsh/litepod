@@ -303,7 +303,7 @@ _ensure-up-to-date:
 # prompt) pushes both, which triggers .github/workflows/release.yml. On main
 # it first dispatches a dry run there to warm the rust cache for the tag run.
 bump component version:
-    @just _ensure-up-to-date
+    @case '{{component}}' in litepod|litepd) just _ensure-up-to-date ;; esac
     @just _bump stable {{component}} {{version}}
     @just _release-tag stable {{component}}
 
