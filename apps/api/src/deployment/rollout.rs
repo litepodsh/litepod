@@ -458,20 +458,32 @@ pub async fn published_port(runtime: &ServerRuntime, name: &str, port: u16) -> R
 }
 
 /// One-shot Compose services (init/migration jobs gated by
-/// `service_completed_successfully`) finish with exit 0 and no restart policy.
-/// They are done, not crashed, so readiness skips them.
+/// `service_completed_successfully`) finish with exit 0 and nothing will restart
+/// them (`on-failure` ignores a clean exit). They are done, not crashed, so
+/// readiness skips them.
 fn completed_job(fact: &Value) -> bool {
     fact.pointer("/State/Status").and_then(Value::as_str) == Some("exited")
         && fact.pointer("/State/ExitCode").and_then(Value::as_i64) == Some(0)
         && matches!(
             fact.pointer("/HostConfig/RestartPolicy/Name")
                 .and_then(Value::as_str),
-            None | Some("" | "no")
+            None | Some("" | "no" | "on-failure")
         )
 }
 
+/// A healthcheck's `start_period` declares how long first boot may take
+/// (migrations can run for many minutes), so readiness waits at least that long.
+fn readiness_budget(facts: &[Value]) -> Duration {
+    let start_period = facts
+        .iter()
+        .filter_map(|fact| fact.pointer("/Config/Healthcheck/StartPeriod")?.as_u64())
+        .max()
+        .unwrap_or(0);
+    Duration::from_secs(60) + Duration::from_nanos(start_period)
+}
+
 async fn wait_running(runtime: &ServerRuntime, names: &[String]) -> Result<(), String> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let started = tokio::time::Instant::now();
     let mut consecutive = 0;
     loop {
         let facts = inspect(runtime, names).await?;
@@ -497,7 +509,7 @@ async fn wait_running(runtime: &ServerRuntime, names: &[String]) -> Result<(), S
         if consecutive >= 2 {
             return Ok(());
         }
-        if tokio::time::Instant::now() >= deadline {
+        if started.elapsed() >= readiness_budget(&facts) {
             return Err("Candidate readiness timed out; existing release retained".into());
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -952,7 +964,7 @@ mod tests {
     }
 
     #[test]
-    fn only_clean_exits_without_restart_policy_count_as_completed_jobs() {
+    fn only_clean_exits_that_will_not_restart_count_as_completed_jobs() {
         let fact = |status: &str, code: i64, restart: &str| {
             serde_json::json!({
                 "State": {"Status": status, "ExitCode": code},
@@ -961,10 +973,23 @@ mod tests {
         };
         assert!(completed_job(&fact("exited", 0, "no")));
         assert!(completed_job(&fact("exited", 0, "")));
+        assert!(completed_job(&fact("exited", 0, "on-failure")));
+        assert!(!completed_job(&fact("exited", 1, "on-failure")));
         assert!(!completed_job(&fact("exited", 1, "no")));
         assert!(!completed_job(&fact("exited", 0, "unless-stopped")));
         assert!(!completed_job(&fact("running", 0, "no")));
     }
+
+    #[test]
+    fn readiness_budget_extends_by_the_longest_start_period() {
+        let period = |ns: u64| serde_json::json!({"Config": {"Healthcheck": {"StartPeriod": ns}}});
+        assert_eq!(readiness_budget(&[]), Duration::from_secs(60));
+        assert_eq!(
+            readiness_budget(&[period(30_000_000_000), period(1_200_000_000_000)]),
+            Duration::from_secs(1260)
+        );
+    }
+
     #[test]
     fn release_project_is_stable_for_lifecycle_and_keeps_legacy_names() {
         assert_eq!(compose_project("app-123", "api-123"), "app-123-compose");
