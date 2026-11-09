@@ -47,6 +47,30 @@ pub async fn start(
     Ok(id)
 }
 
+/// Credits the runs a token's action created since `since_ms` to its MCP client.
+/// Best effort: the deploy already started and must not fail over a label.
+pub async fn stamp_mcp_client(
+    state: &SharedState,
+    application_id: &str,
+    actor: &crate::security::middleware::auth::AuthUser,
+    since_ms: i64,
+) {
+    let Some(client) = crate::mcp::session::client_name(actor) else {
+        return;
+    };
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let result = sqlx::query("UPDATE application_deployment_runs SET mcp_client = ?1 WHERE application_id = ?2 AND created_by = ?3 AND started_at >= ?4 AND mcp_client IS NULL")
+        .bind(client)
+        .bind(application_id)
+        .bind(&actor.user_id)
+        .bind(since_ms)
+        .execute(&conn)
+        .await;
+    if let Err(error) = result {
+        tracing::warn!(application_id, %error, "could not record the MCP client of a run");
+    }
+}
+
 /// Written once the shallow clone succeeds - not known at `start()` time since
 /// that runs before the repo is cloned.
 pub async fn set_commit(
@@ -611,7 +635,7 @@ pub async fn fail_interrupted(state: &SharedState) -> Result<(), AppError> {
     Ok(())
 }
 
-const RUN_COLUMNS: &str = "r.id, r.source_type, r.build_method, r.status, r.started_at, r.finished_at, r.last_error, r.commit_sha, r.commit_message, r.commit_author_name, r.commit_author_email, r.triggered_by, r.branch, j.id, u.id, u.name, u.email, j.status";
+const RUN_COLUMNS: &str = "r.id, r.source_type, r.build_method, r.status, r.started_at, r.finished_at, r.last_error, r.commit_sha, r.commit_message, r.commit_author_name, r.commit_author_email, r.triggered_by, r.branch, j.id, u.id, u.name, u.email, j.status, r.mcp_client";
 const RUN_JOINS: &str =
     "LEFT JOIN deployment_jobs j ON j.run_id = r.id LEFT JOIN users u ON u.id = r.created_by";
 
@@ -668,6 +692,9 @@ fn row_to_run(row: &sqlx::sqlite::SqliteRow) -> Result<DeploymentRunDto, AppErro
             .map_err(|e| AppError::DatabaseError(e.to_string()))?,
         triggered_by: row
             .try_get(11)
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        mcp_client: row
+            .try_get(18)
             .map_err(|e| AppError::DatabaseError(e.to_string()))?,
         branch: row
             .try_get(12)
@@ -1535,6 +1562,52 @@ mod tests {
             ["succeeded", "failed", "skipped", "skipped"]
         );
         assert_eq!(of("server-b"), ["running", "pending", "pending", "pending"]);
+        cleanup(path);
+    }
+
+    #[tokio::test]
+    async fn only_a_tokens_new_runs_name_its_mcp_client() {
+        let (state, path) = test_state().await;
+        let new_run = |state| async move {
+            start(
+                state,
+                "application-1",
+                "compose",
+                "compose",
+                "assistant_deploy",
+                None,
+                Some("user-1"),
+            )
+            .await
+            .unwrap()
+        };
+        let old = new_run(&state).await;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        let since = now_ms();
+        let fresh = new_run(&state).await;
+
+        let mut actor = crate::testing::auth_user("editor");
+        actor.user_id = "user-1".into();
+        stamp_mcp_client(&state, "application-1", &actor, since).await;
+        let client_of = |runs: &[DeploymentRunDto], id: &str| {
+            runs.iter()
+                .find(|run| run.id == id)
+                .unwrap()
+                .mcp_client
+                .clone()
+        };
+        let runs = list(&state, "application-1").await.unwrap();
+        assert_eq!(
+            client_of(&runs, &fresh),
+            None,
+            "a session has no MCP client"
+        );
+
+        actor.token_name = Some("MCP · Claude".into());
+        stamp_mcp_client(&state, "application-1", &actor, since).await;
+        let runs = list(&state, "application-1").await.unwrap();
+        assert_eq!(client_of(&runs, &fresh).as_deref(), Some("Claude"));
+        assert_eq!(client_of(&runs, &old), None);
         cleanup(path);
     }
 

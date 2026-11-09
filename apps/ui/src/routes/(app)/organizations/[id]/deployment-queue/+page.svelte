@@ -341,7 +341,8 @@
 								actor={job.actor}
 								triggeredBy={job.triggered_by}
 								commitAuthorName={job.commit_author_name}
-								commitAuthorEmail={job.commit_author_email} />
+								commitAuthorEmail={job.commit_author_email}
+								mcpClient={job.mcp_client} />
 						</span>
 					</button>
 					{#if selected === job.id && selectedRun}

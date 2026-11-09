@@ -59,3 +59,13 @@ it('marks an assistant run as its own kind, not as a user', () => {
 		label: 'ai assistant',
 	});
 });
+
+it('names the MCP client over the assistant or the token owner', () => {
+	const actor = { id: 'u1', name: 'Ada', email: 'ada@example.com' };
+	for (const trigger of ['assistant_deploy', 'manual_stop']) {
+		expect(deploymentAuthor(actor, trigger, null, null, 'Claude')).toMatchObject({
+			kind: 'assistant',
+			label: 'mcp · claude',
+		});
+	}
+});

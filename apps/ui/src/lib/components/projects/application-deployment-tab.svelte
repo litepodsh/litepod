@@ -284,7 +284,8 @@
 											actor={run.actor}
 											triggeredBy={run.triggered_by}
 											commitAuthorName={run.commit_author_name}
-											commitAuthorEmail={run.commit_author_email} />
+											commitAuthorEmail={run.commit_author_email}
+											mcpClient={run.mcp_client} />
 										<span class="tag shrink-0 font-mono"
 											>{run.commit_sha ? shortSha(run.commit_sha) : run.source_type}</span>
 										{#if run.branch}

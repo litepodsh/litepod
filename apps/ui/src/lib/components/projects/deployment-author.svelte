@@ -10,14 +10,18 @@
 		triggeredBy = null,
 		commitAuthorName = null,
 		commitAuthorEmail = null,
+		mcpClient = null,
 	}: {
 		actor?: DeploymentRunActorDto | null;
 		triggeredBy?: string | null;
 		commitAuthorName?: string | null;
 		commitAuthorEmail?: string | null;
+		mcpClient?: string | null;
 	} = $props();
 
-	let author = $derived(deploymentAuthor(actor, triggeredBy, commitAuthorName, commitAuthorEmail));
+	let author = $derived(
+		deploymentAuthor(actor, triggeredBy, commitAuthorName, commitAuthorEmail, mcpClient),
+	);
 </script>
 
 <span

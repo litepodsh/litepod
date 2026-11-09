@@ -56,6 +56,7 @@ pub async fn run(state: &SharedState, org: &OrgScope, action: &str, arguments: &
     }
 
     let user_id = Some(org.user.user_id.as_str());
+    let since = chrono::Utc::now().timestamp_millis();
     let (result, audit_action) = match action {
         "start" => (
             deployment::start(state, &target.application_id, user_id).await,
@@ -66,6 +67,7 @@ pub async fn run(state: &SharedState, org: &OrgScope, action: &str, arguments: &
             "deployment.stopped",
         ),
     };
+    deployment::history::stamp_mcp_client(state, &target.application_id, &org.user, since).await;
     let deployment = match result {
         Ok(deployment) => deployment,
         Err(error) => return failure(error.to_string()),

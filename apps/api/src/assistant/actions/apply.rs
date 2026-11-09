@@ -11,6 +11,26 @@ use super::lifecycle::*;
 use super::types::*;
 use super::upload::{IconChange, take_icon};
 
+/// Every deploy an action starts; a token's run also names its MCP client.
+/// shortcut: a person confirming an MCP proposal in the panel is credited as the
+/// assistant, read the conversation title if that case needs the client too.
+async fn enqueue_deploy(
+    state: &SharedState,
+    application_id: &str,
+    actor: &AuthUser,
+) -> Result<deployment::queue::DeploymentJobDto, AppError> {
+    let since = chrono::Utc::now().timestamp_millis();
+    let job = deployment::enqueue_for_application(
+        state,
+        application_id,
+        ASSISTANT_TRIGGER,
+        Some(&actor.user_id),
+    )
+    .await?;
+    deployment::history::stamp_mcp_client(state, application_id, actor, since).await;
+    Ok(job)
+}
+
 pub(super) async fn apply_environment_variable(
     state: &SharedState,
     stored: &StoredAction,
@@ -640,13 +660,7 @@ pub(super) async fn apply_redeploy(
 ) -> Result<Applied, AppError> {
     // `assistant_deploy` rather than `manual_deploy`: the run history should say
     // where a deployment came from.
-    let job = deployment::enqueue_for_application(
-        state,
-        &stored.application_id,
-        ASSISTANT_TRIGGER,
-        Some(&actor.user_id),
-    )
-    .await?;
+    let job = enqueue_deploy(state, &stored.application_id, actor).await?;
 
     Ok(Applied {
         audit_action: "application.deployed",
@@ -753,13 +767,7 @@ pub(super) async fn apply_restart(
     // Nothing was running, so there is nothing to restart: bring it up the
     // way a redeploy does.
     if idle {
-        let job = deployment::enqueue_for_application(
-            state,
-            application_id,
-            ASSISTANT_TRIGGER,
-            Some(&actor.user_id),
-        )
-        .await?;
+        let job = enqueue_deploy(state, application_id, actor).await?;
         return Ok(Applied {
             audit_action: "application.deployed",
             added: Some(format!("not running, redeploy queued as job {}", job.id)),
@@ -1031,13 +1039,7 @@ async fn publish_static_site(
         site.https,
     )
     .await?;
-    deployment::enqueue_for_application(
-        state,
-        application_id,
-        ASSISTANT_TRIGGER,
-        Some(&actor.user_id),
-    )
-    .await?;
+    enqueue_deploy(state, application_id, actor).await?;
     Ok(url)
 }
 
@@ -1243,13 +1245,7 @@ pub(super) async fn apply_from_template(
                 ),
                 _ => None,
             };
-            deployment::enqueue_for_application(
-                state,
-                &application_id,
-                ASSISTANT_TRIGGER,
-                Some(&actor.user_id),
-            )
-            .await?;
+            enqueue_deploy(state, &application_id, actor).await?;
             Ok::<_, AppError>(url)
         }
         .await;
@@ -1480,13 +1476,7 @@ pub(super) async fn apply_deploy_compose(
                 }
                 _ => None,
             };
-            deployment::enqueue_for_application(
-                state,
-                &application.id,
-                ASSISTANT_TRIGGER,
-                Some(&actor.user_id),
-            )
-            .await?;
+            enqueue_deploy(state, &application.id, actor).await?;
             Ok::<_, AppError>(url)
         }
         .await;
@@ -1719,13 +1709,7 @@ async fn publish_source_app(
         app.https,
     )
     .await?;
-    deployment::enqueue_for_application(
-        state,
-        application_id,
-        ASSISTANT_TRIGGER,
-        Some(&actor.user_id),
-    )
-    .await?;
+    enqueue_deploy(state, application_id, actor).await?;
     Ok(url)
 }
 
