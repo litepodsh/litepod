@@ -15,5 +15,6 @@ pub mod security;
 pub mod setup;
 pub mod ssh;
 pub mod terminal;
+pub mod vulnerabilities;
 
 pub use bootstrap::*;

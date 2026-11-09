@@ -199,6 +199,8 @@ pub struct DeploymentRunDto {
     pub commit_author_name: Option<String>,
     pub commit_author_email: Option<String>,
     pub triggered_by: Option<String>,
+    /// The MCP client that started this run, when one did.
+    pub mcp_client: Option<String>,
     pub branch: Option<String>,
     pub job_id: Option<String>,
     pub actor: Option<DeploymentRunActorDto>,

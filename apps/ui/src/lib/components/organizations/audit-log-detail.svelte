@@ -60,6 +60,15 @@
 
 	const metadata = $derived(entry ? parseMetadata(entry.metadata) : null);
 
+	type McpMeta = { source?: unknown; proposed_via?: unknown };
+	const mcpClient = $derived.by(() => {
+		if (!metadata || typeof metadata !== 'object' || (metadata as McpMeta).source !== 'mcp')
+			return null;
+		const via = (metadata as McpMeta).proposed_via;
+		const name = typeof via === 'string' ? via : entry?.actor_token_name;
+		return name?.replace(/^MCP · /, '') ?? null;
+	});
+
 	type LoginMeta = { method: string; mfa?: boolean; mfa_method?: string; sso_protocol?: string };
 	const login = $derived(
 		entry?.action === 'auth.login' &&
@@ -148,13 +157,17 @@
 								{/if}
 							</div>
 						</div>
-						{#if entry.actor_token_name}
+						{#if mcpClient || entry.actor_token_name}
 							<div
 								class="bg-muted/30 flex items-center justify-between rounded-md px-2 py-1.5 text-xs">
 								<span class="text-muted-foreground">
-									{t('organizations.audit_logs.via_api_token')}
+									{t(
+										mcpClient
+											? 'organizations.audit_logs.via_mcp_client'
+											: 'organizations.audit_logs.via_api_token',
+									)}
 								</span>
-								<code class="font-mono">{entry.actor_token_name}</code>
+								<code class="font-mono">{mcpClient ?? entry.actor_token_name}</code>
 							</div>
 						{/if}
 					</section>

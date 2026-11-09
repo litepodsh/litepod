@@ -307,6 +307,11 @@
 				<h3 class="truncate text-[15px] font-semibold">{server.name}</h3>
 				<Badge variant="outline" class={STATE_CLASSES[server.state]}
 					>{STATE_LABELS[server.state]}</Badge>
+				{#if server.vulnerabilities?.urgent}
+					<Badge variant="destructive">
+						{t('servers.security.vuln_card_badge', { count: server.vulnerabilities.urgent })}
+					</Badge>
+				{/if}
 			</div>
 			<p class="mt-0.5 truncate font-mono text-[12.5px] text-muted-foreground">{address}</p>
 		</div>

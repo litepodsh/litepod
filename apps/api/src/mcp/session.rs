@@ -15,6 +15,13 @@ use crate::{
 /// Also how `assistant::actions` tells an MCP proposal from an in-app one.
 pub const TITLE_PREFIX: &str = "MCP · ";
 
+/// The client behind a token. OAuth names its tokens `MCP · <client>`; an API
+/// key used over MCP keeps the name its owner gave it.
+pub fn client_name(actor: &AuthUser) -> Option<&str> {
+    let name = actor.token_name.as_deref()?;
+    Some(name.strip_prefix(TITLE_PREFIX).unwrap_or(name))
+}
+
 pub async fn conversation_for(
     state: &SharedState,
     organization_id: &str,

@@ -123,6 +123,7 @@ fn dto_with_count(
         ssh_user: server.ssh_user,
         host_key_fingerprint: server.host_key_fingerprint,
         organization_id: server.organization_id,
+        vulnerabilities: None,
     }
 }
 
@@ -161,12 +162,17 @@ pub async fn list_handler(
     let include_local = org.user.is_sysadmin;
     let organization_id = org.organization_id;
     let counts = repository::assigned_counts(&state).await?;
+    let mut vulnerabilities = crate::servers::vulnerabilities::summaries(&state).await?;
     let servers = repository::list_for_organization(&state, &organization_id, include_local)
         .await?
         .into_iter()
         .map(|server| {
             let count = counts.get(&server.id).copied().unwrap_or(0);
-            dto_with_count(&state, server, count)
+            let summary = vulnerabilities.remove(&server.id);
+            ServerDto {
+                vulnerabilities: summary,
+                ..dto_with_count(&state, server, count)
+            }
         })
         .collect::<Vec<_>>();
     Ok(ok(servers))
@@ -933,7 +939,11 @@ pub async fn maintenance_update_packages_handler(
 ) -> Result<impl IntoResponse, AppError> {
     let organization_id = org.organization_id;
     let server = maintenance_server(&state, &organization_id, &server_id).await?;
-    Ok(ok(maintenance_dto(setup::update_packages(&server).await?)))
+    let outcome = setup::update_packages(&server).await?;
+    if outcome.success {
+        crate::servers::vulnerabilities::scan_after_package_update(&state, server).await;
+    }
+    Ok(ok(maintenance_dto(outcome)))
 }
 
 pub async fn maintenance_restart_handler(
@@ -1109,6 +1119,63 @@ pub async fn security_apply_handler(
         .await;
     }
     Ok(ok(maintenance_dto(result)))
+}
+
+pub async fn vulnerabilities_get_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    // The extractor covers `organization_id`.
+    Path((_, server_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let server = maintenance_server(&state, &org.organization_id, &server_id).await?;
+    Ok(ok(crate::servers::vulnerabilities::get(&state, &server.id).await?))
+}
+
+/// Also what turns scanning on: the first scan is the moment the user accepts the disk it takes.
+pub async fn vulnerabilities_scan_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    // The extractor covers `organization_id`.
+    Path((_, server_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    let server = maintenance_server(&state, &organization_id, &server_id).await?;
+    let was_enabled = crate::servers::vulnerabilities::get(&state, &server.id)
+        .await?
+        .enabled;
+    if !was_enabled {
+        record_connection_event(
+            &state,
+            &organization_id,
+            &org.user,
+            &server,
+            "server.vulnerability_scan_enabled",
+        )
+        .await;
+    }
+    Ok(ok(
+        crate::servers::vulnerabilities::scan_now(&state, server).await?
+    ))
+}
+
+pub async fn vulnerabilities_disable_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    // The extractor covers `organization_id`.
+    Path((_, server_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let organization_id = org.organization_id;
+    let server = maintenance_server(&state, &organization_id, &server_id).await?;
+    let disk_freed = crate::servers::vulnerabilities::disable(&state, &server).await?;
+    record_connection_event(
+        &state,
+        &organization_id,
+        &org.user,
+        &server,
+        "server.vulnerability_scan_disabled",
+    )
+    .await;
+    Ok(ok(serde_json::json!({ "disk_freed": disk_freed })))
 }
 
 /// Proves the server can actually pull an image and run a container, which a health check only

@@ -10,7 +10,40 @@ export type ServerState =
 	| 'degraded'
 	| 'offline'
 	| 'unsupported';
+export type VulnerabilitySummary = {
+	critical: number;
+	high: number;
+	medium: number;
+	low: number;
+	other: number;
+	fixable: number;
+	known_exploited: number;
+	urgent: number;
+	total: number;
+};
+export type VulnerabilityFinding = {
+	id: string;
+	severity: 'critical' | 'high' | 'medium' | 'low' | 'negligible' | 'unknown';
+	package: string;
+	version: string;
+	fixed_in: string | null;
+	known_exploited: boolean;
+	risk: number;
+	url: string | null;
+};
+export type VulnerabilityScan = {
+	enabled: boolean;
+	status: 'idle' | 'running' | 'completed' | 'failed' | null;
+	started_at: number | null;
+	finished_at: number | null;
+	scanned_at: number | null;
+	error: string | null;
+	summary: VulnerabilitySummary | null;
+	findings: VulnerabilityFinding[];
+	truncated: boolean;
+};
 export type Server = {
+	vulnerabilities?: VulnerabilitySummary | null;
 	id: string;
 	kind: string;
 	name: string;
@@ -315,6 +348,32 @@ export async function applyServerSecurity(
 		await api<ServerMaintenanceResult>(path(organizationId, id, '/security/apply'), {
 			method: 'POST',
 			body: JSON.stringify({ action }),
+		})
+	).data!;
+}
+export async function getServerVulnerabilities(
+	organizationId: string,
+	id: string,
+): Promise<VulnerabilityScan> {
+	return (await api<VulnerabilityScan>(path(organizationId, id, '/vulnerabilities'))).data!;
+}
+export async function scanServerVulnerabilities(
+	organizationId: string,
+	id: string,
+): Promise<VulnerabilityScan> {
+	return (
+		await api<VulnerabilityScan>(path(organizationId, id, '/vulnerabilities/scan'), {
+			method: 'POST',
+		})
+	).data!;
+}
+export async function disableServerVulnerabilities(
+	organizationId: string,
+	id: string,
+): Promise<{ disk_freed: boolean }> {
+	return (
+		await api<{ disk_freed: boolean }>(path(organizationId, id, '/vulnerabilities'), {
+			method: 'DELETE',
 		})
 	).data!;
 }

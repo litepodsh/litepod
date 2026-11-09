@@ -314,6 +314,7 @@ export type DeploymentRunDto = {
 	commit_author_name: string | null;
 	commit_author_email: string | null;
 	triggered_by: string | null;
+	mcp_client: string | null;
 	branch: string | null;
 	job_id: string | null;
 	actor: DeploymentRunActorDto | null;
@@ -389,6 +390,7 @@ export type DeploymentJobDto = {
 	commit_author_name: string | null;
 	commit_author_email: string | null;
 	triggered_by: string | null;
+	mcp_client: string | null;
 	actor: DeploymentRunActorDto | null;
 };
 export type DeploymentQueueEvent = {

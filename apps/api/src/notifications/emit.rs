@@ -176,3 +176,48 @@ pub async fn notify_security_alert(
     )
     .await;
 }
+
+fn servers_url(state: &SharedState, organization_id: &str) -> Option<String> {
+    let base = state.public_url.trim_end_matches('/');
+    (!base.is_empty()).then(|| format!("{base}/organizations/{organization_id}/servers"))
+}
+
+pub async fn notify_server_vulnerabilities(
+    state: &SharedState,
+    organization_id: &str,
+    server_name: &str,
+    new_ids: &[String],
+    known_exploited: u32,
+    critical: u32,
+) {
+    emit(
+        state,
+        event::server_vulnerabilities(
+            organization_id,
+            server_name,
+            new_ids,
+            known_exploited,
+            critical,
+            servers_url(state, organization_id),
+        ),
+    )
+    .await;
+}
+
+pub async fn notify_server_vulnerability_scan_failed(
+    state: &SharedState,
+    organization_id: &str,
+    server_name: &str,
+    error: &str,
+) {
+    emit(
+        state,
+        event::server_vulnerability_scan_failed(
+            organization_id,
+            server_name,
+            error,
+            servers_url(state, organization_id),
+        ),
+    )
+    .await;
+}

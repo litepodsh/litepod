@@ -1091,6 +1091,7 @@ async fn get(
                             "error": run.last_error,
                             "commit": run.commit_sha,
                             "triggered_by": run.triggered_by,
+                            "mcp_client": run.mcp_client,
                         }))
                         .collect::<Vec<_>>()
                 })),

@@ -152,6 +152,7 @@ pub struct DeploymentJobDto {
     pub commit_author_name: Option<String>,
     pub commit_author_email: Option<String>,
     pub triggered_by: Option<String>,
+    pub mcp_client: Option<String>,
     pub actor: Option<DeploymentRunActorDto>,
 }
 
@@ -238,6 +239,9 @@ fn row_to_job(row: &sqlx::sqlite::SqliteRow) -> Result<DeploymentJobDto, AppErro
         triggered_by: row
             .try_get(24)
             .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        mcp_client: row
+            .try_get(28)
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
         actor: match row
             .try_get::<Option<String>, _>(25)
             .map_err(|e| AppError::DatabaseError(e.to_string()))?
@@ -256,7 +260,7 @@ fn row_to_job(row: &sqlx::sqlite::SqliteRow) -> Result<DeploymentJobDto, AppErro
     })
 }
 
-const JOB_COLUMNS: &str = "j.id, j.application_id, a.name, j.project_id, p.name, j.environment_id, j.organization_id, j.source_type, j.build_method, j.status, j.queued_at, j.started_at, j.finished_at, j.cancel_requested, j.canceled_at, j.builder_container_name, j.builder_container_id, j.run_id, j.sanitized_error, r.commit_sha, r.commit_message, r.branch, r.commit_author_name, r.commit_author_email, r.triggered_by, u.id, u.name, u.email";
+const JOB_COLUMNS: &str = "j.id, j.application_id, a.name, j.project_id, p.name, j.environment_id, j.organization_id, j.source_type, j.build_method, j.status, j.queued_at, j.started_at, j.finished_at, j.cancel_requested, j.canceled_at, j.builder_container_name, j.builder_container_id, j.run_id, j.sanitized_error, r.commit_sha, r.commit_message, r.branch, r.commit_author_name, r.commit_author_email, r.triggered_by, u.id, u.name, u.email, r.mcp_client";
 const JOB_JOINS: &str = "LEFT JOIN applications a ON a.id = j.application_id LEFT JOIN projects p ON p.id = j.project_id LEFT JOIN application_deployment_runs r ON r.id = j.run_id LEFT JOIN users u ON u.id = r.created_by";
 
 pub async fn enqueue(

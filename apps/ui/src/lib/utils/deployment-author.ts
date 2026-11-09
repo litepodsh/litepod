@@ -22,7 +22,12 @@ export function deploymentAuthor(
 	triggeredBy: string | null,
 	commitAuthorName: string | null,
 	commitAuthorEmail: string | null,
+	mcpClient: string | null = null,
 ): DeploymentAuthor {
+	if (mcpClient) {
+		return { kind: 'assistant', label: `mcp · ${lower(mcpClient)}`, seed: null, initials: '' };
+	}
+
 	// The assistant proposed it and a person confirmed it. The row credits the
 	// assistant, with the confirming user beside it when there is one.
 	if (triggeredBy === 'assistant_deploy') {

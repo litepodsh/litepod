@@ -203,6 +203,8 @@ pub struct ServerDto {
     /// every organization on the instance can deploy to. Remote servers always
     /// name their owner, so the UI can tell "ours" from "the instance's".
     pub organization_id: Option<String>,
+    /// Latest package scan. Filled by the server list only.
+    pub vulnerabilities: Option<crate::servers::vulnerabilities::VulnerabilitySummary>,
 }
 
 /// One pin on the fleet map. Coordinates are absent whenever the server's
