@@ -21,9 +21,9 @@ async fn ready_deployment_server(
     organization_id: &str,
     server_id: &str,
 ) -> Result<ServerSummaryDto, AppError> {
-    if state.is_cloud && server_id == "local" {
+    if !state.local_runs_applications() && server_id == "local" {
         return Err(AppError::ValidationError(
-            "Cloud mode requires a ready remote server. Connect and set up a remote server first."
+            "This install requires a ready remote server. Connect and set up a remote server first."
                 .into(),
         ));
     }
@@ -34,9 +34,9 @@ async fn ready_deployment_server(
     if server.state != crate::servers::model::ServerState::Ready {
         return Err(AppError::ValidationError("Choose a ready server".into()));
     }
-    if state.is_cloud && server.kind != "ssh" {
+    if !state.local_runs_applications() && server.kind != "ssh" {
         return Err(AppError::ValidationError(
-            "Cloud mode requires a ready remote server. Connect and set up a remote server first."
+            "This install requires a ready remote server. Connect and set up a remote server first."
                 .into(),
         ));
     }

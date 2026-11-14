@@ -42,9 +42,9 @@ pub async fn resolve_server_id(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(LOCAL_SERVER_ID);
-    if state.is_cloud && resolved == LOCAL_SERVER_ID {
+    if !state.local_runs_applications() && resolved == LOCAL_SERVER_ID {
         return Err(AppError::ValidationError(
-            "Cloud mode requires a ready remote server for scheduled tasks".into(),
+            "This install requires a ready remote server for scheduled tasks".into(),
         ));
     }
     // Scoped lookup: a server owned by another organization reads as unknown,
@@ -58,9 +58,9 @@ pub async fn resolve_server_id(
             server.name
         )));
     }
-    if state.is_cloud && server.kind != "ssh" {
+    if !state.local_runs_applications() && server.kind != "ssh" {
         return Err(AppError::ValidationError(
-            "Cloud mode requires a ready remote server for scheduled tasks".into(),
+            "This install requires a ready remote server for scheduled tasks".into(),
         ));
     }
     if runner == Some("remote_shell") && server.kind != "ssh" {
@@ -582,9 +582,9 @@ pub async fn update(
             "The remote_shell runner requires a remote server".into(),
         ));
     }
-    if state.is_cloud && server_id == LOCAL_SERVER_ID {
+    if !state.local_runs_applications() && server_id == LOCAL_SERVER_ID {
         return Err(AppError::ValidationError(
-            "Cloud mode requires a ready remote server for scheduled tasks".into(),
+            "This install requires a ready remote server for scheduled tasks".into(),
         ));
     }
     let image =
@@ -1084,7 +1084,7 @@ mod tests {
         for requested in [None, Some("local")] {
             match resolve_server_id(&cloud, "organization-a", requested, Some("ephemeral")).await {
                 Err(AppError::ValidationError(message)) => {
-                    assert!(message.contains("Cloud mode requires a ready remote server"))
+                    assert!(message.contains("This install requires a ready remote server"))
                 }
                 other => panic!("expected ValidationError, got {other:?}"),
             }

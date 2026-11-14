@@ -123,13 +123,13 @@ pub async fn execute(state: SharedState, execution_id: String) -> Result<(), App
     let name = format!("litepod-scheduled-task-{execution_id}");
     let is_remote = server_id != crate::scheduled_tasks::LOCAL_SERVER_ID;
     // belt-and-suspenders: create/update/boot already refuse local placement in
-    // cloud mode, but the control plane must never run a container on itself
-    if !is_remote && state.is_cloud {
+    // cloud and panel-only mode, but the control plane must never run a container on itself
+    if !is_remote && !state.local_runs_applications() {
         finish(
             &state,
             &execution_id,
             "failed",
-            Some("Cloud mode requires a ready remote server for scheduled tasks".into()),
+            Some("This install requires a ready remote server for scheduled tasks".into()),
         )
         .await?;
         return Ok(());
@@ -2133,7 +2133,7 @@ mod tests {
     async fn execute_refuses_local_runners_in_cloud_mode() {
         for (runner, needle) in [
             ("litepod_api", "not available in cloud mode"),
-            ("ephemeral", "Cloud mode requires a ready remote server"),
+            ("ephemeral", "This install requires a ready remote server"),
         ] {
             let (state, _dir) = crate::testing::test_state_for(true).await;
             let id = seed_local_execution(&state, runner).await;

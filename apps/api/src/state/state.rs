@@ -91,3 +91,14 @@ pub struct AppState {
     /// to process-local behavior for security limits and to direct reads for caches.
     pub ephemeral: crate::scheduled_tasks::ephemeral::EphemeralStore,
 }
+
+/// OpenBSD has no Podman: litepod there is a control panel for remote servers only.
+pub const PANEL_ONLY: bool = cfg!(target_os = "openbsd");
+
+impl AppState {
+    /// Whether applications and scheduled tasks may run on this host (`local`). Cloud
+    /// keeps the control plane host for watching only; a panel-only install hides it.
+    pub fn local_runs_applications(&self) -> bool {
+        !self.is_cloud && !PANEL_ONLY
+    }
+}

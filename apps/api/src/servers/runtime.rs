@@ -89,11 +89,11 @@ impl ServerRuntime {
         application_id: &str,
     ) -> Result<Self, AppError> {
         let runtime = Self::application_runtime(state, application_id).await?;
-        // On cloud the local server is the control plane host: watchable by a
+        // On cloud (or panel-only) the local server is the control plane host: watchable by a
         // SysAdmin, never a place to run an application.
-        if state.is_cloud && matches!(runtime, Self::Local { .. }) {
+        if !state.local_runs_applications() && matches!(runtime, Self::Local { .. }) {
             return Err(AppError::ValidationError(
-                "Cloud mode requires a ready remote server. Connect and set up a remote server first."
+                "This install requires a ready remote server. Connect and set up a remote server first."
                     .into(),
             ));
         }

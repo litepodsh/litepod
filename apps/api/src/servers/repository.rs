@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{
     dtos::response::AppError,
     servers::model::{IngressMode, PodmanMode, ServerState},
-    state::state::SharedState,
+    state::state::{PANEL_ONLY, SharedState},
 };
 
 #[derive(Debug, Clone)]
@@ -173,18 +173,18 @@ pub async fn get_for_organization(
     id: &str,
     organization_id: &str,
 ) -> Result<Option<ServerRecord>, AppError> {
-    get_scoped(state, id, organization_id, !state.is_cloud).await
+    get_scoped(state, id, organization_id, state.local_runs_applications()).await
 }
 
 /// `get_for_organization` for `/servers/{server_id}/...` handlers only: their
 /// `RequireOrg` already 404s the cloud `local` server for anyone but the SysAdmin,
-/// so it may be returned here.
+/// so it may be returned here. A panel-only install has no usable `local` server at all.
 pub async fn get_for_server_route(
     state: &SharedState,
     id: &str,
     organization_id: &str,
 ) -> Result<Option<ServerRecord>, AppError> {
-    get_scoped(state, id, organization_id, true).await
+    get_scoped(state, id, organization_id, !PANEL_ONLY).await
 }
 
 async fn get_scoped(
@@ -216,9 +216,11 @@ async fn get_scoped(
 /// moves them - so probing them would be a wasted SSH round trip.
 pub async fn list_monitorable(state: &SharedState) -> Result<Vec<ServerRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
+    // A panel-only host has no Podman to probe.
+    let local = if PANEL_ONLY { "" } else { "kind = 'local' OR " };
     let sql = format!(
         "SELECT {SELECT} FROM servers \
-         WHERE kind = 'local' OR (kind = 'ssh' AND state IN ('ready', 'degraded', 'offline')) \
+         WHERE {local}(kind = 'ssh' AND state IN ('ready', 'degraded', 'offline')) \
          ORDER BY kind, name"
     );
     let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
@@ -247,10 +249,10 @@ pub async fn list_ready_for_organization(
     organization_id: &str,
 ) -> Result<Vec<ServerRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let filter = if state.is_cloud {
-        " AND kind = 'ssh'"
-    } else {
+    let filter = if state.local_runs_applications() {
         ""
+    } else {
+        " AND kind = 'ssh'"
     };
     let sql = format!(
         "SELECT {SELECT} FROM servers WHERE state = 'ready' AND {OWNED_BY}{filter} ORDER BY kind, name"
@@ -264,14 +266,14 @@ pub async fn list_ready_for_organization(
 }
 
 /// `include_local`: on cloud the `local` server (the control plane host) is listed
-/// only for a SysAdmin; self-hosted always lists it.
+/// only for a SysAdmin; self-hosted always lists it, except a panel-only install.
 pub async fn list_for_organization(
     state: &SharedState,
     organization_id: &str,
     include_local: bool,
 ) -> Result<Vec<ServerRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let filter = if state.is_cloud && !include_local {
+    let filter = if (state.is_cloud && !include_local) || PANEL_ONLY {
         " AND kind = 'ssh'"
     } else {
         ""
@@ -288,7 +290,7 @@ pub async fn list_for_organization(
 #[allow(dead_code)] // used by cqrs::commands::project integration tests.
 pub async fn list(state: &SharedState) -> Result<Vec<ServerRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let filter = if state.is_cloud {
+    let filter = if !state.local_runs_applications() {
         " WHERE kind = 'ssh'"
     } else {
         ""
