@@ -25,6 +25,7 @@
 		type ServerMaintenanceResult,
 	} from '#lib/clients/server-client.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	type Action = 'update-packages' | 'restart' | 'prune-images' | 'restart-podman' | 'check-disk';
@@ -165,10 +166,11 @@
 	] as const;
 
 	function copyCommand(command: string) {
-		navigator.clipboard
-			.writeText(command)
-			.then(() => toast.success(t('servers.maintenance.command_copied')))
-			.catch(() => toast.error(t('servers.maintenance.command_copy_failed')));
+		void copyText(command).then((ok) =>
+			ok
+				? toast.success(t('servers.maintenance.command_copied'))
+				: toast.error(t('servers.maintenance.command_copy_failed')),
+		);
 	}
 
 	function actionLabel(action: Action) {

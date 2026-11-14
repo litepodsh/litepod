@@ -21,6 +21,7 @@
 	} from '#lib/clients/server-terminal-client.js';
 	import type { TerminalSocket } from '#lib/clients/terminal-client.js';
 	import { loadNerdFont } from '#lib/utils/lazy-nerd-font.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { loadTerminalRenderer } from '#lib/utils/terminal-renderer.js';
 	import {
 		TERMINAL_FONT_SIZE,
@@ -173,7 +174,7 @@
 		});
 		terminal.onSelectionChange(() => {
 			const selection = terminal?.getSelection();
-			if (selection) navigator.clipboard?.writeText(selection).catch(() => {});
+			if (selection) void copyText(selection);
 		});
 		// Ctrl+Shift+F opens the in-terminal search box.
 		terminal.attachCustomKeyEventHandler((event) => {

@@ -13,6 +13,7 @@
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { renderTerminalText } from '#lib/utils/terminal-text.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { cn } from '#lib/utils.js';
 	import { pollWhileVisible } from '#lib/utils/poll.js';
 
@@ -141,11 +142,10 @@
 		const text = logs
 			.map((log) => (log.stream === 'stdout' ? log.message : `[${log.stream}] ${log.message}`))
 			.join('\n');
-		try {
-			await navigator.clipboard.writeText(text);
+		if (await copyText(text)) {
 			copied = true;
 			setTimeout(() => (copied = false), 1500);
-		} catch {
+		} else {
 			copied = false;
 		}
 	}

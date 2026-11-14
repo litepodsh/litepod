@@ -24,6 +24,7 @@
 	} from '#lib/clients/invitation-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 
 	let {
 		organizationId,
@@ -92,10 +93,9 @@
 	}
 
 	async function copy(url: string) {
-		try {
-			await navigator.clipboard.writeText(url);
+		if (await copyText(url)) {
 			toast.success(t('account.invitations.copy_success'));
-		} catch {
+		} else {
 			toast.error(t('account.invitations.copy_failed'));
 		}
 	}

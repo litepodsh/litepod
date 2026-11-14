@@ -24,6 +24,7 @@
 	import { deploymentLogDecoration, deploymentLogTone } from '#lib/utils/deployment-log-tone.js';
 	import { formatLogTimestamp } from '#lib/utils/log-timestamp.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	let {
@@ -443,10 +444,11 @@
 		if (!editor) return;
 		const text = editor.getValue();
 		if (!text) return;
-		navigator.clipboard
-			.writeText(text)
-			.then(() => toast.success(t('projects.dialogs_common.logs_copied')))
-			.catch(() => toast.error(t('projects.dialogs_common.copy_logs_failed')));
+		void copyText(text).then((ok) =>
+			ok
+				? toast.success(t('projects.dialogs_common.logs_copied'))
+				: toast.error(t('projects.dialogs_common.copy_logs_failed')),
+		);
 	}
 
 	function onTailChange(event: Event) {
