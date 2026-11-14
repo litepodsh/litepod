@@ -80,6 +80,25 @@ it('takes focus when its dialog focuses the container', async () => {
 	expect(document.activeElement).toBe(button);
 });
 
+it('takes focus once its dialog enables a hold that mounted disabled', async () => {
+	const onconfirm = vi.fn();
+	const dialog = document.createElement('div');
+	dialog.setAttribute('role', 'alertdialog');
+	dialog.tabIndex = -1;
+	document.body.appendChild(dialog);
+
+	const { rerender } = render(HoldToDelete, {
+		props: { onconfirm, disabled: true },
+		target: dialog,
+	});
+	const button = screen.getByRole('button', { name: 'Hold to delete' });
+	dialog.focus();
+	expect(document.activeElement).toBe(dialog);
+
+	await rerender({ onconfirm, disabled: false });
+	expect(document.activeElement).toBe(button);
+});
+
 it('does not steal focus outside a dialog', () => {
 	const onconfirm = vi.fn();
 	render(HoldToDelete, { onconfirm });

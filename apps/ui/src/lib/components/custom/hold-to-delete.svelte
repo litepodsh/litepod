@@ -72,6 +72,20 @@
 		if (event.target === dialog && button && !disabled && !confirmed) button.focus();
 	}
 
+	function takeDialogFocus() {
+		if (!button || !dialog || disabled || confirmed) return;
+		if (document.activeElement === dialog) button.focus();
+	}
+
+	// A dialog can mount this control disabled while it loads what blocks the
+	// action (a remote server's remaining applications, for instance). bits-ui
+	// focuses the container once, before that finishes, and the focusin above is
+	// gone by then, so grab focus again as soon as the hold becomes available.
+	$effect(() => {
+		if (disabled || confirmed) return;
+		takeDialogFocus();
+	});
+
 	onMount(() => {
 		dialog = button?.closest<HTMLElement>('[role="alertdialog"], [role="dialog"]') ?? null;
 		if (!dialog || !button) return;
