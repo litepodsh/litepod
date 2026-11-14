@@ -253,8 +253,70 @@ jobs:
           path: ${{ runner.temp }}/image-${{ matrix.arch }}.tar
           retention-days: 1
 
+  # FreeBSD runs litepod natively (install-freebsd.sh): the API binary and the UI
+  # build, as one archive attached to the GitHub release. GitHub has no FreeBSD
+  # runners, so the binary is compiled inside a FreeBSD VM (KVM on the hosted
+  # Ubuntu runner); duckdb and aws-lc are C/C++ and do not cross-compile cleanly.
+  build-freebsd:
+    needs: prepare
+    if: needs.prepare.outputs.warm != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build UI
+        working-directory: apps/ui
+        env:
+          VITE_API_URL: ""
+          VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEJF4ZVxaxz5WzUH"
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+          test -f build/404.html
+          # Same trim as the Dockerfile: plaintext and json are the only Monaco languages used.
+          rm -f build/_app/immutable/workers/ts.worker-*.js* \
+                build/_app/immutable/workers/css.worker-*.js* \
+                build/_app/immutable/workers/html.worker-*.js*
+
+      - name: Build API on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.3"
+          mem: 8192
+          usesh: true
+          prepare: pkg install -y rust cmake gmake pkgconf perl5 xmlsec1 llvm
+          run: |
+            set -e
+            cd apps/api
+            rm -f .cargo/config.toml
+            cargo build --release --locked --features saml
+            # The VM syncs the workspace back to the runner: hand back the binary, not target/.
+            cp target/release/litepod-api ../litepod-api-freebsd
+            rm -rf target
+
+      - name: Package
+        run: |
+          name="litepod-${VERSION}-x86_64-unknown-freebsd.tar.gz"
+          staging="${RUNNER_TEMP}/freebsd"
+          mkdir -p "${staging}"
+          cp litepod-api-freebsd "${staging}/litepod-api"
+          cp -R ui/build "${staging}/ui"
+          tar -C "${staging}" -czf "${RUNNER_TEMP}/${name}" litepod-api ui
+          (cd "${RUNNER_TEMP}" && sha256sum "${name}" > "${name}.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freebsd
+          path: ${{ runner.temp }}/litepod-*-x86_64-unknown-freebsd.tar.gz*
+          retention-days: 1
+
   publish:
-    needs: [prepare, build]
+    needs: [prepare, build, build-freebsd]
     if: needs.prepare.outputs.warm != 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -345,6 +407,20 @@ jobs:
             flags+=(--target "${GITHUB_SHA}")
           fi
           gh release create "${VERSION}" --notes-file "${RUNNER_TEMP}/notes.md" --title "${VERSION}" "${flags[@]}"
+
+      - uses: actions/download-artifact@v4
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
+        with:
+          name: freebsd
+          path: ${{ runner.temp }}/freebsd
+
+      # Separate from the step above, which stops early when the release exists: a
+      # re-run must still attach the FreeBSD archive that install-freebsd.sh downloads.
+      - name: Attach FreeBSD build
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${VERSION}" "${RUNNER_TEMP}"/freebsd/* --clobber
 
       - name: Summary
         run: |
