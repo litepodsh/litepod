@@ -268,7 +268,8 @@ fn central_relay_host(state: &SharedState) -> Result<String, AppError> {
         .caddy_server_upstream
         .rsplit_once(':')
         .map(|(host, _)| host.to_string())
-        .filter(|host| is_internal_relay_host(host))
+        // Panel-only (OpenBSD) runs Caddy natively beside the API, so loopback reaches the relay.
+        .filter(|host| crate::state::state::PANEL_ONLY || is_internal_relay_host(host))
         .ok_or_else(|| {
             AppError::InternalError("Caddy API upstream must include a host and port".into())
         })

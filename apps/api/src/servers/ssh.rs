@@ -871,6 +871,14 @@ impl SshExecutor {
         // The rest of the forwarding options go immediately before the
         // destination; none can be confused with a remote command.
         let destination = argv.len() - 1;
+        // Where the API listens: a native install (FreeBSD, OpenBSD) sets it so the relay
+        // stays off the host's public interfaces. In the container stack all interfaces
+        // are the container's own network, which only Caddy shares.
+        let bind_address = std::env::var("LITEPOD_LISTEN_ADDRESS")
+            .ok()
+            .map(|address| address.trim().to_string())
+            .filter(|address| !address.is_empty())
+            .unwrap_or_else(|| "0.0.0.0".to_string());
         argv.splice(
             destination..destination,
             [
@@ -878,7 +886,9 @@ impl SshExecutor {
                 OsString::from("ExitOnForwardFailure=yes"),
                 OsString::from("-N"),
                 OsString::from("-L"),
-                OsString::from(format!("0.0.0.0:{bind_port}:{remote_host}:{remote_port}")),
+                OsString::from(format!(
+                    "{bind_address}:{bind_port}:{remote_host}:{remote_port}"
+                )),
             ],
         );
         let mut command = Command::new(&argv[0]);
