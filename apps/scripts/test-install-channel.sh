@@ -34,25 +34,27 @@ fake_manifest_fails() {
 }
 
 assert_eq stable "$(parse_channel)"
-assert_eq alpha "$(parse_channel --alpha)"
+assert_eq next "$(parse_channel --next)"
 assert_eq stable "$(parse_channel --wipe)"
-assert_eq alpha "$(parse_channel --alpha --wipe)"
-assert_eq alpha "$(parse_channel --wipe --alpha)"
+assert_eq next "$(parse_channel --next --wipe)"
+assert_eq next "$(parse_channel --wipe --next)"
 has_wipe_flag --wipe
-has_wipe_flag --alpha --wipe
-assert_fails has_wipe_flag --alpha
+has_wipe_flag --next --wipe
+assert_fails has_wipe_flag --next
 can_change_channel stable stable false
-can_change_channel stable alpha true
-assert_fails can_change_channel stable alpha false
+can_change_channel stable next true
+can_change_channel stable next false
+assert_fails can_change_channel next stable false
+can_change_channel next stable true
 assert_fails parse_channel --unknown
-assert_eq 'Usage: bash install.sh [--alpha] [--wipe]' \
+assert_eq 'Usage: bash install.sh [--next] [--wipe]' \
 	"$(bash -s -- --help < "${script_dir}/install.sh")"
-assert_eq 'Usage: bash install.sh [--alpha] [--wipe]' \
+assert_eq 'Usage: bash install.sh [--next] [--wipe]' \
 	"$(bash "${script_dir}/install.sh" --help)"
 should_run_installer_main '' bash
 should_run_installer_main scripts/install.sh scripts/install.sh
 assert_fails should_run_installer_main scripts/install.sh bash
-assert_eq v0.3.28 "${FALLBACK_LITEPOD_IMAGE_TAG}"
+[[ "${FALLBACK_LITEPOD_IMAGE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad fallback tag: ${FALLBACK_LITEPOD_IMAGE_TAG}" >&2; exit 1; }
 
 manifest_env="$(mktemp)"
 trap 'rm -f -- "${manifest_env}"' EXIT
@@ -63,19 +65,19 @@ assert_eq 'https://override.test/litepod/version.json' \
 	"$(LITEPOD_VERSION_MANIFEST_URL=https://override.test/litepod/version.json select_manifest_url "${manifest_env}")"
 assert_eq 'https://litepod.sh/version.json' \
 	"$(LITEPOD_VERSION_MANIFEST_URL= select_manifest_url /tmp/litepod-no-such-env)"
-assert_fails confirm_channel_wipe stable alpha fake_wipe stdin <<<'no'
+assert_fails confirm_channel_wipe stable next fake_wipe stdin <<<'no'
 assert_eq false "${wipe_called}"
 
 # The explicit test-only source exercises the same stdin fallback used when
 # curl | bash has no usable controlling TTY.
-confirm_channel_wipe stable alpha fake_wipe stdin <<<$'yes\nWIPE stable TO INSTALL alpha'
+confirm_channel_wipe stable next fake_wipe stdin <<<$'yes\nWIPE stable TO INSTALL next'
 assert_eq true "${wipe_called}"
 
 wipe_called=false
-assert_fails resolve_then_confirm_channel_wipe stable alpha fake_manifest_fails fake_wipe stdin <<<$'yes\nWIPE stable TO INSTALL alpha'
+assert_fails resolve_then_confirm_channel_wipe stable next fake_manifest_fails fake_wipe stdin <<<$'yes\nWIPE stable TO INSTALL next'
 assert_eq false "${wipe_called}"
 
-resolve_then_confirm_channel_wipe stable alpha fake_manifest_ok fake_wipe stdin <<<$'yes\nWIPE stable TO INSTALL alpha'
+resolve_then_confirm_channel_wipe stable next fake_manifest_ok fake_wipe stdin <<<$'yes\nWIPE stable TO INSTALL next'
 assert_eq true "${wipe_called}"
 
 declare -a fake_podman_calls=()

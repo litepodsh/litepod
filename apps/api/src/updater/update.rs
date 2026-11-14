@@ -11,13 +11,13 @@ use crate::state::SharedState;
 pub enum UpdateChannel {
     #[default]
     Stable,
-    Alpha,
+    Next,
 }
 
 impl UpdateChannel {
     pub fn parse(value: &str) -> Self {
         match value.trim().to_ascii_lowercase().as_str() {
-            "alpha" => Self::Alpha,
+            "next" => Self::Next,
             _ => Self::Stable,
         }
     }
@@ -25,7 +25,7 @@ impl UpdateChannel {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Stable => "stable",
-            Self::Alpha => "alpha",
+            Self::Next => "next",
         }
     }
 }
@@ -567,20 +567,20 @@ mod tests {
 
         initialize_update_state(
             &mut update_state,
-            UpdateChannel::Alpha,
+            UpdateChannel::Next,
             60,
             "https://example.test/version.json",
             "litepod-api",
         );
 
-        assert_eq!(update_state.channel, UpdateChannel::Alpha);
+        assert_eq!(update_state.channel, UpdateChannel::Next);
         assert!(update_state.updater_running);
-        assert!(update_state.last_check_note.contains("tracking alpha"));
+        assert!(update_state.last_check_note.contains("tracking next"));
     }
 
     #[test]
     fn pin_channel_mismatch_does_not_replace_the_configured_active_channel() {
-        let configured_channel = UpdateChannel::Alpha;
+        let configured_channel = UpdateChannel::Next;
         let pin = pin::Pin {
             pinned_tag: "v0.1.22".into(),
             channel: UpdateChannel::Stable,
@@ -597,7 +597,7 @@ mod tests {
             "litepod-api",
         );
 
-        assert_eq!(update_state.channel, UpdateChannel::Alpha);
+        assert_eq!(update_state.channel, UpdateChannel::Next);
         assert!(!update_state.updater_running);
     }
 }

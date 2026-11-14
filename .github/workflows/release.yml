@@ -10,7 +10,7 @@ name: release
 #
 # Triggers:
 #   - push a tag vX.Y.Z           -> stable channel (:vX.Y.Z + :latest)
-#   - push a tag vX.Y.Z-alpha.N   -> alpha channel  (:vX.Y.Z-alpha.N + :alpha)
+#   - push a tag vX.Y.Z-next.N   -> next channel  (:vX.Y.Z-next.N + :next)
 #   - manual dispatch with a version (same rules). `dry_run` (default on)
 #     builds, probes and assembles the manifest but pushes nothing.
 #   - push to main touching the Rust deps, or weekly -> cache warm-up: only
@@ -43,7 +43,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Image tag: vX.Y.Z (stable) or vX.Y.Z-alpha.N (alpha)"
+        description: "Image tag: vX.Y.Z (stable) or vX.Y.Z-next.N (next)"
         required: true
       dry_run:
         description: "Test the release: build + probe everything, push nothing"
@@ -91,7 +91,7 @@ jobs:
           else
             version="${GITHUB_REF_NAME}"
           fi
-          if [[ "${version}" == *-alpha.* ]]; then channel=alpha; else channel=stable; fi
+          if [[ "${version}" == *-next.* ]]; then channel=next; else channel=stable; fi
           bash podx/scripts/validate-release-tag.sh "${channel}" "${version}"
           # scripts/install.sh is a symlink into the web repo, absent in CI.
           caddy="$(sed -n 's/.*docker\.io\/library\/caddy:\${CADDY_IMAGE_TAG:-\([^}]*\)}.*/\1/p' podman-compose-prod.yml)"
@@ -290,7 +290,7 @@ jobs:
           local_manifest="localhost/litepod-release:${VERSION}"
           immutable_image="docker.io/${REPOSITORY}:${VERSION}"
           moving_tag=latest
-          [[ "${CHANNEL}" == alpha ]] && moving_tag=alpha
+          [[ "${CHANNEL}" == next ]] && moving_tag=next
           moving_image="docker.io/${REPOSITORY}:${moving_tag}"
           # Resumable: never republish the immutable tag if the registry
           # already resolves it — see podx/scripts/check-immutable-tag.sh.
@@ -326,7 +326,7 @@ jobs:
           fi
           git cliff --latest -o "${RUNNER_TEMP}/notes.md"
           flags=()
-          [[ "${CHANNEL}" == alpha ]] && flags+=(--prerelease)
+          [[ "${CHANNEL}" == next ]] && flags+=(--prerelease)
           gh release create "${VERSION}" --verify-tag --notes-file "${RUNNER_TEMP}/notes.md" --title "${VERSION}" "${flags[@]}"
 
       - name: Summary

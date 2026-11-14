@@ -1,6 +1,6 @@
 import { api } from './base-client';
 
-export type UpdateChannel = 'stable' | 'alpha';
+export type UpdateChannel = 'stable' | 'next';
 
 export type UpdateState = {
 	channel: UpdateChannel;

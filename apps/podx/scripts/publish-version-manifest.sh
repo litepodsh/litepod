@@ -15,8 +15,8 @@ fi
 if [[ -z "${MANIFEST_MERGER:-}" ]]; then
 	: "${VERSION:?VERSION is required}"
 	: "${CHANNEL:?CHANNEL is required}"
-	if [[ "${CHANNEL}" != stable && "${CHANNEL}" != alpha ]]; then
-		printf '%s\n' 'CHANNEL must be stable or alpha' >&2
+	if [[ "${CHANNEL}" != stable && "${CHANNEL}" != next ]]; then
+		printf '%s\n' 'CHANNEL must be stable or next' >&2
 		exit 1
 	fi
 	publication_label="${VERSION} (${CHANNEL})"

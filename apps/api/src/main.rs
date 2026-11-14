@@ -245,7 +245,7 @@ async fn async_main(sentry_kind: Option<&'static str>) {
     if let Ok(value) = &configured_update_channel
         && !matches!(
             value.trim().to_ascii_lowercase().as_str(),
-            "stable" | "alpha"
+            "stable" | "next"
         )
     {
         tracing::warn!(

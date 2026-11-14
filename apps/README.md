@@ -69,17 +69,20 @@ curl -fsSL https://litepod.sh/install.sh | bash
 
 ### Choose an update channel
 
-Run the installer with no flag for the stable channel, or pass `--alpha` for the alpha
+Run the installer with no flag for the stable channel, or pass `--next` for the next
 channel:
 
 ```bash
 curl -fsSL https://litepod.sh/install.sh | bash
-curl -fsSL https://litepod.sh/install.sh | bash -s -- --alpha
+curl -fsSL https://litepod.sh/install.sh | bash -s -- --next
 ```
 
 Re-running the installer in the same channel repairs the stack while preserving its `.env`,
-database, and volumes. Changing channels is blocked to preserve data; use a new host instead, or
-pass `--wipe` only when you intend to delete the existing installation after its confirmation.
+database, and volumes. Passing `--next` to an existing stable install switches it to the next channel in place: data
+and `.env` are kept, and the installer first saves `litepod_data-before-next-*.tar` in the install
+directory. Going back from next to stable is blocked because next may have run migrations stable
+does not know; restore that backup on a stable install, or pass `--wipe` only when you intend to
+delete the existing installation after its confirmation.
 
 ### Backups
 
@@ -118,7 +121,7 @@ curl -fsSL https://litepod.sh/uninstall.sh | bash
 ```
 
 It installs Podman/`podman-compose`/openssl if missing, generates `.env` with every
-secret auto-generated and the host's public IP auto-detected, resolves stable (or `--alpha`)
+secret auto-generated and the host's public IP auto-detected, resolves stable (or `--next`)
 from `https://litepod.sh/version.json`, pins the resulting immutable tag, and
 starts the stack. Override the repository with `LITEPOD_IMAGE_REPO` and use
 `LITEPOD_VERSION_MANIFEST_URL` for a compatible custom manifest; the production installer does

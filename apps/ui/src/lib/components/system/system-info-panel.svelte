@@ -28,7 +28,7 @@
 	let loadError = $state<string | null>(null);
 	let checking = $state(false);
 	let stopPoll: (() => void) | null = null;
-	const channelLabel = $derived(info?.state.channel === 'alpha' ? 'Alpha' : 'Stable');
+	const channelLabel = $derived(info?.state.channel === 'next' ? 'Next' : 'Stable');
 	const runningVersion = $derived(info?.version ?? '');
 	const updateReady = $derived(isInstallableUpdate(info));
 	const serviceStatuses = $derived(getSystemServiceStatuses(info));
@@ -174,7 +174,7 @@
 							<h2 class="text-[15px] font-semibold tracking-tight">
 								{t('operations.system.core_update')}
 							</h2>
-							{@render pill(info.state.channel === 'alpha' ? 'info' : 'neutral', channelLabel)}
+							{@render pill(info.state.channel === 'next' ? 'info' : 'neutral', channelLabel)}
 							{@render pill(updateStatus.tone, updateStatus.label)}
 						</div>
 						<p class="mt-1 text-xs text-muted-foreground">
@@ -241,7 +241,7 @@
 					{/each}
 				</div>
 
-				{#if info.state.core_services.caddy.systemd_managed}
+				{#if info.state.core_services.caddy.systemd_managed && info.state.core_services.caddy.current_tag !== info.state.core_services.caddy.target_tag}
 					<p class="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
 						{t('operations.system.caddy_systemd')}
 					</p>

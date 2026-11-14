@@ -206,7 +206,7 @@ podx-lint *ARGS:
     channel=stable
     case "$#" in
       0) ;;
-      1) [[ "$1" == "--alpha" ]] && channel=alpha || false ;;
+      1) [[ "$1" == "--next" ]] && channel=next || false ;;
       *) false ;;
     esac
     if [[ ! -f podx/.env ]]; then echo "podx/.env missing" >&2; exit 1; fi
@@ -215,8 +215,8 @@ podx-lint *ARGS:
     DOCKERHUB_REPO=litepod
     : "${DOCKERHUB_USER:?DOCKERHUB_USER required}"
     : "${DOCKERHUB_REPO:?DOCKERHUB_REPO required}"
-    if [[ "$channel" == alpha ]]; then
-        VERSION="$(grep -E '^LITEPOD_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
+    if [[ "$channel" == next ]]; then
+        VERSION="$(grep -E '^LITEPOD_VERSION_NEXT=' api/.env | head -n1 | cut -d= -f2-)"
     else
         VERSION="$(grep -E '^LITEPOD_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
     fi
@@ -296,26 +296,30 @@ _ensure-up-to-date:
     exit 1
 
 # Bump stable image tags everywhere Litepod ships them.
-#   just bump litepod v0.1.72
-#   just bump dragonfly v2.0.1
-#   just bump caddy 2.11.5
+#   just bump litepod v0.1.72    (the leading v is added when missing)
+#   just bump dragonfly v2.0.1   (keep the v: it is part of the image tag)
+#   just bump caddy 2.11.5       (no v: the image tag has none)
+# dragonfly and caddy only rewrite the version files. Commit and push them
+# yourself, including scripts/install.sh, which lives in the web repo.
 # Bumping litepod also commits the pinned files, tags vX.Y.Z and (after a
 # prompt) pushes both, which triggers .github/workflows/release.yml. On main
 # it first dispatches a dry run there to warm the rust cache for the tag run.
+# Only litepod commits, so only litepod needs a clean, up-to-date tree.
+# Only litepod deploys automatically; dragonfly and caddy never do.
 bump component version:
-    @just _ensure-up-to-date
+    @case '{{component}}' in litepod|litepd) just _ensure-up-to-date ;; esac
     @just _bump stable {{component}} {{version}}
     @just _release-tag stable {{component}}
 
-# Alpha tags only live in api/.env; compose and installers always use stable.
-#   just bump-alpha litepod v0.1.30-alpha.1
-#   just bump-alpha dragonfly v2.0.1
-#   just bump-alpha caddy 2.11.5
-# Bumping litepod tags HEAD as vX.Y.Z-alpha.N and (after a prompt) pushes it.
-bump-alpha component version:
+# Next tags only live in api/.env; compose and installers always use stable.
+#   just bump-next litepod v0.1.30-next.1
+#   just bump-next dragonfly v2.0.1
+#   just bump-next caddy 2.11.5
+# Bumping litepod tags HEAD as vX.Y.Z-next.N and (after a prompt) pushes it.
+bump-next component version:
     @just _ensure-up-to-date
-    @just _bump alpha {{component}} {{version}}
-    @just _release-tag alpha {{component}}
+    @just _bump next {{component}} {{version}}
+    @just _release-tag next {{component}}
 
 # Tag a litepod bump for the GitHub release workflow. Stable commits only the
 # files `_bump` rewrites, so unrelated work in the tree is left alone. Pushing
@@ -324,8 +328,8 @@ _release-tag channel component:
     #!/usr/bin/env bash
     set -euo pipefail
     case '{{component}}' in litepod|litepd) ;; *) exit 0 ;; esac
-    if [[ '{{channel}}' == alpha ]]; then
-        tag="$(sed -n 's/^LITEPOD_VERSION_ALPHA=//p' api/.env | head -n1)"
+    if [[ '{{channel}}' == next ]]; then
+        tag="$(sed -n 's/^LITEPOD_VERSION_NEXT=//p' api/.env | head -n1)"
     else
         tag="$(sed -n 's/^LITEPOD_VERSION=//p' api/.env | head -n1)"
     fi
@@ -405,9 +409,9 @@ _bump channel component version:
         caddy) env_key=CADDY_VERSION; fallback=FALLBACK_CADDY_IMAGE_TAG; compose_key=CADDY_IMAGE_TAG ;;
         *) echo "unknown component: $component (use litepod|dragonfly|caddy)" >&2; exit 1 ;;
     esac
-    if [ "$channel" = alpha ]; then env_key="${env_key}_ALPHA"; fi
+    if [ "$channel" = next ]; then env_key="${env_key}_NEXT"; fi
 
-    if [ "$env_key" = LITEPOD_VERSION ] || [ "$env_key" = LITEPOD_VERSION_ALPHA ]; then
+    if [ "$env_key" = LITEPOD_VERSION ] || [ "$env_key" = LITEPOD_VERSION_NEXT ]; then
         while [ "${version#v}" != "$version" ]; do version="${version#v}"; done
         version="v${version}"
     fi
@@ -522,7 +526,7 @@ podx-setup-arm:
     fi
     echo "==> done. multiarch release path is ready."
     echo "    run: just release-dockerhub            # stable multiarch"
-    echo "    run: just release-dockerhub -- --alpha # alpha multiarch"
+    echo "    run: just release-dockerhub -- --next # next multiarch"
     echo "    opt out: set BUILD_ARCH=amd64 in podx/.env"
 
 # Build linux/amd64 image, 2 tags, no push.
@@ -541,7 +545,7 @@ podx-build:
         .
 
 # Build + push the selected release channel from api/.env. Stable is the
-# default; Just requires `-- --alpha` to pass the alpha flag to a recipe.
+# default; Just requires `-- --next` to pass the next flag to a recipe.
 # Pass `-- --no-cache` only when a clean rebuild is required; normal releases
 # reuse Podman's local layer cache. Pass `-- --dry-run` to run every build,
 # probe and manifest step without pushing to Docker Hub or uploading to S3.
@@ -567,9 +571,9 @@ release-dockerhub *ARGS:
     dry_run=false
     for arg in "$@"; do
         case "$arg" in
-          --alpha)
-            [[ "$channel" == stable ]] || { echo "--alpha specified more than once" >&2; exit 2; }
-            channel=alpha
+          --next)
+            [[ "$channel" == stable ]] || { echo "--next specified more than once" >&2; exit 2; }
+            channel=next
             ;;
           --no-cache)
             [[ "$no_cache" == false ]] || { echo "--no-cache specified more than once" >&2; exit 2; }
@@ -580,15 +584,15 @@ release-dockerhub *ARGS:
             dry_run=true
             ;;
           *)
-            echo "Usage: just release-dockerhub [-- --alpha] [--no-cache] [--dry-run]" >&2
+            echo "Usage: just release-dockerhub [-- --next] [--no-cache] [--dry-run]" >&2
             exit 2
             ;;
         esac
     done
-    if [[ "$channel" == alpha ]]; then
-        VERSION="$(grep -E '^LITEPOD_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
-        CADDY_TAG="$(grep -E '^CADDY_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
-        moving_tag=alpha
+    if [[ "$channel" == next ]]; then
+        VERSION="$(grep -E '^LITEPOD_VERSION_NEXT=' api/.env | head -n1 | cut -d= -f2-)"
+        CADDY_TAG="$(grep -E '^CADDY_VERSION_NEXT=' api/.env | head -n1 | cut -d= -f2-)"
+        moving_tag=next
     else
         VERSION="$(grep -E '^LITEPOD_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
         CADDY_TAG="$(grep -E '^CADDY_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
@@ -596,8 +600,8 @@ release-dockerhub *ARGS:
     fi
     : "${VERSION:?missing version for ${channel}}"
     : "${CADDY_TAG:?missing CADDY pin for ${channel} in api/.env}"
-    if [[ "$channel" == alpha ]]; then
-        just podx-lint -- --alpha
+    if [[ "$channel" == next ]]; then
+        just podx-lint -- --next
     else
         just podx-lint
     fi
@@ -743,7 +747,7 @@ release-dockerhub *ARGS:
     # the tag. Do not announce it until the registry itself confirms it.
     IMAGE="${immutable_image}" REPOSITORY="${immutable_repository}" TAG="${VERSION}" \
         bash podx/scripts/wait-for-immutable-tag.sh
-    # Moving tag (latest|alpha) always tracks the current release. The
+    # Moving tag (latest|next) always tracks the current release. The
     # manifest list IS the tag — no pull/tag/push dance on a single image.
     echo "==> pushing ${moving_image}"
     podman manifest push --all "${local_manifest}" "${moving_image}"
@@ -759,7 +763,7 @@ release-dockerhub *ARGS:
     podman manifest rm "${local_manifest}" >/dev/null 2>&1 || true
 
 # Publish the selected channel to the release manifest. Stable mirrors the
-# manifest root; alpha updates only channels.alpha. Use `-- --alpha`.
+# manifest root; next updates only channels.next. Use `-- --next`.
 publish-version *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -769,7 +773,7 @@ publish-version *ARGS:
     channel=stable
     case "$#" in
       0) ;;
-      1) [[ "$1" == "--alpha" ]] && channel=alpha || false ;;
+      1) [[ "$1" == "--next" ]] && channel=next || false ;;
       *) false ;;
     esac
     if [[ ! -f podx/.env ]]; then echo "podx/.env missing" >&2; exit 1; fi
@@ -780,10 +784,10 @@ publish-version *ARGS:
     : "${S3_BUCKET:?S3_BUCKET required in podx/.env}"
     : "${S3_ACCESS_KEY:?S3_ACCESS_KEY required in podx/.env}"
     : "${S3_SECRET_KEY:?S3_SECRET_KEY required in podx/.env}"
-    if [[ "$channel" == alpha ]]; then
-        VERSION="$(grep -E '^LITEPOD_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
-        CADDY_TAG="$(grep -E '^CADDY_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
-        DRAGONFLY_TAG="$(grep -E '^DFLY_VERSION_ALPHA=' api/.env | head -n1 | cut -d= -f2-)"
+    if [[ "$channel" == next ]]; then
+        VERSION="$(grep -E '^LITEPOD_VERSION_NEXT=' api/.env | head -n1 | cut -d= -f2-)"
+        CADDY_TAG="$(grep -E '^CADDY_VERSION_NEXT=' api/.env | head -n1 | cut -d= -f2-)"
+        DRAGONFLY_TAG="$(grep -E '^DFLY_VERSION_NEXT=' api/.env | head -n1 | cut -d= -f2-)"
     else
         VERSION="$(grep -E '^LITEPOD_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
         CADDY_TAG="$(grep -E '^CADDY_VERSION=' api/.env | head -n1 | cut -d= -f2-)"
@@ -813,7 +817,7 @@ publish-version *ARGS:
         exit 1
     fi
 
-    # Conditional GET/PUT retries preserve concurrent stable/alpha updates.
+    # Conditional GET/PUT retries preserve concurrent stable/next updates.
     # Only a verified 404 is treated as the first, empty manifest.
     VERSION="${VERSION}" CHANNEL="${channel}" CADDY_TAG="${CADDY_TAG}" DRAGONFLY_TAG="${DRAGONFLY_TAG}" URL="${URL}" \
         S3_ACCESS_KEY="${S3_ACCESS_KEY}" S3_SECRET_KEY="${S3_SECRET_KEY}" \
