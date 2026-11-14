@@ -31,11 +31,11 @@ def run_merge(current: dict, *, version: str, channel: str, caddy: str, dragonfl
     return json.loads(result.stdout)
 
 
-def test_stable_updates_root_mirror_without_touching_alpha() -> None:
+def test_stable_updates_root_mirror_without_touching_next() -> None:
     doc = run_merge(
         {
             "version": "v0.1.21",
-            "channels": {"alpha": {"version": "v0.1.22-alpha.1"}},
+            "channels": {"next": {"version": "v0.1.22-next.1"}},
         },
         version="v0.1.22",
         channel="stable",
@@ -45,21 +45,21 @@ def test_stable_updates_root_mirror_without_touching_alpha() -> None:
     assert doc["channels"]["stable"]["version"] == "v0.1.22"
     assert doc["channels"]["stable"]["caddy"]["tag"] == "2.11.4"
     assert doc["channels"]["stable"]["dragonfly"]["tag"] == "v1.39.0"
-    assert doc["channels"]["alpha"]["version"] == "v0.1.22-alpha.1"
+    assert doc["channels"]["next"]["version"] == "v0.1.22-next.1"
 
 
-def test_alpha_preserves_stable_and_root_mirror() -> None:
+def test_next_preserves_stable_and_root_mirror() -> None:
     doc = run_merge(
         {"version": "v0.1.22", "channels": {"stable": {"version": "v0.1.22", "caddy": {"tag": "2.11.4"}}}},
-        version="v0.1.23-alpha.2",
-        channel="alpha",
+        version="v0.1.23-next.2",
+        channel="next",
         caddy="2.12.0",
     )
     assert doc["version"] == "v0.1.22"
     assert doc["channels"]["stable"]["version"] == "v0.1.22"
-    assert doc["channels"]["alpha"]["version"] == "v0.1.23-alpha.2"
-    assert doc["channels"]["alpha"]["caddy"]["tag"] == "2.12.0"
-    assert doc["channels"]["alpha"]["dragonfly"]["tag"] == "v1.39.0"
+    assert doc["channels"]["next"]["version"] == "v0.1.23-next.2"
+    assert doc["channels"]["next"]["caddy"]["tag"] == "2.12.0"
+    assert doc["channels"]["next"]["dragonfly"]["tag"] == "v1.39.0"
 
 
 def test_merge_preserves_unknown_document_and_channel_fields() -> None:
@@ -86,7 +86,7 @@ def test_rejects_missing_or_invalid_channel() -> None:
             env=os.environ | {"VERSION": "v0.1.22", "CHANNEL": channel, "CADDY_TAG": "2.11.4", "DRAGONFLY_TAG": "v1.39.0"},
         )
         assert result.returncode == 1
-        assert result.stderr == "CHANNEL must be stable or alpha\n"
+        assert result.stderr == "CHANNEL must be stable or next\n"
 
 def test_rejects_corrupt_or_non_object_current_manifest() -> None:
     for current in ("{broken", "[]", "null"):
@@ -135,8 +135,8 @@ def test_publishes_a_valid_digest_and_rejects_a_bad_one() -> None:
 
 def main() -> int:
     tests = [
-        test_stable_updates_root_mirror_without_touching_alpha,
-        test_alpha_preserves_stable_and_root_mirror,
+        test_stable_updates_root_mirror_without_touching_next,
+        test_next_preserves_stable_and_root_mirror,
         test_merge_preserves_unknown_document_and_channel_fields,
         test_rejects_missing_or_invalid_channel,
         test_rejects_corrupt_or_non_object_current_manifest,

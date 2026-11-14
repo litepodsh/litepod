@@ -73,9 +73,9 @@ pub async fn connection(
     conn: &mut SqliteConnection,
     id: &str,
 ) -> Result<Option<Connection>, AppError> {
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM sso_connections WHERE id = ?1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&mut *conn)
     .await
@@ -87,9 +87,9 @@ pub async fn connections_of(
     conn: &mut SqliteConnection,
     organization_id: &str,
 ) -> Result<Vec<Connection>, AppError> {
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM sso_connections WHERE organization_id = ?1 ORDER BY created_at"
-    ))
+    )))
     .bind(organization_id)
     .fetch_all(&mut *conn)
     .await
@@ -286,14 +286,14 @@ pub async fn connection_for_email(
         .map(|c| format!("c.{}", c.trim()))
         .collect::<Vec<_>>()
         .join(", ");
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {columns} FROM sso_domains d
            JOIN sso_connections c ON c.organization_id = d.organization_id
                 AND (d.connection_id IS NULL OR c.id = d.connection_id)
           WHERE d.domain = ?1 AND d.verified_at IS NOT NULL
             AND c.enabled = 1
           ORDER BY c.created_at LIMIT 1"
-    ))
+    )))
     .bind(domain)
     .fetch_optional(&mut *conn)
     .await

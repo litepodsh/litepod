@@ -182,9 +182,9 @@ pub async fn list_for_conversation(
     conversation_id: &str,
 ) -> Result<Vec<ActionDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM assistant_actions WHERE conversation_id = ?1 ORDER BY created_at"
-    ))
+    )))
     .bind(conversation_id)
     .fetch_all(&conn)
     .await
@@ -218,10 +218,10 @@ pub(super) async fn load(
     // assistant conversation is private to one user, so the change it proposed
     // is settled by that user and nobody else. Without this an editor who
     // learned an id could apply a change out of a colleague's private thread.
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM assistant_actions \
          WHERE id = ?1 AND organization_id = ?2 AND proposed_by = ?3"
-    ))
+    )))
     .bind(action_id)
     .bind(organization_id)
     .bind(&actor.user_id)

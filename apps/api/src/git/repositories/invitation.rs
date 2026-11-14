@@ -87,12 +87,12 @@ pub async fn find_by_token_hash_on<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
 {
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {INVITATION_COLUMNS} FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN users creator ON creator.id = i.created_by
          WHERE i.token_hash = ?1"
-    ))
+    )))
     .bind(token_hash)
     .fetch_optional(executor)
     .await
@@ -105,12 +105,12 @@ where
 
 pub async fn find_by_id(state: &SharedState, id: &str) -> Result<Option<InvitationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {INVITATION_COLUMNS} FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN users creator ON creator.id = i.created_by
          WHERE i.id = ?1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&conn)
     .await
@@ -127,12 +127,12 @@ pub async fn find_by_id_for_creator(
     created_by: &str,
 ) -> Result<Option<InvitationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {INVITATION_COLUMNS} FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN users creator ON creator.id = i.created_by
          WHERE i.id = ?1 AND i.created_by = ?2"
-    ))
+    )))
     .bind(id)
     .bind(created_by)
     .fetch_optional(&conn)
@@ -146,12 +146,12 @@ pub async fn find_by_id_for_creator(
 
 pub async fn list(state: &SharedState) -> Result<Vec<InvitationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {INVITATION_COLUMNS} FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN users creator ON creator.id = i.created_by
          ORDER BY i.created_at DESC"
-    ))
+    )))
     .fetch_all(&conn)
     .await
     .map_err(|e| e.to_string())?;
@@ -167,13 +167,13 @@ pub async fn list_for_creator(
     created_by: &str,
 ) -> Result<Vec<InvitationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {INVITATION_COLUMNS} FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN users creator ON creator.id = i.created_by
          WHERE i.created_by = ?1
          ORDER BY i.created_at DESC"
-    ))
+    )))
     .bind(created_by)
     .fetch_all(&conn)
     .await

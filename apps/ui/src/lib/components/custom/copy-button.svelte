@@ -4,6 +4,7 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { cn } from '#lib/utils.js';
 
 	let {
@@ -45,15 +46,14 @@
 	const text = $derived(copied && copiedLabel !== undefined ? copiedLabel : (label ?? value));
 
 	async function copy() {
-		try {
-			await navigator.clipboard.writeText(value);
+		if (await copyText(value)) {
 			copied = true;
 			clearTimeout(timer);
 			timer = setTimeout(() => (copied = false), resetAfter);
-		} catch {
-			// A blocked clipboard (insecure origin, denied permission) is otherwise
-			// silent, and the click looks like it did nothing.
-			if (errorMessage) toast.error(errorMessage);
+		} else if (errorMessage) {
+			// A blocked clipboard is otherwise silent, and the click looks like it
+			// did nothing.
+			toast.error(errorMessage);
 		}
 	}
 

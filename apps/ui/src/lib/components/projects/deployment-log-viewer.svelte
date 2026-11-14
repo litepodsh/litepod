@@ -20,6 +20,7 @@
 	import { formatLogTimestamp } from '#lib/utils/log-timestamp.js';
 	import { formatDuration } from '#lib/utils/format-duration.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { loadNerdFont } from '#lib/utils/lazy-nerd-font.js';
 
@@ -128,10 +129,11 @@
 	function copyLogs() {
 		const value = text();
 		if (!value) return;
-		navigator.clipboard
-			.writeText(value)
-			.then(() => toast.success(t('projects.dialogs_common.logs_copied')))
-			.catch(() => toast.error(t('projects.dialogs_common.copy_logs_failed')));
+		void copyText(value).then((ok) =>
+			ok
+				? toast.success(t('projects.dialogs_common.logs_copied'))
+				: toast.error(t('projects.dialogs_common.copy_logs_failed')),
+		);
 	}
 </script>
 

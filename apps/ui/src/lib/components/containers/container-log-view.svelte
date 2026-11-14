@@ -7,6 +7,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { loadNerdFont } from '#lib/utils/lazy-nerd-font.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { getContainerLogs, streamContainerLogs } from '#lib/clients/podman-console-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import PlayIcon from '@lucide/svelte/icons/play';
@@ -80,8 +81,9 @@
 			term.clearSelection();
 		}
 		if (text) {
-			navigator.clipboard?.writeText(text).catch(() => {});
-			toast.success(t('common.common.copied'));
+			void copyText(text).then((ok) =>
+				ok ? toast.success(t('common.common.copied')) : toast.error(t('common.common.copy_failed')),
+			);
 		}
 	}
 
@@ -114,7 +116,7 @@
 		});
 		term.onSelectionChange(() => {
 			const text = term?.getSelection();
-			if (text) navigator.clipboard?.writeText(text).catch(() => {});
+			if (text) void copyText(text);
 		});
 		fit = new FitAddon();
 		term.loadAddon(fit);

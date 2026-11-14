@@ -271,7 +271,7 @@ pub(super) fn map_domain_write_error(error: sqlx::Error, host: &str, port: i64) 
 
 pub async fn list(state: &SharedState, application_id: &str) -> Result<Vec<DomainDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!("SELECT {SELECT_COLUMNS} FROM application_domains WHERE application_id = ?1 ORDER BY created_at, id"))
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {SELECT_COLUMNS} FROM application_domains WHERE application_id = ?1 ORDER BY created_at, id")))
         .bind(application_id)
         .fetch_all(&conn)
         .await
@@ -289,9 +289,9 @@ pub async fn get(
     domain_id: &str,
 ) -> Result<DomainDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM application_domains WHERE id = ?1 AND application_id = ?2"
-    ))
+    )))
     .bind(domain_id)
     .bind(application_id)
     .fetch_optional(&conn)
@@ -944,9 +944,9 @@ pub(super) async fn sslip_address(
 /// belongs to (it came from [`edge_route_targets`] or a Caddy fragment).
 pub async fn get_by_id(state: &SharedState, domain_id: &str) -> Result<DomainDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM application_domains WHERE id = ?1"
-    ))
+    )))
     .bind(domain_id)
     .fetch_optional(&conn)
     .await

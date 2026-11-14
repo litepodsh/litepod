@@ -31,6 +31,9 @@ pub enum ServerRuntime {
         host_key_fingerprint: String,
         host_key_known_hosts: String,
         podman_mode: PodmanMode,
+        /// FreeBSD runs Linux images through its Linux ABI layer, which some images and
+        /// build tools cannot use; deploys check it to refuse or warn up front.
+        freebsd: bool,
     },
 }
 
@@ -45,6 +48,15 @@ impl ServerRuntime {
         match self {
             Self::Local { .. } => None,
             Self::Ssh { podman_mode, .. } => Some(*podman_mode),
+        }
+    }
+
+    /// Whether this server runs FreeBSD (see `crate::servers::freebsd`): a remote one
+    /// whose facts say so, or the local one when litepod itself runs natively there.
+    pub const fn is_freebsd(&self) -> bool {
+        match self {
+            Self::Ssh { freebsd, .. } => *freebsd,
+            Self::Local { .. } => cfg!(target_os = "freebsd"),
         }
     }
 
@@ -67,7 +79,21 @@ impl ServerRuntime {
             .iter()
             .map(OsString::from)
             .collect::<Vec<_>>();
-        command.push(OsString::from("podman"));
+        if args.first().is_some_and(|arg| arg == "compose") {
+            // podman-compose 1.3 chdirs into the first file's directory and then opens each
+            // `--file` by its original path, so workspace-relative paths must become absolute.
+            command.extend(
+                [
+                    "sh",
+                    "-c",
+                    r#"n=$#; for a; do case $a in .local/share/litepod/*) a="$PWD/$a" ;; esac; set -- "$@" "$a"; done; shift "$n"; exec podman "$@""#,
+                    "sh",
+                ]
+                .map(OsString::from),
+            );
+        } else {
+            command.push(OsString::from("podman"));
+        }
         command.extend(args.iter().cloned());
         command
     }
@@ -77,11 +103,11 @@ impl ServerRuntime {
         application_id: &str,
     ) -> Result<Self, AppError> {
         let runtime = Self::application_runtime(state, application_id).await?;
-        // On cloud the local server is the control plane host: watchable by a
+        // On cloud (or panel-only) the local server is the control plane host: watchable by a
         // SysAdmin, never a place to run an application.
-        if state.is_cloud && matches!(runtime, Self::Local { .. }) {
+        if !state.local_runs_applications() && matches!(runtime, Self::Local { .. }) {
             return Err(AppError::ValidationError(
-                "Cloud mode requires a ready remote server. Connect and set up a remote server first."
+                "This install requires a ready remote server. Connect and set up a remote server first."
                     .into(),
             ));
         }
@@ -152,6 +178,7 @@ impl ServerRuntime {
             });
         }
         let server_name = server.name.clone();
+        let freebsd = crate::servers::setup::is_freebsd(&server);
         let target =
             SshTarget::parse(
                 server.ssh_host.as_deref().ok_or_else(|| {
@@ -179,6 +206,7 @@ impl ServerRuntime {
             host_key_fingerprint,
             host_key_known_hosts,
             podman_mode: server.podman_mode,
+            freebsd,
         })
     }
 
@@ -576,6 +604,7 @@ impl ServerRuntime {
         &self,
         container_name: &str,
         host_port: u16,
+        container_port: u16,
     ) -> Result<bool, AppError> {
         if !self.is_remote() {
             return Ok(true);
@@ -586,30 +615,29 @@ impl ServerRuntime {
                 .podman(&[
                     OsString::from("inspect"),
                     OsString::from("--format"),
-                    OsString::from("{{.State.Status}} {{.State.ExitCode}}"),
+                    OsString::from(
+                        "{{.State.Status}} {{.State.ExitCode}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}",
+                    ),
                     OsString::from(container_name),
                 ])
                 .await;
             if let Ok(output) = status {
-                let state = output.stdout.split_whitespace().next().unwrap_or_default();
+                let mut fields = output.stdout.split_whitespace();
+                let state = fields.next().unwrap_or_default();
                 if state == "exited" || state == "dead" {
                     return Err(AppError::ValidationError(format!(
                         "Container '{container_name}' stopped before becoming ready"
                     )));
                 }
+                // A FreeBSD host cannot reach its own published ports (pf does not hairpin
+                // them), so the container's own address is tried when the loopback one fails.
+                let address = fields.nth(1);
                 if state == "running"
-                    && self
-                        .remote_command(&[
-                            OsString::from("curl"),
-                            OsString::from("-sS"),
-                            OsString::from("-o"),
-                            OsString::from("/dev/null"),
-                            OsString::from("--max-time"),
-                            OsString::from("2"),
-                            OsString::from(format!("http://127.0.0.1:{host_port}/")),
-                        ])
-                        .await
-                        .is_ok()
+                    && (self.answers_http(&format!("127.0.0.1:{host_port}")).await
+                        || match address {
+                            Some(ip) => self.answers_http(&format!("{ip}:{container_port}")).await,
+                            None => false,
+                        })
                 {
                     return Ok(true);
                 }
@@ -617,6 +645,20 @@ impl ServerRuntime {
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
         Ok(false)
+    }
+
+    async fn answers_http(&self, authority: &str) -> bool {
+        self.remote_command(&[
+            OsString::from("curl"),
+            OsString::from("-sS"),
+            OsString::from("-o"),
+            OsString::from("/dev/null"),
+            OsString::from("--max-time"),
+            OsString::from("2"),
+            OsString::from(format!("http://{authority}/")),
+        ])
+        .await
+        .is_ok()
     }
 
     /// Streams a fixed non-Podman remote command whose output is consumed
@@ -821,5 +863,32 @@ impl ServerRuntime {
         ])
         .await?;
         Ok(Some(format!("{workspace}/{directory_name}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_compose_runs_with_absolute_workspace_paths() {
+        let target = SshTarget { host: "h".into(), port: 22, user: "deploy".into() };
+        let args = ["compose", "--file", ".local/share/litepod/apps/a/c.yml", "up"].map(OsString::from);
+        let argv = ServerRuntime::remote_podman_argv(PodmanMode::Rootful, &target, &args);
+        let script = argv[4].to_string_lossy().into_owned();
+        let output = std::process::Command::new("sh")
+            .current_dir("/")
+            .arg("-c")
+            .arg(script.replace("exec podman", "printf '%s\\n'"))
+            .args(&argv[5..])
+            .output()
+            .unwrap();
+        assert_eq!(&argv[..4], ["sudo", "-n", "sh", "-c"].map(OsString::from));
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "compose\n--file\n//.local/share/litepod/apps/a/c.yml\nup\n"
+        );
+        let ps = ServerRuntime::remote_podman_argv(PodmanMode::Rootful, &target, &[OsString::from("ps")]);
+        assert_eq!(ps, ["sudo", "-n", "podman", "ps"].map(OsString::from));
     }
 }

@@ -5,20 +5,23 @@ skip to [Resource sizing](#resource-sizing) if Podman is already installed.
 
 ## Linux update channels
 
-Use the default stable channel for production releases, or choose alpha for builds published
+Use the default stable channel for production releases, or choose next for builds published
 ahead of stable:
 
 ```bash
 curl -fsSL https://litepod.sh/install.sh | bash
-curl -fsSL https://litepod.sh/install.sh | bash -s -- --alpha
+curl -fsSL https://litepod.sh/install.sh | bash -s -- --next
 ```
 
 The corresponding removal script is published at
 `https://litepod.sh/uninstall.sh`.
 
 Re-running the installer in the same channel repairs the stack while preserving its `.env`,
-database, and volumes. Changing channels is blocked to preserve data; use a new host instead, or
-pass `--wipe` only when you intend to delete the existing installation after its confirmation.
+database, and volumes. Passing `--next` to an existing stable install switches it to the next channel in place: data
+and `.env` are kept, and the installer first saves `litepod_data-before-next-*.tar` in the install
+directory. Going back from next to stable is blocked because next may have run migrations stable
+does not know; restore that backup on a stable install, or pass `--wipe` only when you intend to
+delete the existing installation after its confirmation.
 
 ## macOS / Windows (local development, via Podman Desktop)
 

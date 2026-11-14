@@ -235,7 +235,7 @@ async fn flush(state: &SharedState, pending: &mut Vec<LogLine>) {
         "INSERT INTO application_deployment_run_logs (id, run_id, sequence, level, message, created_at, server_id) VALUES {}",
         placeholders.join(",")
     );
-    let mut query = sqlx::query(&sql);
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     for line in pending.iter() {
         query = query
             .bind(Uuid::now_v7().to_string())

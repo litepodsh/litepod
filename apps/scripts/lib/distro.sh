@@ -11,7 +11,7 @@
 # (search for "BEGIN distro.sh sync"). install-staging.sh (always run
 # from a git clone) sources this file directly instead of carrying a copy.
 
-# distro_family: prints debian|fedora|arch to stdout and returns 0 on a
+# distro_family: prints debian|fedora|arch|alpine to stdout and returns 0 on a
 # match; prints nothing and returns 1 if the host's distro isn't recognized.
 # Reads /etc/os-release (or $DISTRO_OS_RELEASE_FILE, a test hook), matching
 # ID= first and falling back to ID_LIKE= tokens for derivatives (e.g.
@@ -33,6 +33,10 @@ distro_family() {
 		;;
 	arch)
 		printf '%s\n' arch
+		return 0
+		;;
+	alpine)
+		printf '%s\n' alpine
 		return 0
 		;;
 	esac
@@ -89,6 +93,20 @@ pkg_name() {
 	arch:openssh_server) printf '%s\n' openssh ;;
 	arch:which) printf '%s\n' which ;;
 	arch:fail2ban) printf '%s\n' fail2ban ;;
+	alpine:curl) printf '%s\n' curl ;;
+	alpine:openssl) printf '%s\n' openssl ;;
+	alpine:git) printf '%s\n' git ;;
+	alpine:podman) printf '%s\n' podman ;;
+	alpine:podman_openrc) printf '%s\n' podman-openrc ;;
+	alpine:podman_compose) printf '%s\n' podman-compose ;;
+	alpine:oci_runtime) printf '%s\n' crun ;;
+	alpine:iptables) printf '%s\n' iptables ;;
+	alpine:uidmap) : ;; # rootful only on Alpine, no newuidmap needed
+	alpine:openssh_server) printf '%s\n' openssh ;;
+	alpine:which) printf '%s\n' which ;;
+	alpine:sudo) printf '%s\n' sudo ;;
+	alpine:bash) printf '%s\n' bash ;;
+	alpine:fail2ban) printf '%s\n' fail2ban ;;
 	*)
 		printf 'pkg_name: unknown package %s for %s\n' "${logical}" "${family}" >&2
 		return 1
@@ -105,6 +123,7 @@ pkg_refresh() {
 	debian) "${run}" apt-get update ;;
 	fedora) "${run}" dnf makecache ;;
 	arch) "${run}" pacman -Sy ;;
+	alpine) "${run}" apk update ;;
 	*)
 		printf 'pkg_refresh: unsupported family %s\n' "${family}" >&2
 		return 1
@@ -129,6 +148,7 @@ pkg_install() {
 	debian) "${run}" apt-get install -y "${resolved[@]}" ;;
 	fedora) "${run}" dnf install -y "${resolved[@]}" ;;
 	arch) "${run}" pacman -S --noconfirm --needed "${resolved[@]}" ;;
+	alpine) "${run}" apk add "${resolved[@]}" ;;
 	*)
 		printf 'pkg_install: unsupported family %s\n' "${family}" >&2
 		return 1

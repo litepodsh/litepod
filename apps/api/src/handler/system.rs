@@ -16,6 +16,8 @@ pub struct SystemVersionResponse {
     pub update_interval_secs: u64,
     pub container_name: String,
     pub is_cloud: bool,
+    /// Native OpenBSD install: no containers, so it upgrades by re-running its installer.
+    pub panel_only: bool,
     pub state: updater::UpdateState,
     pub uptime_secs: ServiceUptimes,
 }
@@ -76,6 +78,7 @@ pub async fn get_version_handler(
             update_interval_secs: state.update_interval_secs,
             container_name: state.container_name.clone(),
             is_cloud: state.is_cloud,
+            panel_only: crate::state::state::PANEL_ONLY,
             state: snapshot,
             uptime_secs: service_uptimes(&state).await,
         }
@@ -89,6 +92,7 @@ pub async fn get_version_handler(
             update_interval_secs: state.update_interval_secs,
             container_name: String::new(),
             is_cloud: state.is_cloud,
+            panel_only: crate::state::state::PANEL_ONLY,
             state: snapshot,
             uptime_secs: ServiceUptimes::default(),
         }
@@ -376,9 +380,9 @@ mod tests {
 
     fn available_snapshot() -> updater::UpdateState {
         updater::UpdateState {
-            channel: updater::UpdateChannel::Alpha,
-            current_version: "v1.0.0-alpha.1".into(),
-            latest_version: "v1.0.0-alpha.2".into(),
+            channel: updater::UpdateChannel::Next,
+            current_version: "v1.0.0-next.1".into(),
+            latest_version: "v1.0.0-next.2".into(),
             latest_digest: None,
             update_available: true,
             last_check_at: None,
@@ -418,7 +422,7 @@ mod tests {
     fn apply_validation_rejects_changed_target_or_channel() {
         let snapshot = available_snapshot();
         let changed_target = UpdateApplyRequest {
-            target_version: "v1.0.0-alpha.3".into(),
+            target_version: "v1.0.0-next.3".into(),
             channel: snapshot.channel,
             core_services: updater::check::CoreServiceTargets {
                 caddy: "2.11.4".into(),

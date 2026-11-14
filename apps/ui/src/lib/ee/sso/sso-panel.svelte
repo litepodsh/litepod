@@ -38,6 +38,7 @@
 	} from './sso-client';
 	import { listGroups, type Group } from '#lib/clients/access-client.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	let { organizationId }: { organizationId: string } = $props();
@@ -136,8 +137,11 @@
 	}
 
 	function copy(value: string) {
-		void navigator.clipboard.writeText(value);
-		toast.success(t('organizations.sso.copied'));
+		void copyText(value).then((ok) =>
+			ok
+				? toast.success(t('organizations.sso.copied'))
+				: toast.error(t('organizations.sso.copy_failed')),
+		);
 	}
 
 	const submitDomain = (event: SubmitEvent) => {

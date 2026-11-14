@@ -132,7 +132,7 @@ def test_publish_retries_conflict_and_preserves_concurrent_channel() -> None:
     with scratch:
         bodies = [
             '{"channels":{"stable":{"version":"v1.2.2"}}}',
-            '{"channels":{"stable":{"version":"v1.2.2"},"alpha":{"version":"v1.3.0-alpha.1"}}}',
+            '{"channels":{"stable":{"version":"v1.2.2"},"next":{"version":"v1.3.0-next.1"}}}',
         ]
         result = run(
             PUBLISH,
@@ -148,7 +148,7 @@ def test_publish_retries_conflict_and_preserves_concurrent_channel() -> None:
         assert calls["gets"] == 2 and calls["puts"] == 2
         assert "If-Match: \"etag-1\"" in calls["put_args"][1]
         final = json.loads(calls["last_put_body"])
-        assert final["channels"]["alpha"]["version"] == "v1.3.0-alpha.1"
+        assert final["channels"]["next"]["version"] == "v1.3.0-next.1"
 
 
 def test_immutable_tag_guard_reports_only_verified_registry_state() -> None:
@@ -307,13 +307,13 @@ def test_lifecycle_upload_publishes_all_scripts_and_fails_closed() -> None:
 def test_channel_tags_are_strictly_validated() -> None:
     valid = [
         ("stable", "v1.2.3"),
-        ("alpha", "v1.2.3-alpha.4"),
+        ("next", "v1.2.3-next.4"),
     ]
     invalid = [
         ("stable", "latest"),
-        ("stable", "v1.2.3-alpha.4"),
-        ("alpha", "alpha"),
-        ("alpha", "v1.2.3"),
+        ("stable", "v1.2.3-next.4"),
+        ("next", "next"),
+        ("next", "v1.2.3"),
         ("preview", "v1.2.3"),
     ]
     for channel, tag in valid:

@@ -8,8 +8,8 @@ use crate::dtos::deployment::LiveRouteDto;
 use crate::dtos::response::{AppError, ok};
 use crate::state::state::SharedState;
 
-fn read_mem_available_kb() -> Option<u64> {
-    let content = std::fs::read_to_string("/proc/meminfo").ok()?;
+async fn read_mem_available_kb() -> Option<u64> {
+    let content = crate::servers::freebsd::local_meminfo().await?;
     for line in content.lines() {
         if let Some(rest) = line.strip_prefix("MemAvailable:") {
             let kb: u64 = rest.trim().split_whitespace().next()?.parse().ok()?;
@@ -273,7 +273,7 @@ pub async fn debug_overview_handler(
                     (Ok(info), Ok(version)) => {
                         let mut detail =
                             json!({ "info": safe_json(info)?, "version": safe_json(version)? });
-                        if let Some(mem_available_kb) = read_mem_available_kb() {
+                        if let Some(mem_available_kb) = read_mem_available_kb().await {
                             if let Some(host) =
                                 detail.get_mut("info").and_then(|i| i.get_mut("host"))
                             {
@@ -457,7 +457,7 @@ async fn table_rows(conn: &SqlitePool) -> Vec<TableUsage> {
     for name in names {
         // the name comes from sqlite_master, quoted as an identifier; only the count is read
         let sql = format!("SELECT COUNT(*) FROM \"{}\"", name.replace('"', "\"\""));
-        let rows = sqlx::query_scalar::<_, i64>(&sql)
+        let rows = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
             .fetch_one(conn)
             .await
             .ok();

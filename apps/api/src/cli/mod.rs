@@ -41,6 +41,10 @@ pub fn run(argv: Vec<String>) -> i32 {
 
 fn dispatch(argv: Vec<String>) -> Result<(), u8> {
     let cli = commands::parse(&argv).map_err(|code| u8::from(code))?;
+    if matches!(cli.command, commands::Command::FreebsdHostScript) {
+        print!("{}", crate::servers::setup::FREEBSD_HOST_SCRIPT);
+        return Ok(());
+    }
 
     // Same hard fail-fast as `main.rs`: the binary refuses to operate
     // without the secrets its hashes were derived with.
@@ -132,6 +136,8 @@ async fn run_async(cli: commands::Cli) -> Result<(), u8> {
             )
             .await
         }
+        // Answered in `dispatch` before the secrets and the database are touched.
+        commands::Command::FreebsdHostScript => Ok(()),
     };
 
     result.map_err(|error| match error {

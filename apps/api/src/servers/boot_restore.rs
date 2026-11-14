@@ -25,6 +25,13 @@ use crate::{
 };
 
 const BOOT_ID_PATH: &str = "/proc/sys/kernel/random/boot_id";
+/// FreeBSD's random boot id is binary, so `-x` prints it as hex. A release without it
+/// falls back to the boot time, which only a clock step moves before the next boot.
+const FREEBSD_BOOT_ID: [&str; 3] = [
+    "/bin/sh",
+    "-c",
+    "sysctl -x kern.boot_id 2>/dev/null || sysctl -n kern.boottime",
+];
 /// A reboot must not stampede the host.
 const START_CONCURRENCY: usize = 2;
 
@@ -202,16 +209,27 @@ async fn store_boot_id(state: &SharedState, server: &ServerRecord, boot_id: &str
 /// The API container shares the host kernel, so the local file is the host's id.
 async fn read_boot_id(state: &SharedState, server: &ServerRecord) -> Option<String> {
     let raw = if server.kind == "local" {
-        tokio::fs::read_to_string(BOOT_ID_PATH).await.ok()?
+        if cfg!(target_os = "freebsd") {
+            let [program, args @ ..] = FREEBSD_BOOT_ID;
+            let output = tokio::process::Command::new(program)
+                .args(args)
+                .output()
+                .await
+                .ok()?;
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        } else {
+            tokio::fs::read_to_string(BOOT_ID_PATH).await.ok()?
+        }
     } else {
         let runtime = ServerRuntime::from_server_unchecked(state, server.clone())
             .await
             .ok()?;
-        runtime
-            .remote_command(&[OsString::from("cat"), OsString::from(BOOT_ID_PATH)])
-            .await
-            .ok()?
-            .stdout
+        let command: Vec<OsString> = if runtime.is_freebsd() {
+            FREEBSD_BOOT_ID.iter().map(OsString::from).collect()
+        } else {
+            vec![OsString::from("cat"), OsString::from(BOOT_ID_PATH)]
+        };
+        runtime.remote_command(&command).await.ok()?.stdout
     };
     let id = raw.trim();
     (!id.is_empty()).then(|| id.to_string())

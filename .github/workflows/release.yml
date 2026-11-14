@@ -10,23 +10,26 @@ name: release
 #
 # Triggers:
 #   - push a tag vX.Y.Z           -> stable channel (:vX.Y.Z + :latest)
-#   - push a tag vX.Y.Z-alpha.N   -> alpha channel  (:vX.Y.Z-alpha.N + :alpha)
+#   - dispatch on `next` with vX.Y.Z-next.N and dry_run=false
+#                                 -> next channel  (:vX.Y.Z-next.N + :next)
+#   - push a tag vX.Y.Z-next.N   -> next channel too (same result)
 #   - manual dispatch with a version (same rules). `dry_run` (default on)
 #     builds, probes and assembles the manifest but pushes nothing.
-#   - push to main touching the Rust deps, or weekly -> cache warm-up: only
+#   - push to main or next touching the Rust deps, or weekly (main) -> cache warm-up: only
 #     the binaries are built, no image, nothing published.
 #
 # The runners are always fresh, so the Dockerfile's sccache mount is empty
 # every run. Both binaries are therefore built on the runner and COPYed in
 # (PREBUILT_API), with `api/target` persisted per arch by rust-cache.
 # Actions caches are scoped per ref: a tag run can only restore caches saved
-# by its own tag or by main, and every release is a new tag. So only runs on
-# main save: `just bump litepod` dispatches a dry run on main first, and the
-# tag run queues behind it (concurrency group) and restores what it saved.
-# Actions caches are scoped per ref: a tag run can only restore caches saved
-# by its own tag or by main, and every release is a new tag. So only main
-# saves (warm-up runs and dispatches from main); tag runs just restore. The
-# weekly run keeps the cache alive past GitHub's 7-day eviction.
+# by its own tag or by main, and every release is a new tag. So stable
+# releases (tagged on main) are warmed by a dry run on main: `just bump litepod`
+# dispatches it first and the tag run queues behind it (concurrency group).
+# Next releases do not use tags to start: `just bump-next litepod` dispatches
+# this workflow on the `next` branch, which saves and restores its own cache
+# (save-if below), and the release creates the vX.Y.Z-next.N tag itself. A push
+# to `next` touching Cargo.lock re-warms that cache. The weekly schedule only
+# runs on main, so an idle `next` cache can expire after 7 days (cold build).
 #
 # version.json and the install scripts are published from the website
 # (litepod.sh), not here.
@@ -36,14 +39,14 @@ on:
     tags:
       - "v*.*.*"
     # Path filters are not evaluated for tag pushes, so tags still trigger.
-    branches: [main]
+    branches: [main, next]
     paths: ["apps/api/Cargo.lock", "apps/api/Cross.toml"]
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       version:
-        description: "Image tag: vX.Y.Z (stable) or vX.Y.Z-alpha.N (alpha)"
+        description: "Image tag: vX.Y.Z (stable) or vX.Y.Z-next.N (next)"
         required: true
       dry_run:
         description: "Test the release: build + probe everything, push nothing"
@@ -91,8 +94,13 @@ jobs:
           else
             version="${GITHUB_REF_NAME}"
           fi
-          if [[ "${version}" == *-alpha.* ]]; then channel=alpha; else channel=stable; fi
+          if [[ "${version}" == *-next.* ]]; then channel=next; else channel=stable; fi
           bash podx/scripts/validate-release-tag.sh "${channel}" "${version}"
+          # A real (non-dry) next release may only come from a tag or from the
+          # `next` branch, whose rust cache it shares. Never from main or a PR branch.
+          if [[ "${channel}" == next && "${DRY_RUN}" != true && "${GITHUB_REF_TYPE}" == branch && "${GITHUB_REF_NAME}" != next ]]; then
+            echo "next releases dispatch from the next branch, not ${GITHUB_REF_NAME}" >&2; exit 1
+          fi
           # scripts/install.sh is a symlink into the web repo, absent in CI.
           caddy="$(sed -n 's/.*docker\.io\/library\/caddy:\${CADDY_IMAGE_TAG:-\([^}]*\)}.*/\1/p' podman-compose-prod.yml)"
           : "${caddy:?caddy pin missing in podman-compose-prod.yml}"
@@ -141,7 +149,7 @@ jobs:
           # Bumped from the default v0 to skip the near-empty caches saved
           # while the cargo metadata call above was failing.
           prefix-key: v1-rust
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' }}
 
       - uses: taiki-e/install-action@v2
         if: matrix.arch == 'arm64'
@@ -245,8 +253,202 @@ jobs:
           path: ${{ runner.temp }}/image-${{ matrix.arch }}.tar
           retention-days: 1
 
+  # FreeBSD runs litepod natively (install-freebsd.sh): the API binary and the UI
+  # build, as one archive attached to the GitHub release. GitHub has no FreeBSD
+  # runners, so the binary is compiled inside a FreeBSD VM (KVM on the hosted
+  # Ubuntu runner); duckdb and aws-lc are C/C++ and do not cross-compile cleanly.
+  build-freebsd:
+    needs: prepare
+    if: needs.prepare.outputs.warm != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build UI
+        working-directory: apps/ui
+        env:
+          VITE_API_URL: ""
+          VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEJF4ZVxaxz5WzUH"
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+          test -f build/404.html
+          # Same trim as the Dockerfile: plaintext and json are the only Monaco languages used.
+          rm -f build/_app/immutable/workers/ts.worker-*.js* \
+                build/_app/immutable/workers/css.worker-*.js* \
+                build/_app/immutable/workers/html.worker-*.js*
+
+      # Rust cache for the VM: the workspace is rsynced into the VM and back, so
+      # target/ and the registry restored here are what cargo finds inside it.
+      # Only branch runs save (a tag run's cache is unreadable to later tags), so
+      # next releases must go through `just bump-next litepod`.
+      - name: Restore freebsd rust cache
+        id: rust-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            apps/api/target
+            apps/.cargo-home/registry
+            apps/.cargo-home/git
+          key: freebsd-rust-${{ hashFiles('apps/api/Cargo.lock') }}
+          restore-keys: freebsd-rust-
+
+      - name: Build API on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.3"
+          mem: 8192
+          usesh: true
+          # A tag run saves caches no later tag can read; 1.8 GB of VM images per
+          # release filled the 10 GB quota and evicted the rust cache.
+          disable-cache: true
+          prepare: pkg install -y rust cmake gmake pkgconf perl5 xmlsec1 llvm
+          run: |
+            set -e
+            cd apps/api
+            rm -f .cargo/config.toml
+            # Keep the registry in the workspace so it syncs back and is cached.
+            export CARGO_HOME="$(pwd)/../.cargo-home"
+            cargo build --release --locked --features saml
+            cp target/release/litepod-api ../litepod-api-freebsd
+
+      - name: Save freebsd rust cache
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next') && steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            apps/api/target
+            apps/.cargo-home/registry
+            apps/.cargo-home/git
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
+
+      - name: Package
+        run: |
+          name="litepod-${VERSION}-x86_64-unknown-freebsd.tar.gz"
+          staging="${RUNNER_TEMP}/freebsd"
+          mkdir -p "${staging}"
+          cp litepod-api-freebsd "${staging}/litepod-api"
+          cp -R ui/build "${staging}/ui"
+          # The API reads its migrations from the directory next to the binary.
+          cp -R api/migrations "${staging}/migrations"
+          tar -C "${staging}" -czf "${RUNNER_TEMP}/${name}" litepod-api ui migrations
+          (cd "${RUNNER_TEMP}" && sha256sum "${name}" > "${name}.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freebsd
+          path: ${{ runner.temp }}/litepod-*-x86_64-unknown-freebsd.tar.gz*
+          retention-days: 1
+
+  # OpenBSD has no Podman, so litepod runs there as the control panel only
+  # (install-openbsd.sh). OpenBSD changes its libc ABI between releases, so the
+  # archive is built for one release and named after it.
+  build-openbsd:
+    needs: prepare
+    if: needs.prepare.outputs.warm != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      OPENBSD_RELEASE: "8.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build UI
+        working-directory: apps/ui
+        env:
+          VITE_API_URL: ""
+          VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEJF4ZVxaxz5WzUH"
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+          test -f build/404.html
+          rm -f build/_app/immutable/workers/ts.worker-*.js* \
+                build/_app/immutable/workers/css.worker-*.js* \
+                build/_app/immutable/workers/html.worker-*.js*
+
+      # Rust cache for the VM: the workspace is rsynced into the VM and back, so
+      # target/ and the registry restored here are what cargo finds inside it.
+      # Only branch runs save (a tag run's cache is unreadable to later tags), so
+      # next releases must go through `just bump-next litepod`.
+      - name: Restore openbsd rust cache
+        id: rust-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            apps/api/target
+            apps/.cargo-home/registry
+            apps/.cargo-home/git
+          key: openbsd-rust-${{ hashFiles('apps/api/Cargo.lock') }}
+          restore-keys: openbsd-rust-
+
+      - name: Build API on OpenBSD
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: ${{ env.OPENBSD_RELEASE }}
+          mem: 8192
+          usesh: true
+          # A tag run saves caches no later tag can read; 1.8 GB of VM images per
+          # release filled the 10 GB quota and evicted the rust cache.
+          disable-cache: true
+          prepare: pkg_add -I rust cmake gmake xmlsec llvm%21 duckdb
+          run: |
+            set -e
+            df -h
+            cd apps/api
+            rm -f .cargo/config.toml
+            # Root's default datasize limit is too small to link the API.
+            ulimit -d unlimited
+            ulimit -n 1024
+            # samael's bindgen needs libclang, which OpenBSD keeps outside the default paths.
+            export LIBCLANG_PATH=/usr/local/llvm21/lib
+            # Cargo.toml links duckdb from packages on OpenBSD; without these it looks for a prebuilt one.
+            export DUCKDB_LIB_DIR=/usr/local/lib DUCKDB_INCLUDE_DIR=/usr/local/include
+            # Keep the registry next to the sources: the VM's root partition is small.
+            export CARGO_HOME="$(pwd)/../.cargo-home"
+            # Fastest compile, not fastest binary: the VM build at -O3 is too slow (C++ in duckdb).
+            cargo build --release --locked --features saml \
+              --config profile.release.opt-level=0 --config profile.release.codegen-units=256
+            cp target/release/litepod-api ../litepod-api-openbsd
+
+      - name: Save openbsd rust cache
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next') && steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            apps/api/target
+            apps/.cargo-home/registry
+            apps/.cargo-home/git
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
+
+      - name: Package
+        run: |
+          name="litepod-${VERSION}-x86_64-unknown-openbsd${OPENBSD_RELEASE}.tar.gz"
+          staging="${RUNNER_TEMP}/openbsd"
+          mkdir -p "${staging}"
+          cp litepod-api-openbsd "${staging}/litepod-api"
+          cp -R ui/build "${staging}/ui"
+          cp -R api/migrations "${staging}/migrations"
+          # install-openbsd.sh refuses an archive built for another OpenBSD release.
+          printf '%s\n' "${OPENBSD_RELEASE}" > "${staging}/openbsd-release"
+          tar -C "${staging}" -czf "${RUNNER_TEMP}/${name}" litepod-api ui migrations openbsd-release
+          (cd "${RUNNER_TEMP}" && sha256sum "${name}" > "${name}.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openbsd
+          path: ${{ runner.temp }}/litepod-*-x86_64-unknown-openbsd*.tar.gz*
+          retention-days: 1
+
   publish:
-    needs: [prepare, build]
+    needs: [prepare, build, build-freebsd, build-openbsd]
     if: needs.prepare.outputs.warm != 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -290,7 +492,7 @@ jobs:
           local_manifest="localhost/litepod-release:${VERSION}"
           immutable_image="docker.io/${REPOSITORY}:${VERSION}"
           moving_tag=latest
-          [[ "${CHANNEL}" == alpha ]] && moving_tag=alpha
+          [[ "${CHANNEL}" == next ]] && moving_tag=next
           moving_image="docker.io/${REPOSITORY}:${moving_tag}"
           # Resumable: never republish the immutable tag if the registry
           # already resolves it — see podx/scripts/check-immutable-tag.sh.
@@ -316,7 +518,7 @@ jobs:
           tool: git-cliff
 
       - name: GitHub release
-        if: env.DRY_RUN != 'true' && github.ref_type == 'tag'
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -324,10 +526,45 @@ jobs:
             echo "release ${VERSION} already exists"
             exit 0
           fi
-          git cliff --latest -o "${RUNNER_TEMP}/notes.md"
           flags=()
-          [[ "${CHANNEL}" == alpha ]] && flags+=(--prerelease)
-          gh release create "${VERSION}" --verify-tag --notes-file "${RUNNER_TEMP}/notes.md" --title "${VERSION}" "${flags[@]}"
+          [[ "${CHANNEL}" == next ]] && flags+=(--prerelease)
+          if [[ "${GITHUB_REF_TYPE}" == tag ]]; then
+            git cliff --latest -o "${RUNNER_TEMP}/notes.md"
+            flags+=(--verify-tag)
+          else
+            # Dispatched from the next branch: the tag does not exist yet, so
+            # the release creates it at this commit and the notes cover the
+            # commits since the previous tag.
+            git cliff --unreleased --tag "${VERSION}" -o "${RUNNER_TEMP}/notes.md"
+            flags+=(--target "${GITHUB_SHA}")
+          fi
+          gh release create "${VERSION}" --notes-file "${RUNNER_TEMP}/notes.md" --title "${VERSION}" "${flags[@]}"
+
+      - uses: actions/download-artifact@v4
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
+        with:
+          name: freebsd
+          path: ${{ runner.temp }}/freebsd
+
+      # Separate from the step above, which stops early when the release exists: a
+      # re-run must still attach the FreeBSD archive that install-freebsd.sh downloads.
+      - name: Attach FreeBSD build
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${VERSION}" "${RUNNER_TEMP}"/freebsd/* --clobber
+
+      - uses: actions/download-artifact@v4
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
+        with:
+          name: openbsd
+          path: ${{ runner.temp }}/openbsd
+
+      - name: Attach OpenBSD build
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${VERSION}" "${RUNNER_TEMP}"/openbsd/* --clobber
 
       - name: Summary
         run: |
@@ -344,3 +581,28 @@ jobs:
       - name: Remove credentials
         if: always()
         run: podman logout docker.io || true
+
+  # The repo has a 10 GB cache quota. Keep the 2 newest caches of each kind
+  # (same key minus its hashes) and drop every cache a tag run saved, since
+  # no later run can read those.
+  prune-caches:
+    needs: [build, build-freebsd, build-openbsd]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Delete old caches
+        working-directory: .
+        run: |
+          gh cache list --limit 1000 --json id,key,ref,createdAt --jq '
+            (map(select(.ref | contains("refs/tags/"))) | .[].id),
+            (map(select(.ref | contains("refs/tags/") | not))
+              | group_by(.ref + " " + (.key | gsub("[0-9a-f]{16,}"; "")))
+              | .[] | sort_by(.createdAt) | reverse | .[2:][] | .id)' |
+          while read -r id; do
+            gh cache delete "$id" && echo "deleted cache $id"
+          done

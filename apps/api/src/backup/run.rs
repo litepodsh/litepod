@@ -59,9 +59,9 @@ fn row_to_record(row: &sqlx::sqlite::SqliteRow) -> Result<BackupRecordDto, AppEr
 
 pub async fn list(state: &SharedState) -> Result<Vec<BackupRecordDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM backup_history ORDER BY started_at DESC"
-    ))
+    )))
     .fetch_all(&conn)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
@@ -70,9 +70,9 @@ pub async fn list(state: &SharedState) -> Result<Vec<BackupRecordDto>, AppError>
 
 pub async fn get(state: &SharedState, id: &str) -> Result<Option<BackupRecordDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let Some(row) = sqlx::query(&format!(
+    let Some(row) = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM backup_history WHERE id = ?1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&conn)
     .await
@@ -342,7 +342,7 @@ async fn dump_table_data(
     use std::io::Write;
 
     let escaped = name.replace('"', "\"\"");
-    let rows = sqlx::query(&format!("SELECT * FROM \"{escaped}\""))
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT * FROM \"{escaped}\"")))
         .fetch_all(&mut *conn)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;

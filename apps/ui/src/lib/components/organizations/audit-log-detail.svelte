@@ -6,6 +6,7 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import { avatarUrl, initials } from '#lib/utils/avatar.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { formatAuditAction, type AuditLogDto } from '#lib/clients/audit-log-client.js';
 	import AuditMetadataNode from './audit-metadata-node.svelte';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -38,14 +39,11 @@
 	}
 
 	async function copy(text: string, field: string) {
-		try {
-			await navigator.clipboard.writeText(text);
+		if (await copyText(text)) {
 			copiedField = field;
 			setTimeout(() => {
 				if (copiedField === field) copiedField = null;
 			}, 1500);
-		} catch {
-			/* clipboard not available */
 		}
 	}
 

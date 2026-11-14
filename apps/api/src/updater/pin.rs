@@ -154,13 +154,13 @@ mod tests {
         write(
             &scratch.0,
             &Pin {
-                pinned_tag: "v0.1.23-alpha.2".into(),
-                channel: UpdateChannel::Alpha,
+                pinned_tag: "v0.1.23-next.2".into(),
+                channel: UpdateChannel::Next,
                 applied_at: Utc::now(),
             },
         )
         .unwrap();
 
-        assert_eq!(read(&scratch.0).unwrap().channel, UpdateChannel::Alpha);
+        assert_eq!(read(&scratch.0).unwrap().channel, UpdateChannel::Next);
     }
 }

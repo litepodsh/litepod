@@ -150,9 +150,9 @@ const ORGANIZATION_COLUMNS: &str = "id, name, slug, description, icon, icon_bg, 
 
 pub async fn get_organization_by_id(state: &SharedState, id: &str) -> Option<OrganizationRow> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {ORGANIZATION_COLUMNS} FROM organizations WHERE id = ?1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&conn)
     .await
@@ -163,9 +163,9 @@ pub async fn get_organization_by_id(state: &SharedState, id: &str) -> Option<Org
 
 pub async fn get_organization_by_slug(state: &SharedState, slug: &str) -> Option<OrganizationRow> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {ORGANIZATION_COLUMNS} FROM organizations WHERE slug = ?1"
-    ))
+    )))
     .bind(slug)
     .fetch_optional(&conn)
     .await
@@ -200,9 +200,9 @@ pub async fn list_organizations_for_user(
 
 pub async fn list_all_organizations(state: &SharedState) -> Result<Vec<OrganizationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {ORGANIZATION_COLUMNS} FROM organizations ORDER BY is_root DESC, name COLLATE NOCASE ASC"
-    ))
+    )))
     .fetch_all(&conn)
     .await
     .map_err(|e| e.to_string())?;

@@ -11,6 +11,12 @@ pub enum DistroFamily {
     Debian,
     Fedora,
     Arch,
+    /// OpenRC, musl, no systemd: rootful Podman only (no Quadlet, lingering or user units).
+    Alpine,
+    /// Not Linux: `pkg` + rc.d, Podman on jails through `ocijail`, Linux images through the
+    /// Linux ABI layer, pf for container NAT. Rootful only, and only as `root`: the base system
+    /// ships no `sudo`. The host preparation lives in `setup::FREEBSD_HOST_SCRIPT`.
+    FreeBsd,
 }
 
 /// Logical packages Setup needs, resolved per family by `DistroFamily::packages`.
@@ -26,6 +32,12 @@ pub enum LogicalPackage {
     Uidmap,
     Slirp4netns,
     FuseOverlayfs,
+    /// Alpine's OpenRC service files for Podman (`/etc/init.d/podman`).
+    PodmanOpenrc,
+    /// OCI runtime Alpine's `podman` package does not choose for you.
+    OciRuntime,
+    /// `netavark` needs iptables on Alpine, which ships none.
+    Iptables,
 }
 
 impl DistroFamily {
@@ -52,6 +64,8 @@ impl DistroFamily {
             "debian" | "ubuntu" => Some(Self::Debian),
             "fedora" | "rhel" => Some(Self::Fedora),
             "arch" => Some(Self::Arch),
+            "alpine" => Some(Self::Alpine),
+            "freebsd" => Some(Self::FreeBsd),
             _ => None,
         }
     }
@@ -62,6 +76,8 @@ impl DistroFamily {
             Self::Debian => &["apt-get", "update"],
             Self::Fedora => &["dnf", "makecache"],
             Self::Arch => &["pacman", "-Sy"],
+            Self::Alpine => &["apk", "update"],
+            Self::FreeBsd => &["pkg", "update"],
         }
     }
 
@@ -79,6 +95,8 @@ impl DistroFamily {
             ],
             Self::Fedora => &["dnf", "upgrade", "-y"],
             Self::Arch => &["pacman", "-Syu", "--noconfirm"],
+            Self::Alpine => &["apk", "upgrade"],
+            Self::FreeBsd => &["pkg", "upgrade", "-y"],
         }
     }
 
@@ -94,6 +112,8 @@ impl DistroFamily {
             ],
             Self::Fedora => vec!["dnf", "install", "-y"],
             Self::Arch => vec!["pacman", "-S", "--noconfirm", "--needed"],
+            Self::Alpine => vec!["apk", "add"],
+            Self::FreeBsd => vec!["pkg", "install", "-y"],
         };
         argv.extend_from_slice(packages);
         argv
@@ -142,6 +162,43 @@ impl DistroFamily {
             (Self::Arch, Uidmap) => &[],
             (Self::Arch, Slirp4netns) => &["slirp4netns"],
             (Self::Arch, FuseOverlayfs) => &["fuse-overlayfs"],
+
+            // Alpine is rootful only, so the rootless helpers (uidmap, slirp4netns,
+            // fuse-overlayfs) resolve to nothing. perl is not needed, and fail2ban's sshd
+            // jail reads the systemd journal, which Alpine does not have.
+            (Self::Alpine, Perl) => &[],
+            (Self::Alpine, BuildEssential) => &["build-base"],
+            (Self::Alpine, Which) => &["which"],
+            (Self::Alpine, Fail2ban) => &[],
+            (Self::Alpine, Podman) => &["podman"],
+            (Self::Alpine, PodmanCompose) => &["podman-compose"],
+            (Self::Alpine, Uidmap | Slirp4netns | FuseOverlayfs) => &[],
+            (Self::Alpine, PodmanOpenrc) => &["podman-openrc"],
+            (Self::Alpine, OciRuntime) => &["crun"],
+            (Self::Alpine, Iptables) => &["iptables"],
+
+            // The base system has cc, make and which; fail2ban's sshd jail reads the systemd
+            // journal, and FreeBSD has neither it nor the rootless helpers. `podman-suite`
+            // pulls Podman, Buildah, conmon, ocijail and the CNI plugins; cni-dnsname lets
+            // containers on one network (Compose services) find each other by name, and jq adds
+            // it to older networks; curl (not in base) is what readiness and health checks probe
+            // with; podman-compose is named by its port origin so the Python flavor follows the
+            // repository default.
+            (Self::FreeBsd, Podman) => &[
+                "podman-suite",
+                "sysutils/cni-dnsname",
+                "textproc/jq",
+                "ftp/curl",
+            ],
+            (Self::FreeBsd, PodmanCompose) => &["sysutils/podman-compose"],
+            (
+                Self::FreeBsd,
+                Perl | BuildEssential | Which | Fail2ban | Uidmap | Slirp4netns | FuseOverlayfs,
+            ) => &[],
+
+            // Only Alpine needs these three; every other family's `podman` package already
+            // pulls them in.
+            (_, PodmanOpenrc | OciRuntime | Iptables) => &[],
         }
     }
 
@@ -189,6 +246,13 @@ pub fn caddy_install_steps(
         DistroFamily::Debian => debian_caddy_steps(escalated),
         DistroFamily::Fedora => fedora_caddy_steps(escalated),
         DistroFamily::Arch => arch_caddy_steps(escalated),
+        DistroFamily::Alpine => alpine_caddy_steps(escalated),
+        DistroFamily::FreeBsd => vec![step(
+            "install-native-caddy",
+            escalated(&["pkg", "install", "-y", "www/caddy"]),
+            PACKAGE_TIMEOUT,
+            false,
+        )],
     }
 }
 
@@ -312,6 +376,35 @@ fn arch_caddy_steps(escalated: &impl Fn(&[&str]) -> Vec<OsString>) -> Vec<SetupS
     )]
 }
 
+/// `caddy` and its OpenRC service file are separate packages in Alpine's community repo, and
+/// unlike Debian's package it does not create the directory the route helper logs to.
+fn alpine_caddy_steps(escalated: &impl Fn(&[&str]) -> Vec<OsString>) -> Vec<SetupStep> {
+    vec![
+        step(
+            "install-native-caddy",
+            escalated(&["apk", "add", "caddy", "caddy-openrc"]),
+            PACKAGE_TIMEOUT,
+            false,
+        ),
+        step(
+            "create-caddy-log-directory",
+            escalated(&[
+                "install",
+                "-d",
+                "-o",
+                "caddy",
+                "-g",
+                "caddy",
+                "-m",
+                "0755",
+                "/var/log/caddy",
+            ]),
+            QUICK_TIMEOUT,
+            false,
+        ),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,6 +424,14 @@ mod tests {
             Some(DistroFamily::Fedora)
         );
         assert_eq!(DistroFamily::detect("ID=arch\n"), Some(DistroFamily::Arch));
+        assert_eq!(
+            DistroFamily::detect("ID=alpine\nVERSION_ID=3.24.4\n"),
+            Some(DistroFamily::Alpine)
+        );
+        assert_eq!(
+            DistroFamily::detect("NAME=FreeBSD\nVERSION_ID=\"15.1\"\nID=freebsd\n"),
+            Some(DistroFamily::FreeBsd)
+        );
     }
 
     #[test]
@@ -385,6 +486,68 @@ mod tests {
         assert_eq!(
             DistroFamily::Arch.install_argv(&["curl"]),
             vec!["pacman", "-S", "--noconfirm", "--needed", "curl"]
+        );
+        assert_eq!(
+            DistroFamily::Alpine.install_argv(&["curl"]),
+            vec!["apk", "add", "curl"]
+        );
+    }
+
+    #[test]
+    fn alpine_resolves_rootful_packages_and_drops_rootless_ones() {
+        let resolved = DistroFamily::Alpine.resolve_packages(&[
+            LogicalPackage::Podman,
+            LogicalPackage::PodmanCompose,
+            LogicalPackage::PodmanOpenrc,
+            LogicalPackage::OciRuntime,
+            LogicalPackage::Iptables,
+            LogicalPackage::Uidmap,
+            LogicalPackage::Slirp4netns,
+            LogicalPackage::FuseOverlayfs,
+        ]);
+        assert_eq!(
+            resolved,
+            vec![
+                "podman",
+                "podman-compose",
+                "podman-openrc",
+                "crun",
+                "iptables"
+            ]
+        );
+        assert!(
+            DistroFamily::Debian
+                .resolve_packages(&[LogicalPackage::PodmanOpenrc])
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn freebsd_resolves_the_podman_suite_and_nothing_linux_specific() {
+        let resolved = DistroFamily::FreeBsd.resolve_packages(&[
+            LogicalPackage::Perl,
+            LogicalPackage::BuildEssential,
+            LogicalPackage::Which,
+            LogicalPackage::Fail2ban,
+            LogicalPackage::Podman,
+            LogicalPackage::PodmanCompose,
+            LogicalPackage::PodmanOpenrc,
+            LogicalPackage::OciRuntime,
+            LogicalPackage::Iptables,
+        ]);
+        assert_eq!(
+            resolved,
+            vec![
+                "podman-suite",
+                "sysutils/cni-dnsname",
+                "textproc/jq",
+                "ftp/curl",
+                "sysutils/podman-compose"
+            ]
+        );
+        assert_eq!(
+            DistroFamily::FreeBsd.install_argv(&["curl"]),
+            vec!["pkg", "install", "-y", "curl"]
         );
     }
 }

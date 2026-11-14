@@ -9,6 +9,7 @@
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import VolumeFileWorkspace from '#lib/components/volumes/volume-file-workspace.svelte';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import { containerStatusTone, isRunning } from '#lib/utils/container-status.js';
 	import { toneBadge } from '#lib/utils/status-tone.js';
@@ -304,10 +305,11 @@
 	}
 
 	function copyInternalUrl(url: string) {
-		navigator.clipboard
-			.writeText(url)
-			.then(() => toast.success(t('projects.application_containers.internal_url_copied')))
-			.catch(() => toast.error(t('projects.application_containers.internal_url_copy_failed')));
+		void copyText(url).then((ok) =>
+			ok
+				? toast.success(t('projects.application_containers.internal_url_copied'))
+				: toast.error(t('projects.application_containers.internal_url_copy_failed')),
+		);
 	}
 
 	function numberField(detail: Record<string, unknown>, keys: string[]): number | null {

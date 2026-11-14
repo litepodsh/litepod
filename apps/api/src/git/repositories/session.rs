@@ -147,7 +147,7 @@ pub async fn get_session_identity_result(
     let sql = format!(
         "SELECT s.expires_at, {IDENTITY_COLUMNS} FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_digest = ?1"
     );
-    let row = sqlx::query(&sql)
+    let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(digest(token))
         .fetch_optional(&conn)
         .await

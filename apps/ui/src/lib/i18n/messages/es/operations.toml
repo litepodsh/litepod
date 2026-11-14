@@ -239,6 +239,7 @@ system = "Sistema"
 up_to_date = "Actualizado"
 update_available = "Actualización disponible"
 update_description = "La API comprueba el manifiesto de versiones del canal {channel} e informa versiones más nuevas de {image}. La instalación siempre es manual; nada se recrea por sí solo."
+update_native_hint = "Esta instalación de OpenBSD corre sin contenedores, así que no se actualiza sola. Para actualizar, ejecuta esto como root en el servidor:"
 version = "Versión"
 version_available = "La versión {version} está disponible."
 

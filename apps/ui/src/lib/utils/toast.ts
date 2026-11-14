@@ -1,21 +1,12 @@
 import { toast as base } from 'svelte-sonner';
 import type { ExternalToast } from 'svelte-sonner';
+import { copyText } from './clipboard.js';
 
 function copyAction(message: string) {
 	return {
 		label: 'Copy',
 		onClick: () => {
-			navigator.clipboard.writeText(message).catch(() => {
-				// fallback for older browsers / non-secure contexts
-				const ta = document.createElement('textarea');
-				ta.value = message;
-				ta.style.position = 'fixed';
-				ta.style.opacity = '0';
-				document.body.appendChild(ta);
-				ta.select();
-				document.execCommand('copy');
-				document.body.removeChild(ta);
-			});
+			void copyText(message);
 		},
 	};
 }

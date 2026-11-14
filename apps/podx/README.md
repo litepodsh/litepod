@@ -8,7 +8,7 @@ any host. Produces one image with API + UI embedded.
 | File | Lives where | Purpose |
 |---|---|---|
 | `podx/.env`            | your dev machine | DockerHub and release-manifest publishing credentials |
-| `api/.env`             | dev machine + each server | stable/alpha versions and runtime config litepod reads at boot |
+| `api/.env`             | dev machine + each server | stable/next versions and runtime config litepod reads at boot |
 | `apps/.env` (root)     | each server (written by `install-staging.sh`) | runtime config podman-compose injects into the container |
 | `install-staging.sh`   | server (one-time) | bootstraps `apps/.env` with generated secrets + litepod image defaults |
 
@@ -33,14 +33,14 @@ DOCKERHUB_TOKEN=$(grep ^DOCKERHUB_TOKEN= podx/.env | cut -d= -f2-) \
 
 ```sh
 just release-dockerhub
-just release-dockerhub -- --alpha
+just release-dockerhub -- --next
 just release-dockerhub -- --no-cache
-just release-dockerhub -- --alpha --no-cache
+just release-dockerhub -- --next --no-cache
 ```
 
 The first command releases the stable channel from `LITEPOD_VERSION`; the second releases the
-alpha channel from `LITEPOD_VERSION_ALPHA`. Increment the alpha counter in
-`LITEPOD_VERSION_ALPHA` manually before each alpha release.
+next channel from `LITEPOD_VERSION_NEXT`. Increment the next counter in
+`LITEPOD_VERSION_NEXT` manually before each next release.
 
 Each release pushes an immutable version tag and a channel tag to `docker.io/litepod/litepod`:
 
@@ -48,13 +48,13 @@ Each release pushes an immutable version tag and a channel tag to `docker.io/lit
 |--------------|--------------------------------------|
 | `vX.Y.Z`     | Immutable, pinneable, traceable      |
 | `latest`     | Floating stable channel               |
-| `alpha`    | Floating alpha channel              |
+| `next`    | Floating next channel              |
 
 Before pushing, the release checks whether the immutable version tag already exists. If it does,
 the release reuses that Docker Hub artifact instead of overwriting it: it pulls the immutable tag
-and uses the pulled image to update `latest` or `alpha`. An unavailable or unverifiable tag
+and uses the pulled image to update `latest` or `next`. An unavailable or unverifiable tag
 aborts the release. Manifest publication uses conditional S3 writes and retries conflicts, so
-concurrent stable and alpha publications cannot silently replace each other's channel entries.
+concurrent stable and next publications cannot silently replace each other's channel entries.
 `release-dockerhub` reuses the local Podman layer cache by default and verifies that the local OCI
 version label matches the requested tag before contacting Docker Hub. Pass `-- --no-cache` only
 when a clean rebuild is required; running `just clean` is not required before a release.
@@ -63,8 +63,8 @@ Every successful release also uploads the current lifecycle scripts with signed 
 `<S3_ENDPOINT>/<S3_BUCKET>/uninstall.sh`. Either upload failing aborts the release
 before the channel manifest is published. Before announcing either channel, the release also
 publishes the app and core-service pins together in that channel's `version.json` object.
-Stable uses `LITEPOD_VERSION` and `CADDY_VERSION`; alpha uses
-`LITEPOD_VERSION_ALPHA` and `CADDY_VERSION_ALPHA`, all from `api/.env`.
+Stable uses `LITEPOD_VERSION` and `CADDY_VERSION`; next uses
+`LITEPOD_VERSION_NEXT` and `CADDY_VERSION_NEXT`, all from `api/.env`.
 Every service tag is required, must not be `latest`, and is validated against its registry.
 
 ## Deploy on QA server (Ubuntu x86_64)
@@ -84,7 +84,7 @@ The litepod API inside the container:
 
 1. Reads `LITEPOD_UPDATE_CHANNEL` and the immutable tag used to create the running container.
 2. Every `LITEPOD_UPDATE_INTERVAL` seconds (default 3600), fetches the release manifest and resolves
-   only the selected stable or alpha channel.
+   only the selected stable or next channel.
 3. Parses and compares the published and running versions. Fetch errors, missing channels, and
    invalid versions are reported as failed checks, never as “up to date.”
 4. Reports an available update in System. Detection never installs automatically.
@@ -107,7 +107,7 @@ curl -X POST https://qa/api/v1/system/update/check -H "Cookie: <session>"
 # install exactly the target previously shown by the version endpoint
 curl -X POST https://qa/api/v1/system/update/apply \
   -H "Cookie: <session>" -H "Content-Type: application/json" \
-  -d '{"target_version":"v0.1.23-alpha.2","channel":"alpha"}'
+  -d '{"target_version":"v0.1.23-next.2","channel":"next"}'
 
 # on the server: see the env vars the container actually has
 podman inspect litepod-qa-api | jq '.[0].Config.Env' | grep LITEPOD_

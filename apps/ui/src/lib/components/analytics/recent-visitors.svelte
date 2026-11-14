@@ -17,6 +17,7 @@
 	import { countryName, flag } from '#lib/utils/countries.js';
 	import { relativeTime } from '#lib/utils/relative-time.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { i18n, t } from '#lib/i18n/index.svelte.js';
 
 	/** The latest client IPs: who they are, where from, what with, and how much. */
@@ -86,13 +87,12 @@
 
 	let copied = $state<string | null>(null);
 	async function copy(ip: string) {
-		try {
-			await navigator.clipboard.writeText(ip);
+		if (await copyText(ip)) {
 			copied = ip;
 			setTimeout(() => {
 				if (copied === ip) copied = null;
 			}, 1500);
-		} catch {
+		} else {
 			toast.error(t('analytics.visitors.copy_failed'));
 		}
 	}

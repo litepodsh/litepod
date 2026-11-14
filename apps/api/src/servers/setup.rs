@@ -78,6 +78,250 @@ const ROOTFUL_PODMAN_SOCKET_DROPIN: &str =
 /// the same path, so this survives reboots without touching podman's packaging.
 const ROOTFUL_PODMAN_DIR_TMPFILES: &str = "/etc/tmpfiles.d/10-litepod-podman-dir.conf";
 
+/// FreeBSD host preparation, run as root by Setup and Repair. Podman's FreeBSD port needs a few
+/// pieces the package leaves to the operator (an image dataset, fdescfs, pf NAT, the Linux ABI
+/// layer), and litepod expects Linux paths for the Podman socket and Caddy. Each subcommand is
+/// idempotent; pf is reloaded only when the file it writes changed, because a reload drops the
+/// `cni-nat` table entries of running containers.
+pub(crate) const FREEBSD_HOST_SCRIPT_PATH: &str = "/usr/local/lib/litepod/freebsd-host";
+pub(crate) const FREEBSD_HOST_SCRIPT: &str = r#"#!/bin/sh
+# Managed by litepod: server Setup and Repair rewrite this file.
+set -eu
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+marker='# managed by litepod'
+
+prepare_storage() {
+    storage=/usr/local/etc/containers/storage.conf
+    driver=$(sed -n 's/^driver *= *"\(.*\)"/\1/p' "$storage" | head -n 1)
+    [ "$driver" = zfs ] || return 0
+    if ! zfs list -H -o name / >/dev/null 2>&1; then
+        # A UFS host cannot back the zfs driver; vfs is slow but works everywhere.
+        sed -i '' -e 's/^driver *= *"zfs"/driver = "vfs"/' "$storage"
+        return 0
+    fi
+    if ! zfs list -H -o mountpoint | grep -qx /var/db/containers; then
+        pool=$(zfs list -H -o name / | cut -d/ -f1)
+        zfs create -p -o mountpoint=/var/db/containers "$pool/containers"
+    fi
+}
+
+prepare_fdescfs() {
+    grep -q '^fdesc[[:space:]]' /etc/fstab || printf 'fdesc\t/dev/fd\tfdescfs\trw\t0\t0\n' >> /etc/fstab
+    mount -p | awk '$2 == "/dev/fd" && $3 == "fdescfs" { found = 1 } END { exit !found }' \
+        || mount -t fdescfs fdesc /dev/fd
+}
+
+prepare_pf() {
+    # pfctl talks to the kernel through pf.ko; without it even `pfctl -nf` fails with "Failed to open netlink".
+    kldload -n pf
+    egress=$(route -n get default 2>/dev/null | awk '/interface:/ { print $2 }')
+    if [ -z "$egress" ]; then
+        echo "freebsd-host: no default route, so container NAT has no egress interface" >&2
+        exit 1
+    fi
+    if [ -f /etc/pf.conf ] && ! grep -Fqx -- "$marker" /etc/pf.conf; then
+        if ! grep -q 'cni-nat' /etc/pf.conf; then
+            echo "freebsd-host: /etc/pf.conf is yours and has no Podman NAT rules; add the ones in /usr/local/etc/containers/pf.conf.sample, or delete the file so Setup writes it" >&2
+            exit 1
+        fi
+    else
+        candidate=$(mktemp /etc/.pf.conf.XXXXXX)
+        cat > "$candidate" <<EOF
+$marker
+# Podman's NAT and published ports. Setup and Repair rewrite this file; remove the line above
+# to keep your own rules, which then need the anchors below.
+v4egress_if = "$egress"
+v6egress_if = "$egress"
+nat on \$v4egress_if inet from <cni-nat> to any -> (\$v4egress_if)
+nat on \$v6egress_if inet6 from <cni-nat> to !ff00::/8 -> (\$v6egress_if)
+rdr-anchor "cni-rdr/*"
+nat-anchor "cni-rdr/*"
+table <cni-nat>
+EOF
+        chmod 0600 "$candidate"
+        if [ -f /etc/pf.conf ] && cmp -s "$candidate" /etc/pf.conf; then
+            rm -f "$candidate"
+        else
+            pfctl -nf "$candidate"
+            mv "$candidate" /etc/pf.conf
+            if [ -c /dev/pf ] && pfctl -s info 2>/dev/null | grep -q 'Status: Enabled'; then
+                pfctl -f /etc/pf.conf
+            fi
+        fi
+    fi
+    sysrc -q pf_enable=YES >/dev/null
+    if ! { [ -c /dev/pf ] && pfctl -s info 2>/dev/null | grep -q 'Status: Enabled'; }; then
+        service pf start
+    fi
+}
+
+# Podman turns name resolution on only for networks created after the dnsname plugin was
+# installed. Networks from before it (litepod-network on a host set up earlier) get the plugin
+# added, so Compose services and Caddy reach containers by name; containers pick it up on restart.
+prepare_cni_dns() {
+    [ -x /usr/local/libexec/cni/dnsname ] || return 0
+    for conflist in /usr/local/etc/cni/net.d/*.conflist; do
+        [ -f "$conflist" ] || continue
+        jq -e '.plugins[] | select(.type == "dnsname")' "$conflist" >/dev/null && continue
+        staged=$(mktemp "$conflist.XXXXXX")
+        jq '.plugins += [{"type": "dnsname", "domainName": "dns.podman", "capabilities": {"aliases": true}}]' \
+            "$conflist" > "$staged" && mv "$staged" "$conflist"
+    done
+}
+
+prepare_podman() {
+    prepare_storage
+    prepare_fdescfs
+    prepare_pf
+    prepare_cni_dns
+    # Nearly every image litepod deploys is a Linux image.
+    sysrc -q linux_enable=YES >/dev/null
+    kldstat -q -n linux64 || service linux start
+    # Resource accounting backs `podman stats` (litepod's CPU and memory charts) and the CPU and
+    # memory limits; it is a boot-time tunable, so a host that lacked it needs one reboot.
+    # sysrc refuses dotted names, so the line is written directly.
+    if grep -q '^kern\.racct\.enable=' /boot/loader.conf 2>/dev/null; then
+        sed -i '' -e 's/^kern\.racct\.enable=.*/kern.racct.enable="1"/' /boot/loader.conf
+    else
+        echo 'kern.racct.enable="1"' >> /boot/loader.conf
+    fi
+    sysrc -q podman_enable=YES podman_service_enable=YES >/dev/null
+    service podman_service status >/dev/null 2>&1 || service podman_service start
+    # litepod reaches a rootful server's API at the Linux path /run/podman/podman.sock.
+    if [ ! -e /run/podman ]; then
+        install -d -m 0700 /run
+        ln -s /var/run/podman /run/podman
+    fi
+    # Podman on FreeBSD picks freebsd images by default. /usr/local/sbin comes before
+    # /usr/local/bin in root's PATH, so this pins every pull, build, run and create (litepod's
+    # own and podman-compose's) to linux, unless the command chooses a platform itself.
+    install -d -m 0755 /usr/local/sbin
+    shim=$(mktemp /usr/local/sbin/.podman.XXXXXX)
+    cat > "$shim" <<'EOF'
+#!/bin/sh
+# managed by litepod: pins image selection to linux; see /usr/local/lib/litepod/freebsd-host.
+real=/usr/local/bin/podman
+case " $* " in
+    *" --os "*|*" --os="*|*" --platform "*|*" --platform="*) exec "$real" "$@" ;;
+esac
+case "${1:-}" in
+    pull|run|create|build)
+        sub=$1
+        shift
+        exec "$real" "$sub" --os=linux "$@"
+        ;;
+    image|container)
+        case "${2:-}" in
+            pull|run|create|build)
+                group=$1
+                sub=$2
+                shift 2
+                exec "$real" "$group" "$sub" --os=linux "$@"
+                ;;
+        esac
+        ;;
+esac
+exec "$real" "$@"
+EOF
+    chmod 0755 "$shim"
+    mv "$shim" /usr/local/sbin/podman
+    prepare_healthchecks
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        [ -S /var/run/podman/podman.sock ] && return 0
+        sleep 1
+    done
+    echo "freebsd-host: podman_service started but /var/run/podman/podman.sock never appeared" >&2
+    exit 1
+}
+
+# Podman schedules healthchecks with systemd timers, which FreeBSD lacks: without this service a
+# container with a healthcheck stays "starting" forever and never passes litepod's readiness.
+prepare_healthchecks() {
+    install -d -m 0755 /usr/local/libexec/litepod
+    runner=$(mktemp /usr/local/libexec/litepod/.healthchecks.XXXXXX)
+    cat > "$runner" <<'EOF'
+#!/bin/sh
+# managed by litepod: runs each running container's healthcheck at its own interval.
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+state=/var/run/litepod-healthchecks
+mkdir -p "$state"
+while :; do
+    now=$(date +%s)
+    podman ps --filter status=running --format '{{.ID}} {{.Status}}' 2>/dev/null | while read -r id status; do
+        case "$status" in
+            *"(starting)"*|*"(healthy)"*|*"(unhealthy)"*) ;;
+            *) continue ;;
+        esac
+        interval=$(podman inspect --format '{{.Config.Healthcheck.Interval}}' "$id" 2>/dev/null)
+        case "$interval" in ''|*[!0-9]*) interval=30000000000 ;; esac
+        seconds=$((interval / 1000000000))
+        [ "$seconds" -ge 2 ] || seconds=2
+        last=$(cat "$state/$id" 2>/dev/null || echo 0)
+        [ $((now - last)) -ge "$seconds" ] || continue
+        echo "$now" > "$state/$id"
+        podman healthcheck run "$id" >/dev/null 2>&1 &
+    done
+    # Forget containers that are gone.
+    for file in "$state"/*; do
+        [ -e "$file" ] || continue
+        podman container exists "${file##*/}" 2>/dev/null || rm -f "$file"
+    done
+    sleep 2
+done
+EOF
+    chmod 0755 "$runner"
+    mv "$runner" /usr/local/libexec/litepod/healthchecks
+    cat > /usr/local/etc/rc.d/litepod_healthchecks <<'EOF'
+#!/bin/sh
+# managed by litepod
+# PROVIDE: litepod_healthchecks
+# REQUIRE: podman_service
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name=litepod_healthchecks
+rcvar=litepod_healthchecks_enable
+pidfile=/var/run/${name}.pid
+command=/usr/sbin/daemon
+command_args="-r -P ${pidfile} -t ${name} /usr/local/libexec/litepod/healthchecks"
+
+load_rc_config $name
+: ${litepod_healthchecks_enable:=NO}
+run_rc_command "$1"
+EOF
+    chmod 0755 /usr/local/etc/rc.d/litepod_healthchecks
+    sysrc -q litepod_healthchecks_enable=YES >/dev/null
+    # Restarted so a rewritten runner takes effect.
+    service litepod_healthchecks restart >/dev/null 2>&1 || service litepod_healthchecks start
+}
+
+prepare_caddy() {
+    # serverctl uses the Linux layout: /etc/caddy and a caddy user for the log and certificates.
+    pw groupshow caddy >/dev/null 2>&1 || pw groupadd caddy
+    pw usershow caddy >/dev/null 2>&1 \
+        || pw useradd caddy -g caddy -d /nonexistent -s /usr/sbin/nologin -c "Caddy web server"
+    [ -e /etc/caddy ] || ln -s /usr/local/etc/caddy /etc/caddy
+    install -d -m 0755 /var/log/caddy
+    sysrc -q caddy_enable=YES >/dev/null
+    service caddy status >/dev/null 2>&1 || service caddy start
+    # Caddy dials containers by IP here (pf cannot hairpin a published port back to the host),
+    # and a restarted container can come back with another one.
+    install -d -m 0755 /usr/local/etc/cron.d
+    cat > /usr/local/etc/cron.d/litepod-caddy-upstreams <<'EOF'
+# managed by litepod: re-points Caddy routes at containers whose address changed.
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+* * * * * root /usr/local/lib/litepod/serverctl refresh-upstreams >/dev/null 2>&1
+EOF
+}
+
+case "${1:-}" in
+    podman) prepare_podman ;;
+    caddy) prepare_caddy ;;
+    *) exit 64 ;;
+esac
+"#;
+
 pub(crate) fn target(server: &ServerRecord) -> Result<SshTarget, AppError> {
     SshTarget::parse(
         server
@@ -109,7 +353,7 @@ pub(crate) fn credentials(server: &ServerRecord) -> Result<(&str, &str, Option<&
 pub(crate) const CADDY_HELPER: &str = r#"#!/bin/sh
 set -eu
 
-helper_version=3
+helper_version=5
 
 routes=/etc/litepod/caddy/routes.d
 caddyfile=/etc/caddy/Caddyfile
@@ -119,6 +363,60 @@ marker='# litepod managed routes'
 access_log=/var/log/caddy/litepod-access.log
 log_block='\tlog {\n\t\toutput file /var/log/caddy/litepod-access.log {\n\t\t\troll_size 10MiB\n\t\t\troll_keep 2\n\t\t}\n\t\tformat json\n\t}\n'
 
+# Remembered on FreeBSD, where a route dials a container address that can change.
+last_manifest=/etc/litepod/caddy/routes.manifest
+
+# systemd hosts reload through systemctl, OpenRC hosts (Alpine) through rc-service, and
+# FreeBSD through rc.d's service.
+reload_caddy() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl reload caddy
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-service caddy reload
+    else
+        service caddy reload
+    fi
+}
+
+caddy_running() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active --quiet caddy
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-service caddy status >/dev/null 2>&1
+    else
+        service caddy status >/dev/null 2>&1
+    fi
+}
+
+is_freebsd() {
+    [ "$(uname -s)" = FreeBSD ]
+}
+
+# Where Caddy dials an app published on 127.0.0.1:<port>. On FreeBSD, pf cannot send a
+# connection from the host itself through a published port, so Caddy dials the container that
+# publishes it directly; elsewhere the loopback port is the upstream.
+upstream_for() {
+    up_port=$1
+    if is_freebsd; then
+        up_target=$(podman ps --format '{{.ID}} {{.Ports}}' 2>/dev/null | while read -r up_id up_ports; do
+            up_cport=$(printf '%s\n' "$up_ports" | tr ',' '\n' \
+                | sed -n "s|^ *127\\.0\\.0\\.1:$up_port->\\([0-9][0-9]*\\)/tcp.*|\\1|p" | head -n 1)
+            [ -n "$up_cport" ] || continue
+            up_ip=$(podman inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$up_id" 2>/dev/null \
+                | awk '{ print $1 }')
+            if [ -n "$up_ip" ]; then
+                printf '%s:%s\n' "$up_ip" "$up_cport"
+                break
+            fi
+        done)
+        if [ -n "$up_target" ]; then
+            printf '%s' "$up_target"
+            return 0
+        fi
+    fi
+    printf '127.0.0.1:%s' "$up_port"
+}
+
 valid_id() {
     case "$1" in
         ''|*[!0-9a-f-]*) return 1 ;;
@@ -127,12 +425,12 @@ valid_id() {
 }
 
 prepare() {
-    install -d -o root -g root -m 0755 "$routes"
+    install -d -o 0 -g 0 -m 0755 "$routes"
     if ! grep -Fqx -- "$marker" "$caddyfile"; then
         printf '\n%s\nimport /etc/litepod/caddy/routes.d/*.caddy\n' "$marker" >> "$caddyfile"
     fi
     caddy validate --config "$caddyfile" --adapter caddyfile
-    systemctl reload caddy
+    reload_caddy
 }
 
 install_route() {
@@ -158,20 +456,20 @@ install_route() {
             exit 65
         fi
     done
-    install -d -o root -g root -m 0755 "$routes"
+    install -d -o 0 -g 0 -m 0755 "$routes"
     backup=$(mktemp "$routes/.${route_id}.XXXXXX")
     had_target=0
     if [ -f "$target" ]; then
-        cp --preserve=mode "$target" "$backup"
+        cp -p "$target" "$backup"
         had_target=1
     fi
-    install -o root -g root -m 0644 "$source_path" "$target"
-    if caddy validate --config "$caddyfile" --adapter caddyfile && systemctl reload caddy; then
+    install -o 0 -g 0 -m 0644 "$source_path" "$target"
+    if caddy validate --config "$caddyfile" --adapter caddyfile && reload_caddy; then
         rm -f "$backup"
         return 0
     fi
     if [ "$had_target" -eq 1 ]; then
-        install -o root -g root -m 0644 "$backup" "$target"
+        install -o 0 -g 0 -m 0644 "$backup" "$target"
     else
         rm -f "$target"
     fi
@@ -189,7 +487,7 @@ remove_route() {
     # fragment is already broken, and that orphan then collides with any domain
     # that later reuses the same host ("more than one automation policy").
     rm -f "$target"
-    if ! { caddy validate --config "$caddyfile" --adapter caddyfile && systemctl reload caddy; }; then
+    if ! { caddy validate --config "$caddyfile" --adapter caddyfile && reload_caddy; }; then
         echo "remove-route: $route_id deleted but Caddy config still invalid (pre-existing); leaving reload to the next change" >&2
     fi
     return 0
@@ -216,6 +514,26 @@ sync_routes() {
         *) exit 64 ;;
     esac
     [ -f "$manifest" ] || exit 64
+    apply_manifest "$manifest" always
+    if is_freebsd; then
+        install -d -o 0 -g 0 -m 0700 "${last_manifest%/*}"
+        install -o 0 -g 0 -m 0600 "$manifest" "$last_manifest"
+    fi
+}
+
+# FreeBSD only, from cron: re-render the last synced manifest and apply it only when a
+# container's address moved.
+refresh_upstreams() {
+    is_freebsd || return 0
+    [ -f "$last_manifest" ] || return 0
+    apply_manifest "$last_manifest" if-changed
+}
+
+# Renders every fragment of <manifest> and swaps routes.d to exactly that set. With
+# `if-changed`, an identical rendering leaves Caddy alone.
+apply_manifest() {
+    manifest=$1
+    when=$2
 
     lock="${routes%/*}/.litepod-routes.lock"
     staging=$(mktemp -d)
@@ -287,7 +605,7 @@ sync_routes() {
                 printf '\trespond <<LITEPOD_MAINTENANCE_EOF\n%s\nLITEPOD_MAINTENANCE_EOF 503\n}\n' "$maint_html"
             else
                 if [ -n "$auth_block" ]; then printf '%s\n' "$auth_block"; fi
-                printf '\treverse_proxy 127.0.0.1:%s\n' "$port"
+                printf '\treverse_proxy %s\n' "$(upstream_for "$port")"
                 if [ -n "$error_html" ]; then
                     printf '\thandle_errors {\n\t\t@litepod_down expression `{http.error.status_code} in [502, 503, 504]`\n\t\thandle @litepod_down {\n'
                     printf '\t\t\theader Cache-Control no-store\n\t\t\theader Retry-After 10\n\t\t\theader X-Robots-Tag noindex\n'
@@ -308,6 +626,9 @@ sync_routes() {
     fi
 
     mkdir -p "$routes"
+    if [ "$when" = if-changed ] && diff -rq -x '.*' "$staging" "$routes" >/dev/null 2>&1; then
+        return 0
+    fi
     # Created up front and owned by caddy: `caddy validate` runs as root and would
     # otherwise create the log root-owned, which the caddy service could not open.
     if [ -n "$log_block" ] && [ ! -e "$access_log" ]; then
@@ -315,10 +636,22 @@ sync_routes() {
         install -o caddy -g caddy -m 0640 /dev/null "$access_log" 2>/dev/null || true
     fi
     (
-        # flock is util-linux (present on every supported server distro);
-        # skipped on dev machines without it, where tests never run concurrent
-        # syncs against one routes.d anyway.
-        if command -v flock >/dev/null 2>&1; then flock 9; fi
+        # flock is util-linux (present on every supported Linux distro).
+        # FreeBSD has none, and its cron refresh can race a sync, so it takes a
+        # directory lock instead. Skipped on dev machines without either, where
+        # tests never run concurrent syncs against one routes.d anyway.
+        if command -v flock >/dev/null 2>&1; then
+            flock 9
+        elif is_freebsd; then
+            lock_dir="$lock.d"
+            tries=0
+            until mkdir "$lock_dir" 2>/dev/null; do
+                tries=$((tries + 1))
+                [ "$tries" -lt 60 ] || { echo "sync-routes: $lock_dir is held; remove it if no sync is running" >&2; exit 1; }
+                sleep 1
+            done
+            trap 'rmdir "$lock_dir" 2>/dev/null' EXIT
+        fi
         for f in "$routes"/*.caddy; do
             [ -e "$f" ] || continue
             cp -p "$f" "$prior/"
@@ -329,7 +662,7 @@ sync_routes() {
             cp "$f" "$routes/$(basename "$f")"
             chmod 0644 "$routes/$(basename "$f")"
         done
-        if caddy validate --config "$caddyfile" --adapter caddyfile && systemctl reload caddy; then
+        if caddy validate --config "$caddyfile" --adapter caddyfile && reload_caddy; then
             :
         else
             rm -f "$routes"/*.caddy
@@ -338,7 +671,7 @@ sync_routes() {
                 cp "$f" "$routes/$(basename "$f")"
                 chmod 0644 "$routes/$(basename "$f")"
             done
-            systemctl reload caddy 2>/dev/null || true
+            reload_caddy 2>/dev/null || true
             echo "sync-routes: candidate config could not be applied; reverted" >&2
             exit 1
         fi
@@ -386,13 +719,14 @@ case "${1:-}" in
     list-routes) [ "$#" -eq 1 ] || exit 64; list_routes ;;
     sync-routes) [ "$#" -eq 2 ] || exit 64; sync_routes "$2" ;;
     sync-routes-check) exit 0 ;;
+    refresh-upstreams) [ "$#" -eq 1 ] || exit 64; refresh_upstreams ;;
     certificates-check) exit 0 ;;
     basic-auth-check) exit 0 ;;
     maintenance-check) exit 0 ;;
     error-page-check) exit 0 ;;
     version) [ "$#" -eq 1 ] || exit 64; echo "$helper_version" ;;
     install-certificate) [ "$#" -eq 3 ] || exit 64; install_certificate "$2" "$3" ;;
-    health) caddy validate --config "$caddyfile" --adapter caddyfile; systemctl is-active --quiet caddy ;;
+    health) caddy validate --config "$caddyfile" --adapter caddyfile; caddy_running ;;
     *) exit 64 ;;
 esac
 "#;
@@ -464,22 +798,21 @@ pub(crate) async fn install_root_file(
         &staging_path,
     )
     .await?;
-    let mut install = PodmanMode::privilege_prefix(server.ssh_user.as_deref().unwrap_or_default())
-        .iter()
-        .map(OsString::from)
-        .collect::<Vec<_>>();
-    install.extend([
-        OsString::from("install"),
-        OsString::from("-D"),
-        OsString::from("-o"),
-        OsString::from("root"),
-        OsString::from("-g"),
-        OsString::from("root"),
-        OsString::from("-m"),
-        OsString::from(mode),
-        OsString::from(&staging_path),
-        OsString::from(destination),
-    ]);
+    let prefix = PodmanMode::privilege_prefix(server.ssh_user.as_deref().unwrap_or_default());
+    // Portable across GNU and BSD `install`: FreeBSD's `-D` takes a DESTDIR instead of creating
+    // parents, and FreeBSD has no `root` group, so the parent is made separately and the
+    // owner is given numerically.
+    let parent = std::path::Path::new(destination)
+        .parent()
+        .and_then(|parent| parent.to_str())
+        .filter(|parent| !parent.is_empty())
+        .ok_or_else(|| AppError::InternalError("Root file destination has no parent".into()))?;
+    let mkdir = maintenance_command(prefix, &["mkdir", "-p", parent]);
+    SshExecutor::run(&target, key, fingerprint, known_hosts, &mkdir).await?;
+    let install = maintenance_command(
+        prefix,
+        &["install", "-o", "0", "-g", "0", "-m", mode, &staging_path, destination],
+    );
     SshExecutor::run(&target, key, fingerprint, known_hosts, &install).await?;
     Ok(())
 }
@@ -546,7 +879,27 @@ fn fail2ban_sshd_conf(port: u16) -> String {
     )
 }
 
+/// The distribution family of the remote host, or `None` when it cannot be read or is unknown.
+async fn host_family(server: &ServerRecord) -> Option<DistroFamily> {
+    let os_release = command(server, &["cat", "/etc/os-release"]).await.ok()?;
+    DistroFamily::detect(&os_release)
+}
+
 pub(crate) async fn configure_fail2ban(server: &ServerRecord) -> Result<(), AppError> {
+    // The sshd jail reads the systemd journal and the service is enabled with systemctl.
+    match host_family(server).await {
+        Some(DistroFamily::Alpine) => {
+            return Err(AppError::ValidationError(
+                "Fail2ban is not set up on Alpine Linux servers".into(),
+            ));
+        }
+        Some(DistroFamily::FreeBsd) => {
+            return Err(AppError::ValidationError(
+                "Fail2ban is not set up on FreeBSD servers".into(),
+            ));
+        }
+        _ => {}
+    }
     let port = server
         .ssh_port
         .ok_or_else(|| AppError::InternalError("Remote server has no SSH port".into()))?;
@@ -584,11 +937,73 @@ pub(crate) async fn configure_fail2ban(server: &ServerRecord) -> Result<(), AppE
 /// Rootful Podman's system socket is normally owned by root. Terminal sessions
 /// are tunneled by the SSH user, so make that socket private to the already
 /// authorized user rather than falling back to a host-local Podman client.
+/// OpenRC's `local` service runs this at boot, and `restart_podman` runs it after a restart:
+/// Podman's init script recreates the socket as `root:root` each time it starts.
+const ALPINE_PODMAN_SOCKET_SCRIPT: &str = "/etc/local.d/litepod-podman-socket.start";
+
+fn alpine_podman_socket_script(ssh_user: &str) -> String {
+    format!(
+        "#!/bin/sh\n# managed by litepod\nfor _ in 1 2 3 4 5 6 7 8 9 10; do\n    [ -S /run/podman/podman.sock ] && break\n    sleep 1\ndone\nchmod 0711 /run/podman\nchown {ssh_user} /run/podman/podman.sock\nchmod 0600 /run/podman/podman.sock\n"
+    )
+}
+
+/// Alpine has no systemd socket drop-in, so the socket is handed to the SSH user by a
+/// script instead. Root already owns the socket, so nothing is needed for it.
+async fn configure_alpine_terminal_socket(
+    server: &ServerRecord,
+    ssh_user: &str,
+) -> Result<(), AppError> {
+    if ssh_user == "root" {
+        return Ok(());
+    }
+    if !ssh_user
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    {
+        return Err(AppError::ValidationError(
+            "The SSH user name contains characters that cannot be used on Alpine Linux".into(),
+        ));
+    }
+    install_root_file(
+        server,
+        &alpine_podman_socket_script(ssh_user),
+        "podman-socket.start",
+        ALPINE_PODMAN_SOCKET_SCRIPT,
+        "0755",
+    )
+    .await?;
+    let target = target(server)?;
+    let (key, fingerprint, known_hosts) = credentials(server)?;
+    let prefix = PodmanMode::privilege_prefix(ssh_user);
+    for args in [
+        &["rc-update", "add", "local", "default"][..],
+        &[ALPINE_PODMAN_SOCKET_SCRIPT][..],
+    ] {
+        SshExecutor::run(
+            &target,
+            key,
+            fingerprint,
+            known_hosts,
+            &maintenance_command(prefix, args),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 async fn configure_rootful_terminal_socket(server: &ServerRecord) -> Result<(), AppError> {
     let ssh_user = server
         .ssh_user
         .as_deref()
         .ok_or_else(|| AppError::InternalError("Remote server has no SSH user".into()))?;
+    match host_family(server).await {
+        Some(DistroFamily::Alpine) => {
+            return configure_alpine_terminal_socket(server, ssh_user).await;
+        }
+        // Setup only accepts `root` on FreeBSD, which already owns the socket.
+        Some(DistroFamily::FreeBsd) => return Ok(()),
+        _ => {}
+    }
     install_root_file(
         server,
         &format!("[Socket]\nSocketUser={ssh_user}\nSocketMode=0600\n"),
@@ -644,12 +1059,21 @@ async fn configure_rootful_terminal_socket(server: &ServerRecord) -> Result<(), 
 
 /// Runs `podman` the way this server is configured: as the SSH user for rootless, through
 /// passwordless sudo for rootful.
-async fn podman_command(server: &ServerRecord, args: &[&str]) -> Result<String, AppError> {
+pub(crate) async fn podman_command(
+    server: &ServerRecord,
+    args: &[&str],
+) -> Result<String, AppError> {
     let ssh_user = server.ssh_user.as_deref().unwrap_or_default();
     let mut full = server.podman_mode.podman_prefix(ssh_user).to_vec();
     full.push("podman");
     full.extend_from_slice(args);
     command(server, &full).await
+}
+
+/// Whether the last facts Setup or a health check recorded say the host runs FreeBSD.
+pub(crate) fn is_freebsd(server: &ServerRecord) -> bool {
+    serde_json::from_str::<ServerFacts>(&server.facts_json)
+        .is_ok_and(|facts| facts.os.as_deref() == Some("freebsd"))
 }
 
 pub fn classify_os(os_release: &str) -> ServerState {
@@ -730,7 +1154,14 @@ async fn collect_facts(server: &ServerRecord) -> Result<(ServerFacts, ServerStat
         .and_then(|value| memory_bytes(&value))
     {
         Some(bytes) => Some(bytes),
-        None => meminfo.as_deref().and_then(meminfo_total_bytes),
+        None => match meminfo.as_deref().and_then(meminfo_total_bytes) {
+            Some(bytes) => Some(bytes),
+            // FreeBSD has neither `free` nor /proc/meminfo.
+            None => command(server, &["sysctl", "-n", "hw.physmem"])
+                .await
+                .ok()
+                .and_then(|value| value.trim().parse().ok()),
+        },
     };
     let swap = meminfo.as_deref().and_then(swap_total_bytes);
     let cpu_cores = command(server, &["nproc"])
@@ -1014,14 +1445,13 @@ pub async fn update_packages(server: &ServerRecord) -> Result<MaintenanceOutcome
 pub async fn restart_server(server: &ServerRecord) -> Result<MaintenanceOutcome, AppError> {
     let started = std::time::Instant::now();
     let sudo = PodmanMode::privilege_prefix(server.ssh_user.as_deref().unwrap_or_default());
-    let run = run_maintenance_command(
-        server,
-        maintenance_command(
-            sudo,
-            &["shutdown", "-r", "now", "litepod-maintenance-restart"],
-        ),
-    )
-    .await?;
+    // Alpine's busybox has no `shutdown` applet.
+    let restart: &[&str] = if host_family(server).await == Some(DistroFamily::Alpine) {
+        &["reboot"]
+    } else {
+        &["shutdown", "-r", "now", "litepod-maintenance-restart"]
+    };
+    let run = run_maintenance_command(server, maintenance_command(sudo, restart)).await?;
     Ok(maintenance_outcome("restart_server", started, run))
 }
 
@@ -1090,19 +1520,25 @@ pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, A
     )
     .await?;
     append_output(&mut stderr, &workspaces.stderr);
-    let journal = run_maintenance_command(
-        server,
-        maintenance_command(
-            PodmanMode::privilege_prefix(ssh_user),
-            &["journalctl", "--vacuum-size=200M"],
-        ),
-    )
-    .await;
-    if !matches!(&journal, Ok(run) if run.exit_code == 0) {
-        append_output(
-            &mut stderr,
-            "Journal logs were not cleaned. On the local server, rerun the installer to allow it.",
-        );
+    // Hosts without systemd (Alpine) have no journal to clean.
+    if command(server, &["sh", "-c", "command -v journalctl"])
+        .await
+        .is_ok()
+    {
+        let journal = run_maintenance_command(
+            server,
+            maintenance_command(
+                PodmanMode::privilege_prefix(ssh_user),
+                &["journalctl", "--vacuum-size=200M"],
+            ),
+        )
+        .await;
+        if !matches!(&journal, Ok(run) if run.exit_code == 0) {
+            append_output(
+                &mut stderr,
+                "Journal logs were not cleaned. On the local server, rerun the installer to allow it.",
+            );
+        }
     }
 
     Ok(MaintenanceOutcome {
@@ -1117,6 +1553,38 @@ pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, A
 pub async fn restart_podman(server: &ServerRecord) -> Result<MaintenanceOutcome, AppError> {
     let started = std::time::Instant::now();
     let ssh_user = server.ssh_user.as_deref().unwrap_or_default();
+    let family = host_family(server).await;
+    if server.podman_mode == PodmanMode::Rootful && family == Some(DistroFamily::FreeBsd) {
+        let run = run_maintenance_command(
+            server,
+            maintenance_command(
+                PodmanMode::privilege_prefix(ssh_user),
+                &["service", "podman_service", "restart"],
+            ),
+        )
+        .await?;
+        return Ok(maintenance_outcome("restart_podman", started, run));
+    }
+    if server.podman_mode == PodmanMode::Rootful && family == Some(DistroFamily::Alpine) {
+        let prefix = PodmanMode::privilege_prefix(ssh_user);
+        let mut run = run_maintenance_command(
+            server,
+            maintenance_command(prefix, &["rc-service", "podman", "restart"]),
+        )
+        .await?;
+        // The restart recreates the socket as root, so hand it back to the SSH user.
+        if run.exit_code == 0 && ssh_user != "root" {
+            let socket = run_maintenance_command(
+                server,
+                maintenance_command(prefix, &[ALPINE_PODMAN_SOCKET_SCRIPT]),
+            )
+            .await?;
+            if socket.exit_code != 0 {
+                run = socket;
+            }
+        }
+        return Ok(maintenance_outcome("restart_podman", started, run));
+    }
     let command = match server.podman_mode {
         PodmanMode::Rootless => {
             maintenance_command(&["systemctl", "--user"], &["restart", "podman.socket"])
@@ -1186,6 +1654,9 @@ const SWAP_ADVICE_MAX_MEMORY: u64 = 16 * 1024 * 1024 * 1024;
 /// Advisory only: swap costs disk and is the operator's call, so Setup and Repair explain it in
 /// the job log and the UI asks before running `create_swap`.
 const SWAP_ADVICE: &str = "This server has 16 GiB of RAM or less and no swap. When memory runs out, the kernel kills a process (often a build or a database) instead of slowing down. litepod can create a 4 GiB swap file for you from this server's card, or run on the server: sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab";
+
+/// Advisory, like the swap note: Setup turned the tunable on, and only a reboot applies it.
+const FREEBSD_RACCT_ADVICE: &str = "Resource accounting (kern.racct.enable) takes effect after a reboot. Until then CPU and memory charts stay empty and CPU and memory limits are not applied. Restart the server from its card, or run on the server: shutdown -r now";
 
 pub fn swap_recommended(facts: &ServerFacts) -> bool {
     facts.swap_bytes == Some(0)
@@ -1279,6 +1750,20 @@ pub fn setup_plan(
             ]),
         ));
     } else {
+        if family == DistroFamily::Alpine {
+            // Podman and Caddy live in the community repository, which setup-alpine leaves
+            // commented out. A no-op when it is already enabled.
+            steps.push(quick(
+                "enable-alpine-community-repository",
+                escalated(&[
+                    "sed",
+                    "-i",
+                    "-E",
+                    "s|^#[[:space:]]*(https?://.*/community)$|\\1|",
+                    "/etc/apk/repositories",
+                ]),
+            ));
+        }
         steps.push(packaged(
             "refresh-package-index",
             escalated(family.refresh_argv()),
@@ -1295,7 +1780,10 @@ pub fn setup_plan(
         LogicalPackage::Which,
         LogicalPackage::Fail2ban,
     ]);
-    steps.push(packaged("install-base-packages", install(&base_packages)));
+    // `pkg install -y` with nothing to install is a usage error, and FreeBSD needs none of these.
+    if !base_packages.is_empty() {
+        steps.push(packaged("install-base-packages", install(&base_packages)));
+    }
 
     if family == DistroFamily::Debian {
         steps.push(packaged(
@@ -1332,13 +1820,45 @@ pub fn setup_plan(
             ));
         }
         PodmanMode::Rootful => {
-            let packages =
-                family.resolve_packages(&[LogicalPackage::Podman, LogicalPackage::PodmanCompose]);
+            let packages = family.resolve_packages(&[
+                LogicalPackage::Podman,
+                LogicalPackage::PodmanCompose,
+                LogicalPackage::PodmanOpenrc,
+                LogicalPackage::OciRuntime,
+                LogicalPackage::Iptables,
+            ]);
             steps.push(packaged("install-rootful-podman", install(&packages)));
-            steps.push(quick(
-                "enable-rootful-podman",
-                escalated(&["systemctl", "enable", "--now", "podman.socket"]),
-            ));
+            if family == DistroFamily::FreeBsd {
+                steps.push(quick(
+                    "enable-rootful-podman",
+                    escalated(&[FREEBSD_HOST_SCRIPT_PATH, "podman"]),
+                ));
+            } else if family == DistroFamily::Alpine {
+                // OpenRC: Podman's init script needs the cgroups boot service, answers on
+                // /run/podman/podman.sock and restarts always/unless-stopped containers when
+                // it starts. Registering an already registered service is a no-op.
+                steps.push(quick(
+                    "register-cgroups-service",
+                    escalated(&["rc-update", "add", "cgroups", "boot"]),
+                ));
+                steps.push(quick(
+                    "start-cgroups-service",
+                    escalated(&["rc-service", "cgroups", "start"]),
+                ));
+                steps.push(quick(
+                    "register-podman-service",
+                    escalated(&["rc-update", "add", "podman", "default"]),
+                ));
+                steps.push(quick(
+                    "enable-rootful-podman",
+                    escalated(&["rc-service", "podman", "start"]),
+                ));
+            } else {
+                steps.push(quick(
+                    "enable-rootful-podman",
+                    escalated(&["systemctl", "enable", "--now", "podman.socket"]),
+                ));
+            }
         }
     }
     // Podman's `pasta` network backend needs /dev/net/tun to set up a container's
@@ -1350,10 +1870,13 @@ pub fn setup_plan(
     // container has no /lib/modules for the shared host kernel — yet everything except
     // pasta-networked builds (e.g. remote Railpack) still works fine there, so this
     // can't be allowed to block the rest of Setup/Repair.
-    steps.push(tolerated(
-        "enable-tun-module",
-        escalated(&["modprobe", "tun"]),
-    ));
+    // FreeBSD has no pasta and no modprobe; CNI sets up the jails' networking.
+    if family != DistroFamily::FreeBsd {
+        steps.push(tolerated(
+            "enable-tun-module",
+            escalated(&["modprobe", "tun"]),
+        ));
+    }
     // `podman compose` is only a dispatcher. Installing Podman without its
     // provider lets preflight pass but makes the first Compose deploy fail
     // with "looking up compose provider failed". Verify it in the same user
@@ -1394,10 +1917,26 @@ pub fn setup_plan(
     ));
     if matches!(ingress, IngressMode::PublicEdge) {
         steps.extend(distro::caddy_install_steps(family, &escalated));
-        steps.push(quick(
-            "enable-native-caddy",
-            escalated(&["systemctl", "enable", "--now", "caddy"]),
-        ));
+        if family == DistroFamily::FreeBsd {
+            steps.push(quick(
+                "enable-native-caddy",
+                escalated(&[FREEBSD_HOST_SCRIPT_PATH, "caddy"]),
+            ));
+        } else if family == DistroFamily::Alpine {
+            steps.push(quick(
+                "register-native-caddy",
+                escalated(&["rc-update", "add", "caddy", "default"]),
+            ));
+            steps.push(quick(
+                "enable-native-caddy",
+                escalated(&["rc-service", "caddy", "start"]),
+            ));
+        } else {
+            steps.push(quick(
+                "enable-native-caddy",
+                escalated(&["systemctl", "enable", "--now", "caddy"]),
+            ));
+        }
     }
     steps
 }
@@ -1416,6 +1955,9 @@ fn repair_hint(family: DistroFamily, step: &str) -> &'static str {
         }
         (DistroFamily::Arch, "install-base-packages") => {
             "; the package database is broken beyond automatic repair — on the server run `pacman -Sy && pacman -S --noconfirm --needed base-devel` and re-run Repair"
+        }
+        (DistroFamily::Alpine, "install-base-packages") => {
+            "; the package database is broken beyond automatic repair — on the server run `apk fix && apk update && apk add build-base which` and re-run Repair"
         }
         (_, "enable-tun-module") => {
             "; the host kernel would not load the `tun` module — confirm it's built for this kernel (`modinfo tun`) and that /dev/net/tun is exposed to this VM/container, then re-run Repair"
@@ -1455,9 +1997,45 @@ where
     let os_release = command(server, &["cat", "/etc/os-release"]).await?;
     let family = distro::DistroFamily::detect(&os_release).ok_or_else(|| {
         AppError::ValidationError(
-            "Only Debian/Ubuntu, Fedora, and Arch-based servers are supported".into(),
+            "Only Debian/Ubuntu, Fedora, Arch, Alpine, and FreeBSD servers are supported".into(),
         )
     })?;
+    if family == DistroFamily::Alpine && server.podman_mode == PodmanMode::Rootless {
+        return Err(AppError::ValidationError(
+            "Alpine Linux supports rootful Podman only (it has no systemd user services). Switch this server to rootful.".into(),
+        ));
+    }
+    if family == DistroFamily::FreeBsd {
+        if server.podman_mode == PodmanMode::Rootless {
+            return Err(AppError::ValidationError(
+                "FreeBSD supports rootful Podman only. Switch this server to rootful.".into(),
+            ));
+        }
+        if ssh_user != "root" {
+            return Err(AppError::ValidationError(
+                "On FreeBSD, connect the server as root: the base system has no sudo, and the Podman socket belongs to root.".into(),
+            ));
+        }
+        on_step(
+            "install-freebsd-host-script",
+            "Running install-freebsd-host-script".to_string(),
+        )
+        .await?;
+        install_root_file(
+            server,
+            FREEBSD_HOST_SCRIPT,
+            "freebsd-host",
+            FREEBSD_HOST_SCRIPT_PATH,
+            "0755",
+        )
+        .await
+        .map_err(|error| match error {
+            AppError::ValidationError(message) => {
+                AppError::ValidationError(format!("Step install-freebsd-host-script: {message}"))
+            }
+            other => other,
+        })?;
+    }
     for step in setup_plan(family, server.ingress_mode, server.podman_mode, ssh_user) {
         on_step(step.name, format!("Running {}", step.name)).await?;
         let outcome = SshExecutor::run_with_timeout(
@@ -1504,19 +2082,21 @@ where
             }
             other => other,
         })?;
-    on_step(
-        "configure-fail2ban",
-        "Running configure-fail2ban".to_string(),
-    )
-    .await?;
-    configure_fail2ban(server)
-        .await
-        .map_err(|error| match error {
-            AppError::ValidationError(message) => {
-                AppError::ValidationError(format!("Step configure-fail2ban: {message}"))
-            }
-            other => other,
-        })?;
+    if !matches!(family, DistroFamily::Alpine | DistroFamily::FreeBsd) {
+        on_step(
+            "configure-fail2ban",
+            "Running configure-fail2ban".to_string(),
+        )
+        .await?;
+        configure_fail2ban(server)
+            .await
+            .map_err(|error| match error {
+                AppError::ValidationError(message) => {
+                    AppError::ValidationError(format!("Step configure-fail2ban: {message}"))
+                }
+                other => other,
+            })?;
+    }
     if server.podman_mode == PodmanMode::Rootless {
         on_step(
             "configure-rootless-network",
@@ -1562,10 +2142,17 @@ where
                 other => other,
             })?;
     }
+    if family == DistroFamily::FreeBsd
+        && command(server, &["sysctl", "-n", "kern.racct.enable"])
+            .await
+            .is_ok_and(|value| value.trim() == "0")
+    {
+        on_step("check-resource-accounting", FREEBSD_RACCT_ADVICE.to_string()).await?;
+    }
     let (facts, state) = preflight(server).await?;
     if state == ServerState::Unsupported {
         return Err(AppError::ValidationError(
-            "Only Debian/Ubuntu, Fedora, and Arch-based servers are supported".into(),
+            "Only Debian/Ubuntu, Fedora, Arch, Alpine, and FreeBSD servers are supported".into(),
         ));
     }
     if swap_recommended(&facts) {
@@ -1578,8 +2165,8 @@ where
 mod tests {
     use super::{
         CADDY_HELPER, DEFAULT_REGISTRY_CONF, DEFAULT_REGISTRY_PATH, FAIL2BAN_SSHD_PATH,
-        ROOTFUL_PODMAN_SOCKET_DROPIN, classify_os, fail2ban_sshd_conf, meminfo_total_bytes,
-        memory_bytes, setup_plan,
+        ROOTFUL_PODMAN_SOCKET_DROPIN, alpine_podman_socket_script, classify_os, fail2ban_sshd_conf,
+        meminfo_total_bytes, memory_bytes, setup_plan,
     };
     use crate::servers::{
         distro::DistroFamily,
@@ -2545,6 +3132,64 @@ mod tests {
         assert!(caddy.command.iter().any(|part| part == "pacman"));
         assert!(caddy.command.iter().any(|part| part == "caddy"));
         assert!(plan.iter().any(|step| step.name == "enable-native-caddy"));
+    }
+
+    #[test]
+    fn alpine_rootful_plan_uses_apk_and_openrc_without_systemd() {
+        let plan = setup_plan(
+            DistroFamily::Alpine,
+            IngressMode::PublicEdge,
+            PodmanMode::Rootful,
+            "root",
+        );
+        let names: Vec<_> = plan.iter().map(|step| step.name).collect();
+        assert_eq!(
+            &names[..4],
+            [
+                "verify-privileges",
+                "enable-alpine-community-repository",
+                "refresh-package-index",
+                "install-base-packages"
+            ]
+        );
+        let podman = plan
+            .iter()
+            .find(|step| step.name == "install-rootful-podman")
+            .unwrap();
+        for package in ["apk", "add", "podman", "podman-openrc", "crun", "iptables"] {
+            assert!(podman.command.iter().any(|part| part == package));
+        }
+        for name in [
+            "register-cgroups-service",
+            "start-cgroups-service",
+            "register-podman-service",
+            "enable-rootful-podman",
+            "create-caddy-log-directory",
+            "register-native-caddy",
+            "enable-native-caddy",
+        ] {
+            assert!(names.contains(&name), "{name} missing from the Alpine plan");
+        }
+        assert!(
+            !plan
+                .iter()
+                .any(|step| step.command.iter().any(|part| part == "systemctl")),
+            "an OpenRC host has no systemctl"
+        );
+        let base = plan
+            .iter()
+            .find(|step| step.name == "install-base-packages")
+            .unwrap();
+        assert!(base.command.iter().any(|part| part == "build-base"));
+        assert!(!base.command.iter().any(|part| part == "fail2ban"));
+    }
+
+    #[test]
+    fn alpine_terminal_socket_script_hands_the_socket_to_the_ssh_user() {
+        let script = alpine_podman_socket_script("deploy");
+        assert!(script.starts_with("#!/bin/sh\n"));
+        assert!(script.contains("chown deploy /run/podman/podman.sock"));
+        assert!(script.contains("chmod 0600 /run/podman/podman.sock"));
     }
 
     /// Live end-to-end coverage of `run_setup()` over real SSH per distro family, following the

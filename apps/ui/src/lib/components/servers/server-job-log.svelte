@@ -88,7 +88,10 @@
 	<pre
 		bind:this={logElement}
 		class="max-h-64 min-h-32 overflow-auto rounded-md border bg-muted/50 p-3 font-mono text-xs whitespace-pre-wrap">{job?.log?.trim() ||
-			t('organizations.servers.setup_waiting')}</pre>
+			t('organizations.servers.setup_waiting')}{#if job?.status === 'succeeded'}
+<span class="inline-flex items-center gap-1.5 font-medium text-success"
+				><CheckIcon class="size-3.5" />{t('organizations.servers.setup_finished')}</span
+			>{/if}</pre>
 
 	{#if job?.error}
 		<p

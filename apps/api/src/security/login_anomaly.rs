@@ -168,12 +168,12 @@ async fn cached_location(
     ip: &str,
 ) -> Result<Option<Location>, sqlx::Error> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT country, city, latitude, longitude, asn FROM security_events
          WHERE source_ip = ?1 AND id != ?2 AND latitude IS NOT NULL
            AND created_at > datetime('now', '{GEO_CACHE}')
          ORDER BY id DESC LIMIT 1"
-    ))
+    )))
     .bind(ip)
     .bind(event_id)
     .fetch_optional(&conn)
@@ -199,12 +199,12 @@ async fn sign_in_flag(
     let conn = crate::git::repositories::db::get_conn(state).await;
     let sign_ins = SIGN_INS.map(|action| format!("'{action}'")).join(", ");
     // UUIDv7 ids sort by time, so `id < ?2` is "before this event".
-    let previous = sqlx::query(&format!(
+    let previous = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT latitude, longitude, (julianday('now') - julianday(created_at)) * 24.0
          FROM security_events
          WHERE user_id = ?1 AND id < ?2 AND action IN ({sign_ins}) AND latitude IS NOT NULL
          ORDER BY id DESC LIMIT 1"
-    ))
+    )))
     .bind(user_id)
     .bind(event_id)
     .fetch_optional(&conn)
@@ -224,10 +224,10 @@ async fn sign_in_flag(
     let Some(country) = location.country.as_deref() else {
         return Ok(None);
     };
-    let seen: bool = sqlx::query_scalar(&format!(
+    let seen: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT EXISTS (SELECT 1 FROM security_events
          WHERE user_id = ?1 AND id < ?2 AND action IN ({sign_ins}) AND country = ?3)"
-    ))
+    )))
     .bind(user_id)
     .bind(event_id)
     .bind(country)
@@ -241,10 +241,10 @@ async fn distributed_failures(
     email: &str,
 ) -> Result<Option<Flag>, sqlx::Error> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let ips: i64 = sqlx::query_scalar(&format!(
+    let ips: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT COUNT(DISTINCT source_ip) FROM security_events
          WHERE action = '{FAILED}' AND metadata = ?1 AND created_at > datetime('now', '{FAILURE_WINDOW}')"
-    ))
+    )))
     .bind(email)
     .fetch_one(&conn)
     .await?;
@@ -290,10 +290,10 @@ mod tests {
         at: Option<(f64, f64, &str)>,
     ) {
         let conn = crate::git::repositories::db::get_conn(state).await;
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "INSERT INTO security_events (id, user_id, action, metadata, source_ip, latitude, longitude, country, created_at)
              VALUES (?1, 'u', ?2, 'u@x.test', ?1, ?3, ?4, ?5, datetime('now', '{ago}'))"
-        ))
+        )))
         .bind(id)
         .bind(action)
         .bind(at.map(|at| at.0))

@@ -78,7 +78,7 @@ pub async fn reconcile(
         let sql = format!(
             "DELETE FROM application_replicas WHERE application_id = ?1 AND server_id NOT IN ({placeholders})"
         );
-        let mut query = sqlx::query(&sql).bind(application_id);
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(application_id);
         for server_id in server_ids {
             query = query.bind(server_id);
         }

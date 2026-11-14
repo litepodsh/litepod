@@ -13,4 +13,16 @@ ignore = [
     # (constant time), not this crate. The OIDC routes do not exist on cloud.
     # Review by 2027-01-07, or as soon as `rsa` 0.10 ships and `openidconnect` adopts it.
     "RUSTSEC-2023-0071",
+
+    # RUSTSEC-2026-0459 (CVE-2026-119375) — `libsqlite3-sys` 0.30 bundles SQLite < 3.54:
+    # opening a database together with a `-wal` file whose page size differs can return
+    # uninitialized memory. Local vector; needs a crafted db + wal pair. Reachability:
+    # we only open our own database at DATABASE_PATH. Backup restore replays a SQL text
+    # dump into that database (src/backup/restore.rs); it never opens a foreign SQLite
+    # file or `-wal`, and nothing uses ATTACH. An attacker would already need write
+    # access to the data volume. The fix needs `libsqlite3-sys` >= 0.39, but
+    # `sqlx-sqlite` 0.9.0 pins `>=0.30.1, <0.38.0`, so it cannot be taken until `sqlx`
+    # widens that range.
+    # Review by 2026-12-14, or as soon as a `sqlx` release allows `libsqlite3-sys` 0.39.
+    "RUSTSEC-2026-0459",
 ]

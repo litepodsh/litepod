@@ -8,7 +8,7 @@ Only an empty object supplied by the publisher for a verified 404 represents
 the first release. Invalid JSON and non-object documents are rejected so a
 corrupt successful response can never be replaced as though it were absent.
 
-Env: VERSION, CHANNEL (stable or alpha), CADDY_TAG, DRAGONFLY_TAG.
+Env: VERSION, CHANNEL (stable or next), CADDY_TAG, DRAGONFLY_TAG.
 """
 
 import datetime
@@ -57,8 +57,8 @@ def main() -> int:
         print("VERSION is required", file=sys.stderr)
         return 1
     channel = os.environ.get("CHANNEL", "").strip()
-    if channel not in {"stable", "alpha"}:
-        print("CHANNEL must be stable or alpha", file=sys.stderr)
+    if channel not in {"stable", "next"}:
+        print("CHANNEL must be stable or next", file=sys.stderr)
         return 1
     try:
         caddy_tag = core_tag("CADDY_TAG")

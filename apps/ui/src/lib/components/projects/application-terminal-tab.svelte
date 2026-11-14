@@ -22,6 +22,7 @@
 	import { isRunning } from '#lib/utils/container-status.js';
 	import { loadNerdFont } from '#lib/utils/lazy-nerd-font.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
@@ -126,7 +127,7 @@
 		// Drag-select copies to the clipboard immediately.
 		term.onSelectionChange(() => {
 			const text = term?.getSelection();
-			if (text) navigator.clipboard?.writeText(text).catch(() => {});
+			if (text) void copyText(text);
 		});
 		// Intercept Ctrl+letter in capture so we always send the raw control
 		// byte (0x01..0x1a). xterm.js v5's default key handling sometimes

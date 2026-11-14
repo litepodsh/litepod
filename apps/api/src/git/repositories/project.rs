@@ -301,9 +301,9 @@ pub async fn list_projects(
     organization_id: &str,
 ) -> Result<Vec<ProjectRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {PROJECT_COLUMNS} FROM projects WHERE organization_id = ?1 ORDER BY updated_at DESC"
-    ))
+    )))
     .bind(organization_id)
     .fetch_all(&conn)
     .await
@@ -321,9 +321,9 @@ pub async fn get_project(
     project_id: &str,
 ) -> Result<Option<ProjectRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {PROJECT_COLUMNS} FROM projects WHERE id = ?1 AND organization_id = ?2"
-    ))
+    )))
     .bind(project_id)
     .bind(organization_id)
     .fetch_optional(&conn)
@@ -338,9 +338,9 @@ pub async fn list_environments(
     project_id: &str,
 ) -> Result<Vec<EnvironmentRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {QUALIFIED_ENVIRONMENT_COLUMNS} FROM environments e INNER JOIN projects p ON p.id = e.project_id WHERE e.project_id = ?1 AND p.organization_id = ?2 ORDER BY e.is_production DESC, e.created_at ASC"
-    ))
+    )))
     .bind(project_id)
     .bind(organization_id)
     .fetch_all(&conn)
@@ -360,9 +360,9 @@ pub async fn get_environment(
     environment_id: &str,
 ) -> Result<Option<EnvironmentRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {QUALIFIED_ENVIRONMENT_COLUMNS} FROM environments e INNER JOIN projects p ON p.id = e.project_id WHERE e.id = ?1 AND e.project_id = ?2 AND p.organization_id = ?3"
-    ))
+    )))
     .bind(environment_id)
     .bind(project_id)
     .bind(organization_id)
@@ -379,9 +379,9 @@ pub async fn list_applications(
     environment_id: &str,
 ) -> Result<Vec<ApplicationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {QUALIFIED_APPLICATION_COLUMNS} FROM applications a INNER JOIN environments e ON e.id = a.environment_id INNER JOIN projects p ON p.id = e.project_id WHERE a.environment_id = ?1 AND e.project_id = ?2 AND p.organization_id = ?3 AND a.maintenance_for IS NULL ORDER BY a.created_at ASC"
-    ))
+    )))
     .bind(environment_id)
     .bind(project_id)
     .bind(organization_id)
@@ -403,9 +403,9 @@ pub async fn get_application(
     application_id: &str,
 ) -> Result<Option<ApplicationRow>, String> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {QUALIFIED_APPLICATION_COLUMNS} FROM applications a INNER JOIN environments e ON e.id = a.environment_id INNER JOIN projects p ON p.id = e.project_id WHERE a.id = ?1 AND a.environment_id = ?2 AND e.project_id = ?3 AND p.organization_id = ?4"
-    ))
+    )))
     .bind(application_id)
     .bind(environment_id)
     .bind(project_id)

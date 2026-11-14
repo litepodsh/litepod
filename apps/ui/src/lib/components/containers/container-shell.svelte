@@ -13,6 +13,7 @@
 		zoomedTerminalFontSize,
 	} from '#lib/utils/terminal-font-zoom.js';
 	import { toast } from '#lib/utils/toast.js';
+	import { copyText } from '#lib/utils/clipboard.js';
 	import {
 		createContainerExec,
 		openContainerExecSocket,
@@ -100,7 +101,7 @@
 		// contexts just leave the selection for a manual Ctrl/Cmd+C).
 		term.onSelectionChange(() => {
 			const text = term?.getSelection();
-			if (text) navigator.clipboard?.writeText(text).catch(() => {});
+			if (text) void copyText(text);
 		});
 		term.attachCustomKeyEventHandler((event) => {
 			if (event.type !== 'keydown' || !event.ctrlKey || event.altKey || event.metaKey) return true;

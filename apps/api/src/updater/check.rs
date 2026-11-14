@@ -187,13 +187,13 @@ pub async fn fetch_manifest(url: &str) -> Result<Manifest, ManifestError> {
     serde_json::from_str(&body).map_err(|e| ManifestError::Parse(e.to_string()))
 }
 
-/// A release tag with an optional alpha counter.
+/// A release tag with an optional next counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReleaseVersion {
     major: u64,
     minor: u64,
     patch: u64,
-    // None represents a stable version, which sorts after alpha for a base.
+    // None represents a stable version, which sorts after next for a base.
     prerelease: Option<u64>,
 }
 
@@ -216,7 +216,7 @@ impl PartialOrd for ReleaseVersion {
     }
 }
 
-/// Parse `v0.1.19`, `0.1.19`, or `v0.1.19-alpha.3` into a comparable value.
+/// Parse `v0.1.19`, `0.1.19`, or `v0.1.19-next.3` into a comparable value.
 ///
 /// Comparing tags as strings is wrong here — lexicographically `"0.1.19"`
 /// sorts *before* `"0.1.9"` — and the tag format is produced by our own
@@ -224,7 +224,7 @@ impl PartialOrd for ReleaseVersion {
 pub fn parse_version(s: &str) -> Option<ReleaseVersion> {
     let trimmed = s.trim();
     let stripped = trimmed.strip_prefix('v').unwrap_or(trimmed);
-    let (base, prerelease) = match stripped.split_once("-alpha.") {
+    let (base, prerelease) = match stripped.split_once("-next.") {
         Some((base, counter)) => (base, Some(counter.parse().ok()?)),
         None => (stripped, None),
     };
@@ -250,11 +250,11 @@ mod tests {
 
     #[test]
     fn update_channel_parses_to_a_closed_set() {
-        assert_eq!(UpdateChannel::parse("alpha"), UpdateChannel::Alpha);
-        assert_eq!(UpdateChannel::parse(" ALPHA "), UpdateChannel::Alpha);
+        assert_eq!(UpdateChannel::parse("next"), UpdateChannel::Next);
+        assert_eq!(UpdateChannel::parse(" NEXT "), UpdateChannel::Next);
         assert_eq!(UpdateChannel::parse("stable"), UpdateChannel::Stable);
         assert_eq!(UpdateChannel::parse("unexpected"), UpdateChannel::Stable);
-        assert_eq!(UpdateChannel::Alpha.as_str(), "alpha");
+        assert_eq!(UpdateChannel::Next.as_str(), "next");
     }
 
     #[test]
@@ -262,7 +262,7 @@ mod tests {
         assert!(parse_version("v0.1.19").is_some());
         assert!(parse_version("0.1.19").is_some());
         assert!(parse_version("  v1.2.3  ").is_some());
-        assert!(parse_version("v1.2.3-alpha.4").is_some());
+        assert!(parse_version("v1.2.3-next.4").is_some());
     }
 
     #[test]
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(parse_version("latest"), None);
         assert_eq!(parse_version("v1.2.x"), None);
         assert_eq!(parse_version("v1.2.3-rc.1"), None);
-        assert_eq!(parse_version("v1.2.3-alpha"), None);
+        assert_eq!(parse_version("v1.2.3-next"), None);
     }
 
     #[test]
@@ -295,7 +295,7 @@ mod tests {
             "version":"v0.1.22",
             "channels": {
                 "stable":{"version":"v0.1.22"},
-                "alpha":{"version":"v0.1.23-alpha.2"}
+                "next":{"version":"v0.1.23-next.2"}
             }
         }"#,
         )
@@ -306,8 +306,8 @@ mod tests {
             "v0.1.22"
         );
         assert_eq!(
-            manifest.channel(UpdateChannel::Alpha).unwrap().version,
-            "v0.1.23-alpha.2"
+            manifest.channel(UpdateChannel::Next).unwrap().version,
+            "v0.1.23-next.2"
         );
     }
 
@@ -319,16 +319,16 @@ mod tests {
             "v0.1.22"
         );
         assert!(matches!(
-            manifest.channel(UpdateChannel::Alpha),
+            manifest.channel(UpdateChannel::Next),
             Err(ManifestError::UnknownChannel(_))
         ));
     }
 
     #[test]
-    fn stable_sorting_wins_over_same_base_alpha_and_alpha_counter_increases() {
-        assert!(parse_version("v1.2.3").unwrap() > parse_version("v1.2.3-alpha.9").unwrap());
+    fn stable_sorting_wins_over_same_base_next_and_next_counter_increases() {
+        assert!(parse_version("v1.2.3").unwrap() > parse_version("v1.2.3-next.9").unwrap());
         assert!(
-            parse_version("v1.2.3-alpha.10").unwrap() > parse_version("v1.2.3-alpha.9").unwrap()
+            parse_version("v1.2.3-next.10").unwrap() > parse_version("v1.2.3-next.9").unwrap()
         );
     }
 
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn channel_resolves_its_own_core_targets() {
         let manifest: Manifest = serde_json::from_str(
-            r#"{"channels":{"stable":{"version":"v0.1.22","caddy":{"tag":"2.11.4"},"dragonfly":{"tag":"v1.39.0"}},"alpha":{"version":"v0.1.23-alpha.2","caddy":{"tag":"2.12.0"},"dragonfly":{"tag":"v1.39.0"}}}}"#,
+            r#"{"channels":{"stable":{"version":"v0.1.22","caddy":{"tag":"2.11.4"},"dragonfly":{"tag":"v1.39.0"}},"next":{"version":"v0.1.23-next.2","caddy":{"tag":"2.12.0"},"dragonfly":{"tag":"v1.39.0"}}}}"#,
         )
         .unwrap();
         let stable = manifest
@@ -357,15 +357,15 @@ mod tests {
             .unwrap()
             .core_targets()
             .unwrap();
-        let alpha = manifest
-            .channel(UpdateChannel::Alpha)
+        let next = manifest
+            .channel(UpdateChannel::Next)
             .unwrap()
             .core_targets()
             .unwrap();
         assert_eq!(stable.caddy, "2.11.4");
         assert_eq!(stable.dragonfly, "v1.39.0");
-        assert_eq!(alpha.caddy, "2.12.0");
-        assert_eq!(alpha.dragonfly, "v1.39.0");
+        assert_eq!(next.caddy, "2.12.0");
+        assert_eq!(next.dragonfly, "v1.39.0");
     }
 
     #[test]

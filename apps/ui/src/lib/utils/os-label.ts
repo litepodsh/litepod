@@ -1,11 +1,14 @@
 /** Display names for the `ID=` values of `/etc/os-release` and Rust's `std::env::consts::OS`. */
 export const OS_LABELS: Record<string, string> = {
+	alpine: 'Alpine Linux',
 	arch: 'Arch Linux',
 	debian: 'Debian',
 	fedora: 'Fedora',
+	freebsd: 'FreeBSD',
 	linux: 'Linux',
 	macos: 'macOS',
 	omarchy: 'Omarchy',
+	openbsd: 'OpenBSD',
 	rhel: 'Red Hat Enterprise Linux',
 	ubuntu: 'Ubuntu',
 	windows: 'Windows',

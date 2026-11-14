@@ -376,7 +376,7 @@ async fn one_string(
     value: &str,
 ) -> Result<Option<String>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(value)
         .fetch_optional(&conn)
         .await

@@ -1,0 +1,1 @@
+../../../web/apps/web/public/install-freebsd.sh

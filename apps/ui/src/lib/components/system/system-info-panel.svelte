@@ -8,6 +8,7 @@
 	import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
 	import ClockIcon from '@lucide/svelte/icons/clock';
 	import { Button } from '#lib/components/ui/button/index.js';
+	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import { toast } from '#lib/utils/toast.js';
 	import { toneClass, toneDot, type StatusTone } from '#lib/utils/status-tone.js';
@@ -28,10 +29,13 @@
 	let loadError = $state<string | null>(null);
 	let checking = $state(false);
 	let stopPoll: (() => void) | null = null;
-	const channelLabel = $derived(info?.state.channel === 'alpha' ? 'Alpha' : 'Stable');
+	const channelLabel = $derived(info?.state.channel === 'next' ? 'Next' : 'Stable');
 	const runningVersion = $derived(info?.version ?? '');
 	const updateReady = $derived(isInstallableUpdate(info));
 	const serviceStatuses = $derived(getSystemServiceStatuses(info));
+	const nativeUpdateCommand = $derived(
+		`ftp -o - https://litepod.sh/install-openbsd.sh | sh${info?.state.channel === 'next' ? ' -s -- --next' : ''}`,
+	);
 
 	/** One pill for the updater: same precedence the badges always had. */
 	const updateStatus = $derived.by((): { tone: StatusTone; label: string } => {
@@ -174,7 +178,7 @@
 							<h2 class="text-[15px] font-semibold tracking-tight">
 								{t('operations.system.core_update')}
 							</h2>
-							{@render pill(info.state.channel === 'alpha' ? 'info' : 'neutral', channelLabel)}
+							{@render pill(info.state.channel === 'next' ? 'info' : 'neutral', channelLabel)}
 							{@render pill(updateStatus.tone, updateStatus.label)}
 						</div>
 						<p class="mt-1 text-xs text-muted-foreground">
@@ -197,6 +201,19 @@
 			</header>
 
 			<div class="flex flex-col gap-4 p-4">
+				{#if info.panel_only}
+					<div class="min-w-0">
+						<p class="text-sm text-muted-foreground">{t('operations.system.update_native_hint')}</p>
+						<div class="lp-well relative mt-1.5 rounded-lg bg-muted/60 p-3 pr-10">
+							<code class="block font-mono text-xs leading-relaxed break-all">{nativeUpdateCommand}</code>
+							<CopyButton
+								value={nativeUpdateCommand}
+								label={null}
+								revealOnHover={false}
+								class="absolute top-1.5 right-1.5 size-7 justify-center rounded-md text-muted-foreground hover:bg-card hover:text-foreground" />
+						</div>
+					</div>
+				{/if}
 				<dl class="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
 					{@render fact(t('operations.system.check_interval'), checkIntervalLabel)}
 					<div class="lp-inset flex min-w-0 flex-col gap-0.5 rounded-lg bg-muted/60 px-3 py-2.5">
@@ -241,7 +258,7 @@
 					{/each}
 				</div>
 
-				{#if info.state.core_services.caddy.systemd_managed}
+				{#if info.state.core_services.caddy.systemd_managed && info.state.core_services.caddy.current_tag !== info.state.core_services.caddy.target_tag}
 					<p class="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
 						{t('operations.system.caddy_systemd')}
 					</p>

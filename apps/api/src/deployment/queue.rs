@@ -322,9 +322,9 @@ pub async fn enqueue(
 
 pub async fn get(state: &SharedState, job_id: &str) -> Result<DeploymentJobDto, AppError> {
     let conn = get_conn(state).await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {JOB_COLUMNS} FROM deployment_jobs j {JOB_JOINS} WHERE j.id = ?1"
-    ))
+    )))
     .bind(job_id)
     .fetch_optional(&conn)
     .await
@@ -341,9 +341,9 @@ pub async fn list_for_organization(
 ) -> Result<Vec<DeploymentJobDto>, AppError> {
     let limit = limit.clamp(1, MAX_LIST_LIMIT) as i64;
     let conn = get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {JOB_COLUMNS} FROM deployment_jobs j {JOB_JOINS} WHERE j.organization_id = ?1 ORDER BY j.queued_at DESC, j.id DESC LIMIT ?2"
-    ))
+    )))
     .bind(organization_id)
     .bind(limit)
     .fetch_all(&conn)

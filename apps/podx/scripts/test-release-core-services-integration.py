@@ -26,7 +26,7 @@ def dry_run(*args: str) -> str:
 def test_release_selects_channel_specific_core_pins() -> None:
     recipe = JUSTFILE.read_text()
     assert "CADDY_TAG=\"$(grep -E '^CADDY_VERSION=' api/.env" in recipe
-    assert "CADDY_TAG=\"$(grep -E '^CADDY_VERSION_ALPHA=' api/.env" in recipe
+    assert "CADDY_TAG=\"$(grep -E '^CADDY_VERSION_NEXT=' api/.env" in recipe
     assert '"${tag}" != latest' in recipe
 
 
@@ -36,9 +36,9 @@ def test_stable_release_hands_its_pins_to_the_manifest_publisher() -> None:
     assert PUBLISH_VERSION in output
 
 
-def test_alpha_release_hands_its_pins_to_the_manifest_publisher() -> None:
-    output = dry_run("--", "--alpha")
-    assert "CADDY_TAG=\"$(grep -E '^CADDY_VERSION_ALPHA=' api/.env" in output
+def test_next_release_hands_its_pins_to_the_manifest_publisher() -> None:
+    output = dry_run("--", "--next")
+    assert "CADDY_TAG=\"$(grep -E '^CADDY_VERSION_NEXT=' api/.env" in output
     assert PUBLISH_VERSION in output
 
 
@@ -46,7 +46,7 @@ def main() -> int:
     tests = [
         test_release_selects_channel_specific_core_pins,
         test_stable_release_hands_its_pins_to_the_manifest_publisher,
-        test_alpha_release_hands_its_pins_to_the_manifest_publisher,
+        test_next_release_hands_its_pins_to_the_manifest_publisher,
     ]
     for test in tests:
         test()

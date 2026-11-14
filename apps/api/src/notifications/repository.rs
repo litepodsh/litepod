@@ -102,9 +102,9 @@ pub async fn list_providers(
     organization_id: &str,
 ) -> Result<Vec<ProviderRow>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {PROVIDER_COLUMNS} FROM notification_providers WHERE organization_id = ?1 ORDER BY created_at ASC"
-    ))
+    )))
     .bind(organization_id)
     .fetch_all(&conn)
     .await
@@ -118,9 +118,9 @@ pub async fn get_provider(
     id: &str,
 ) -> Result<Option<ProviderRow>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {PROVIDER_COLUMNS} FROM notification_providers WHERE id = ?1 AND organization_id = ?2"
-    ))
+    )))
     .bind(id)
     .bind(organization_id)
     .fetch_optional(&conn)
@@ -137,9 +137,9 @@ pub async fn get_provider_any_organization(
     id: &str,
 ) -> Result<Option<ProviderRow>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {PROVIDER_COLUMNS} FROM notification_providers WHERE id = ?1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&conn)
     .await
@@ -292,7 +292,7 @@ pub async fn subscribers_for_organization(
     action: Action,
 ) -> Result<Vec<ProviderRow>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {} FROM notification_providers p
          JOIN notification_subscriptions s ON s.provider_id = p.id
          WHERE p.organization_id = ?1 AND s.action = ?2 AND p.enabled = 1",
@@ -301,7 +301,7 @@ pub async fn subscribers_for_organization(
             .map(|column| format!("p.{column}"))
             .collect::<Vec<_>>()
             .join(", ")
-    ))
+    )))
     .bind(organization_id)
     .bind(action.key())
     .fetch_all(&conn)
@@ -316,7 +316,7 @@ pub async fn subscribers_for_global(
     action: Action,
 ) -> Result<Vec<ProviderRow>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {} FROM notification_providers p
          JOIN notification_subscriptions s ON s.provider_id = p.id
          JOIN organizations t ON t.id = p.organization_id
@@ -326,7 +326,7 @@ pub async fn subscribers_for_global(
             .map(|column| format!("p.{column}"))
             .collect::<Vec<_>>()
             .join(", ")
-    ))
+    )))
     .bind(action.key())
     .fetch_all(&conn)
     .await
@@ -603,9 +603,9 @@ pub async fn list_deliveries(
     limit: usize,
 ) -> Result<Vec<DeliveryDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {DELIVERY_COLUMNS} FROM notification_deliveries WHERE provider_id = ?1 ORDER BY created_at DESC LIMIT ?2"
-    ))
+    )))
     .bind(provider_id)
     .bind(limit as i64)
     .fetch_all(&conn)

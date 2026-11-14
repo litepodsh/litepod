@@ -42,9 +42,9 @@ pub async fn resolve_server_id(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(LOCAL_SERVER_ID);
-    if state.is_cloud && resolved == LOCAL_SERVER_ID {
+    if !state.local_runs_applications() && resolved == LOCAL_SERVER_ID {
         return Err(AppError::ValidationError(
-            "Cloud mode requires a ready remote server for scheduled tasks".into(),
+            "This install requires a ready remote server for scheduled tasks".into(),
         ));
     }
     // Scoped lookup: a server owned by another organization reads as unknown,
@@ -58,9 +58,9 @@ pub async fn resolve_server_id(
             server.name
         )));
     }
-    if state.is_cloud && server.kind != "ssh" {
+    if !state.local_runs_applications() && server.kind != "ssh" {
         return Err(AppError::ValidationError(
-            "Cloud mode requires a ready remote server for scheduled tasks".into(),
+            "This install requires a ready remote server for scheduled tasks".into(),
         ));
     }
     if runner == Some("remote_shell") && server.kind != "ssh" {
@@ -368,9 +368,9 @@ pub async fn get(
     task_id: &str,
 ) -> Result<ScheduledTaskDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {TASK_COLUMNS} FROM scheduled_tasks WHERE id = ?1 AND organization_id = ?2"
-    ))
+    )))
     .bind(task_id)
     .bind(organization_id)
     .fetch_optional(&conn)
@@ -386,9 +386,9 @@ pub async fn list(
     organization_id: &str,
 ) -> Result<Vec<ScheduledTaskDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {TASK_COLUMNS} FROM scheduled_tasks WHERE organization_id = ?1 ORDER BY created_at DESC"
-    ))
+    )))
     .bind(organization_id)
     .fetch_all(&conn)
     .await
@@ -582,9 +582,9 @@ pub async fn update(
             "The remote_shell runner requires a remote server".into(),
         ));
     }
-    if state.is_cloud && server_id == LOCAL_SERVER_ID {
+    if !state.local_runs_applications() && server_id == LOCAL_SERVER_ID {
         return Err(AppError::ValidationError(
-            "Cloud mode requires a ready remote server for scheduled tasks".into(),
+            "This install requires a ready remote server for scheduled tasks".into(),
         ));
     }
     let image =
@@ -887,7 +887,7 @@ pub async fn list_executions(
     task_id: &str,
 ) -> Result<Vec<ScheduledTaskExecutionDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!("SELECT {EXECUTION_COLUMNS} FROM scheduled_task_executions WHERE organization_id = ?1 AND task_id = ?2 ORDER BY queued_at DESC LIMIT 100"))
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {EXECUTION_COLUMNS} FROM scheduled_task_executions WHERE organization_id = ?1 AND task_id = ?2 ORDER BY queued_at DESC LIMIT 100")))
         .bind(organization_id)
         .bind(task_id)
         .fetch_all(&conn)
@@ -903,7 +903,7 @@ pub async fn get_execution(
     execution_id: &str,
 ) -> Result<ScheduledTaskExecutionDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(&format!("SELECT {EXECUTION_COLUMNS} FROM scheduled_task_executions WHERE organization_id = ?1 AND task_id = ?2 AND id = ?3"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {EXECUTION_COLUMNS} FROM scheduled_task_executions WHERE organization_id = ?1 AND task_id = ?2 AND id = ?3")))
         .bind(organization_id)
         .bind(task_id)
         .bind(execution_id)
@@ -1084,7 +1084,7 @@ mod tests {
         for requested in [None, Some("local")] {
             match resolve_server_id(&cloud, "organization-a", requested, Some("ephemeral")).await {
                 Err(AppError::ValidationError(message)) => {
-                    assert!(message.contains("Cloud mode requires a ready remote server"))
+                    assert!(message.contains("This install requires a ready remote server"))
                 }
                 other => panic!("expected ValidationError, got {other:?}"),
             }
