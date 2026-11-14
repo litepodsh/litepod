@@ -11,3 +11,10 @@ it('renders the FreeBSD mark for the freebsd distribution', () => {
 	const { container } = render(OsIcon, { distribution: 'freebsd' });
 	expect(container.querySelector('svg path')?.getAttribute('fill')).toBe('#AB2B28');
 });
+
+it('renders the OpenBSD mark for an openbsd host or distribution', () => {
+	for (const props of [{ os: 'openbsd' }, { distribution: 'openbsd' }]) {
+		const { container } = render(OsIcon, props);
+		expect(container.querySelector('svg path')?.getAttribute('fill')).toBe('#F2CA30');
+	}
+});

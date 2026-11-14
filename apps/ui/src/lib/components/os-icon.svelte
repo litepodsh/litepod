@@ -11,6 +11,7 @@
 	import RockyLinuxIcon from '#lib/components/icons/rocky-linux-icon.svelte';
 	import AlpineLinuxIcon from '#lib/components/icons/alpine-linux-icon.svelte';
 	import FreeBsdIcon from '#lib/components/icons/freebsd-icon.svelte';
+	import OpenBsdIcon from '#lib/components/icons/openbsd-icon.svelte';
 
 	let {
 		os,
@@ -41,6 +42,8 @@
 	<AlpineLinuxIcon class={className} />
 {:else if distribution === 'freebsd'}
 	<FreeBsdIcon class={className} />
+{:else if os === 'openbsd' || distribution === 'openbsd'}
+	<OpenBsdIcon class={className} />
 {:else if os === 'linux' || distribution}
 	<LinuxIcon class={className} />
 {:else}

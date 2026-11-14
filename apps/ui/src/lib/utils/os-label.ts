@@ -8,6 +8,7 @@ export const OS_LABELS: Record<string, string> = {
 	linux: 'Linux',
 	macos: 'macOS',
 	omarchy: 'Omarchy',
+	openbsd: 'OpenBSD',
 	rhel: 'Red Hat Enterprise Linux',
 	ubuntu: 'Ubuntu',
 	windows: 'Windows',
