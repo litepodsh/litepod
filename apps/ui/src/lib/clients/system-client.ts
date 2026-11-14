@@ -41,6 +41,8 @@ export type SystemVersion = {
 	update_interval_secs: number;
 	container_name: string;
 	is_cloud: boolean;
+	/** Native OpenBSD install: it upgrades by re-running its installer. */
+	panel_only: boolean;
 	state: UpdateState;
 	/** Seconds each core container has been running, read live; null when stopped or unknown. */
 	uptime_secs: { api: number | null; caddy: number | null; dragonfly: number | null };

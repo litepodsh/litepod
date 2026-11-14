@@ -239,6 +239,7 @@ system = "System"
 up_to_date = "Up to date"
 update_available = "Update available"
 update_description = "The API checks the {channel} channel release manifest and reports newer versions of {image}. Installing is always a manual action, nothing is recreated on its own."
+update_native_hint = "This OpenBSD install runs without containers, so it does not update itself. To update, run this as root on the server:"
 version = "Version"
 version_available = "Version {version} is available."
 

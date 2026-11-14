@@ -10,6 +10,7 @@ export function systemVersion(overrides: Partial<SystemVersion['state']> = {}): 
 		update_interval_secs: 3600,
 		container_name: 'litepod',
 		is_cloud: false,
+		panel_only: false,
 		state: {
 			channel: 'stable',
 			current_version: 'v0.1.21',
