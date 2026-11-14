@@ -54,7 +54,8 @@ assert_eq 'Usage: bash install.sh [--next] [--wipe]' \
 should_run_installer_main '' bash
 should_run_installer_main scripts/install.sh scripts/install.sh
 assert_fails should_run_installer_main scripts/install.sh bash
-[[ "${FALLBACK_LITEPOD_IMAGE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad fallback tag: ${FALLBACK_LITEPOD_IMAGE_TAG}" >&2; exit 1; }
+# Versions come only from version.json: the installer keeps no pinned copy.
+if grep -q 'FALLBACK_' "${script_dir}/install.sh"; then echo "install.sh pins a fallback version" >&2; exit 1; fi
 
 manifest_env="$(mktemp)"
 trap 'rm -f -- "${manifest_env}"' EXIT
