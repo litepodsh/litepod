@@ -109,7 +109,7 @@ pub(crate) fn credentials(server: &ServerRecord) -> Result<(&str, &str, Option<&
 pub(crate) const CADDY_HELPER: &str = r#"#!/bin/sh
 set -eu
 
-helper_version=3
+helper_version=4
 
 routes=/etc/litepod/caddy/routes.d
 caddyfile=/etc/caddy/Caddyfile
@@ -118,6 +118,23 @@ marker='# litepod managed routes'
 # file the API pulls over SSH (`access-log-read`).
 access_log=/var/log/caddy/litepod-access.log
 log_block='\tlog {\n\t\toutput file /var/log/caddy/litepod-access.log {\n\t\t\troll_size 10MiB\n\t\t\troll_keep 2\n\t\t}\n\t\tformat json\n\t}\n'
+
+# systemd hosts reload through systemctl, OpenRC hosts (Alpine) through rc-service.
+reload_caddy() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl reload caddy
+    else
+        rc-service caddy reload
+    fi
+}
+
+caddy_running() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active --quiet caddy
+    else
+        rc-service caddy status >/dev/null 2>&1
+    fi
+}
 
 valid_id() {
     case "$1" in
@@ -132,7 +149,7 @@ prepare() {
         printf '\n%s\nimport /etc/litepod/caddy/routes.d/*.caddy\n' "$marker" >> "$caddyfile"
     fi
     caddy validate --config "$caddyfile" --adapter caddyfile
-    systemctl reload caddy
+    reload_caddy
 }
 
 install_route() {
@@ -166,7 +183,7 @@ install_route() {
         had_target=1
     fi
     install -o root -g root -m 0644 "$source_path" "$target"
-    if caddy validate --config "$caddyfile" --adapter caddyfile && systemctl reload caddy; then
+    if caddy validate --config "$caddyfile" --adapter caddyfile && reload_caddy; then
         rm -f "$backup"
         return 0
     fi
@@ -189,7 +206,7 @@ remove_route() {
     # fragment is already broken, and that orphan then collides with any domain
     # that later reuses the same host ("more than one automation policy").
     rm -f "$target"
-    if ! { caddy validate --config "$caddyfile" --adapter caddyfile && systemctl reload caddy; }; then
+    if ! { caddy validate --config "$caddyfile" --adapter caddyfile && reload_caddy; }; then
         echo "remove-route: $route_id deleted but Caddy config still invalid (pre-existing); leaving reload to the next change" >&2
     fi
     return 0
@@ -329,7 +346,7 @@ sync_routes() {
             cp "$f" "$routes/$(basename "$f")"
             chmod 0644 "$routes/$(basename "$f")"
         done
-        if caddy validate --config "$caddyfile" --adapter caddyfile && systemctl reload caddy; then
+        if caddy validate --config "$caddyfile" --adapter caddyfile && reload_caddy; then
             :
         else
             rm -f "$routes"/*.caddy
@@ -338,7 +355,7 @@ sync_routes() {
                 cp "$f" "$routes/$(basename "$f")"
                 chmod 0644 "$routes/$(basename "$f")"
             done
-            systemctl reload caddy 2>/dev/null || true
+            reload_caddy 2>/dev/null || true
             echo "sync-routes: candidate config could not be applied; reverted" >&2
             exit 1
         fi
@@ -392,7 +409,7 @@ case "${1:-}" in
     error-page-check) exit 0 ;;
     version) [ "$#" -eq 1 ] || exit 64; echo "$helper_version" ;;
     install-certificate) [ "$#" -eq 3 ] || exit 64; install_certificate "$2" "$3" ;;
-    health) caddy validate --config "$caddyfile" --adapter caddyfile; systemctl is-active --quiet caddy ;;
+    health) caddy validate --config "$caddyfile" --adapter caddyfile; caddy_running ;;
     *) exit 64 ;;
 esac
 "#;
@@ -546,7 +563,19 @@ fn fail2ban_sshd_conf(port: u16) -> String {
     )
 }
 
+/// The distribution family of the remote host, or `None` when it cannot be read or is unknown.
+async fn host_family(server: &ServerRecord) -> Option<DistroFamily> {
+    let os_release = command(server, &["cat", "/etc/os-release"]).await.ok()?;
+    DistroFamily::detect(&os_release)
+}
+
 pub(crate) async fn configure_fail2ban(server: &ServerRecord) -> Result<(), AppError> {
+    // The sshd jail reads the systemd journal and the service is enabled with systemctl.
+    if host_family(server).await == Some(DistroFamily::Alpine) {
+        return Err(AppError::ValidationError(
+            "Fail2ban is not set up on Alpine Linux servers".into(),
+        ));
+    }
     let port = server
         .ssh_port
         .ok_or_else(|| AppError::InternalError("Remote server has no SSH port".into()))?;
@@ -584,11 +613,68 @@ pub(crate) async fn configure_fail2ban(server: &ServerRecord) -> Result<(), AppE
 /// Rootful Podman's system socket is normally owned by root. Terminal sessions
 /// are tunneled by the SSH user, so make that socket private to the already
 /// authorized user rather than falling back to a host-local Podman client.
+/// OpenRC's `local` service runs this at boot, and `restart_podman` runs it after a restart:
+/// Podman's init script recreates the socket as `root:root` each time it starts.
+const ALPINE_PODMAN_SOCKET_SCRIPT: &str = "/etc/local.d/litepod-podman-socket.start";
+
+fn alpine_podman_socket_script(ssh_user: &str) -> String {
+    format!(
+        "#!/bin/sh\n# managed by litepod\nfor _ in 1 2 3 4 5 6 7 8 9 10; do\n    [ -S /run/podman/podman.sock ] && break\n    sleep 1\ndone\nchmod 0711 /run/podman\nchown {ssh_user} /run/podman/podman.sock\nchmod 0600 /run/podman/podman.sock\n"
+    )
+}
+
+/// Alpine has no systemd socket drop-in, so the socket is handed to the SSH user by a
+/// script instead. Root already owns the socket, so nothing is needed for it.
+async fn configure_alpine_terminal_socket(
+    server: &ServerRecord,
+    ssh_user: &str,
+) -> Result<(), AppError> {
+    if ssh_user == "root" {
+        return Ok(());
+    }
+    if !ssh_user
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    {
+        return Err(AppError::ValidationError(
+            "The SSH user name contains characters that cannot be used on Alpine Linux".into(),
+        ));
+    }
+    install_root_file(
+        server,
+        &alpine_podman_socket_script(ssh_user),
+        "podman-socket.start",
+        ALPINE_PODMAN_SOCKET_SCRIPT,
+        "0755",
+    )
+    .await?;
+    let target = target(server)?;
+    let (key, fingerprint, known_hosts) = credentials(server)?;
+    let prefix = PodmanMode::privilege_prefix(ssh_user);
+    for args in [
+        &["rc-update", "add", "local", "default"][..],
+        &[ALPINE_PODMAN_SOCKET_SCRIPT][..],
+    ] {
+        SshExecutor::run(
+            &target,
+            key,
+            fingerprint,
+            known_hosts,
+            &maintenance_command(prefix, args),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 async fn configure_rootful_terminal_socket(server: &ServerRecord) -> Result<(), AppError> {
     let ssh_user = server
         .ssh_user
         .as_deref()
         .ok_or_else(|| AppError::InternalError("Remote server has no SSH user".into()))?;
+    if host_family(server).await == Some(DistroFamily::Alpine) {
+        return configure_alpine_terminal_socket(server, ssh_user).await;
+    }
     install_root_file(
         server,
         &format!("[Socket]\nSocketUser={ssh_user}\nSocketMode=0600\n"),
@@ -1014,14 +1100,13 @@ pub async fn update_packages(server: &ServerRecord) -> Result<MaintenanceOutcome
 pub async fn restart_server(server: &ServerRecord) -> Result<MaintenanceOutcome, AppError> {
     let started = std::time::Instant::now();
     let sudo = PodmanMode::privilege_prefix(server.ssh_user.as_deref().unwrap_or_default());
-    let run = run_maintenance_command(
-        server,
-        maintenance_command(
-            sudo,
-            &["shutdown", "-r", "now", "litepod-maintenance-restart"],
-        ),
-    )
-    .await?;
+    // Alpine's busybox has no `shutdown` applet.
+    let restart: &[&str] = if host_family(server).await == Some(DistroFamily::Alpine) {
+        &["reboot"]
+    } else {
+        &["shutdown", "-r", "now", "litepod-maintenance-restart"]
+    };
+    let run = run_maintenance_command(server, maintenance_command(sudo, restart)).await?;
     Ok(maintenance_outcome("restart_server", started, run))
 }
 
@@ -1090,19 +1175,25 @@ pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, A
     )
     .await?;
     append_output(&mut stderr, &workspaces.stderr);
-    let journal = run_maintenance_command(
-        server,
-        maintenance_command(
-            PodmanMode::privilege_prefix(ssh_user),
-            &["journalctl", "--vacuum-size=200M"],
-        ),
-    )
-    .await;
-    if !matches!(&journal, Ok(run) if run.exit_code == 0) {
-        append_output(
-            &mut stderr,
-            "Journal logs were not cleaned. On the local server, rerun the installer to allow it.",
-        );
+    // Hosts without systemd (Alpine) have no journal to clean.
+    if command(server, &["sh", "-c", "command -v journalctl"])
+        .await
+        .is_ok()
+    {
+        let journal = run_maintenance_command(
+            server,
+            maintenance_command(
+                PodmanMode::privilege_prefix(ssh_user),
+                &["journalctl", "--vacuum-size=200M"],
+            ),
+        )
+        .await;
+        if !matches!(&journal, Ok(run) if run.exit_code == 0) {
+            append_output(
+                &mut stderr,
+                "Journal logs were not cleaned. On the local server, rerun the installer to allow it.",
+            );
+        }
     }
 
     Ok(MaintenanceOutcome {
@@ -1117,6 +1208,28 @@ pub async fn prune_images(server: &ServerRecord) -> Result<MaintenanceOutcome, A
 pub async fn restart_podman(server: &ServerRecord) -> Result<MaintenanceOutcome, AppError> {
     let started = std::time::Instant::now();
     let ssh_user = server.ssh_user.as_deref().unwrap_or_default();
+    if server.podman_mode == PodmanMode::Rootful
+        && host_family(server).await == Some(DistroFamily::Alpine)
+    {
+        let prefix = PodmanMode::privilege_prefix(ssh_user);
+        let mut run = run_maintenance_command(
+            server,
+            maintenance_command(prefix, &["rc-service", "podman", "restart"]),
+        )
+        .await?;
+        // The restart recreates the socket as root, so hand it back to the SSH user.
+        if run.exit_code == 0 && ssh_user != "root" {
+            let socket = run_maintenance_command(
+                server,
+                maintenance_command(prefix, &[ALPINE_PODMAN_SOCKET_SCRIPT]),
+            )
+            .await?;
+            if socket.exit_code != 0 {
+                run = socket;
+            }
+        }
+        return Ok(maintenance_outcome("restart_podman", started, run));
+    }
     let command = match server.podman_mode {
         PodmanMode::Rootless => {
             maintenance_command(&["systemctl", "--user"], &["restart", "podman.socket"])
@@ -1279,6 +1392,20 @@ pub fn setup_plan(
             ]),
         ));
     } else {
+        if family == DistroFamily::Alpine {
+            // Podman and Caddy live in the community repository, which setup-alpine leaves
+            // commented out. A no-op when it is already enabled.
+            steps.push(quick(
+                "enable-alpine-community-repository",
+                escalated(&[
+                    "sed",
+                    "-i",
+                    "-E",
+                    "s|^#[[:space:]]*(https?://.*/community)$|\\1|",
+                    "/etc/apk/repositories",
+                ]),
+            ));
+        }
         steps.push(packaged(
             "refresh-package-index",
             escalated(family.refresh_argv()),
@@ -1332,13 +1459,40 @@ pub fn setup_plan(
             ));
         }
         PodmanMode::Rootful => {
-            let packages =
-                family.resolve_packages(&[LogicalPackage::Podman, LogicalPackage::PodmanCompose]);
+            let packages = family.resolve_packages(&[
+                LogicalPackage::Podman,
+                LogicalPackage::PodmanCompose,
+                LogicalPackage::PodmanOpenrc,
+                LogicalPackage::OciRuntime,
+                LogicalPackage::Iptables,
+            ]);
             steps.push(packaged("install-rootful-podman", install(&packages)));
-            steps.push(quick(
-                "enable-rootful-podman",
-                escalated(&["systemctl", "enable", "--now", "podman.socket"]),
-            ));
+            if family == DistroFamily::Alpine {
+                // OpenRC: Podman's init script needs the cgroups boot service, answers on
+                // /run/podman/podman.sock and restarts always/unless-stopped containers when
+                // it starts. Registering an already registered service is a no-op.
+                steps.push(quick(
+                    "register-cgroups-service",
+                    escalated(&["rc-update", "add", "cgroups", "boot"]),
+                ));
+                steps.push(quick(
+                    "start-cgroups-service",
+                    escalated(&["rc-service", "cgroups", "start"]),
+                ));
+                steps.push(quick(
+                    "register-podman-service",
+                    escalated(&["rc-update", "add", "podman", "default"]),
+                ));
+                steps.push(quick(
+                    "enable-rootful-podman",
+                    escalated(&["rc-service", "podman", "start"]),
+                ));
+            } else {
+                steps.push(quick(
+                    "enable-rootful-podman",
+                    escalated(&["systemctl", "enable", "--now", "podman.socket"]),
+                ));
+            }
         }
     }
     // Podman's `pasta` network backend needs /dev/net/tun to set up a container's
@@ -1394,10 +1548,21 @@ pub fn setup_plan(
     ));
     if matches!(ingress, IngressMode::PublicEdge) {
         steps.extend(distro::caddy_install_steps(family, &escalated));
-        steps.push(quick(
-            "enable-native-caddy",
-            escalated(&["systemctl", "enable", "--now", "caddy"]),
-        ));
+        if family == DistroFamily::Alpine {
+            steps.push(quick(
+                "register-native-caddy",
+                escalated(&["rc-update", "add", "caddy", "default"]),
+            ));
+            steps.push(quick(
+                "enable-native-caddy",
+                escalated(&["rc-service", "caddy", "start"]),
+            ));
+        } else {
+            steps.push(quick(
+                "enable-native-caddy",
+                escalated(&["systemctl", "enable", "--now", "caddy"]),
+            ));
+        }
     }
     steps
 }
@@ -1416,6 +1581,9 @@ fn repair_hint(family: DistroFamily, step: &str) -> &'static str {
         }
         (DistroFamily::Arch, "install-base-packages") => {
             "; the package database is broken beyond automatic repair — on the server run `pacman -Sy && pacman -S --noconfirm --needed base-devel` and re-run Repair"
+        }
+        (DistroFamily::Alpine, "install-base-packages") => {
+            "; the package database is broken beyond automatic repair — on the server run `apk fix && apk update && apk add build-base which` and re-run Repair"
         }
         (_, "enable-tun-module") => {
             "; the host kernel would not load the `tun` module — confirm it's built for this kernel (`modinfo tun`) and that /dev/net/tun is exposed to this VM/container, then re-run Repair"
@@ -1455,9 +1623,14 @@ where
     let os_release = command(server, &["cat", "/etc/os-release"]).await?;
     let family = distro::DistroFamily::detect(&os_release).ok_or_else(|| {
         AppError::ValidationError(
-            "Only Debian/Ubuntu, Fedora, and Arch-based servers are supported".into(),
+            "Only Debian/Ubuntu, Fedora, Arch, and Alpine servers are supported".into(),
         )
     })?;
+    if family == DistroFamily::Alpine && server.podman_mode == PodmanMode::Rootless {
+        return Err(AppError::ValidationError(
+            "Alpine Linux supports rootful Podman only (it has no systemd user services). Switch this server to rootful.".into(),
+        ));
+    }
     for step in setup_plan(family, server.ingress_mode, server.podman_mode, ssh_user) {
         on_step(step.name, format!("Running {}", step.name)).await?;
         let outcome = SshExecutor::run_with_timeout(
@@ -1504,19 +1677,21 @@ where
             }
             other => other,
         })?;
-    on_step(
-        "configure-fail2ban",
-        "Running configure-fail2ban".to_string(),
-    )
-    .await?;
-    configure_fail2ban(server)
-        .await
-        .map_err(|error| match error {
-            AppError::ValidationError(message) => {
-                AppError::ValidationError(format!("Step configure-fail2ban: {message}"))
-            }
-            other => other,
-        })?;
+    if family != DistroFamily::Alpine {
+        on_step(
+            "configure-fail2ban",
+            "Running configure-fail2ban".to_string(),
+        )
+        .await?;
+        configure_fail2ban(server)
+            .await
+            .map_err(|error| match error {
+                AppError::ValidationError(message) => {
+                    AppError::ValidationError(format!("Step configure-fail2ban: {message}"))
+                }
+                other => other,
+            })?;
+    }
     if server.podman_mode == PodmanMode::Rootless {
         on_step(
             "configure-rootless-network",
@@ -1565,7 +1740,7 @@ where
     let (facts, state) = preflight(server).await?;
     if state == ServerState::Unsupported {
         return Err(AppError::ValidationError(
-            "Only Debian/Ubuntu, Fedora, and Arch-based servers are supported".into(),
+            "Only Debian/Ubuntu, Fedora, Arch, and Alpine servers are supported".into(),
         ));
     }
     if swap_recommended(&facts) {
@@ -1578,8 +1753,8 @@ where
 mod tests {
     use super::{
         CADDY_HELPER, DEFAULT_REGISTRY_CONF, DEFAULT_REGISTRY_PATH, FAIL2BAN_SSHD_PATH,
-        ROOTFUL_PODMAN_SOCKET_DROPIN, classify_os, fail2ban_sshd_conf, meminfo_total_bytes,
-        memory_bytes, setup_plan,
+        ROOTFUL_PODMAN_SOCKET_DROPIN, alpine_podman_socket_script, classify_os, fail2ban_sshd_conf,
+        meminfo_total_bytes, memory_bytes, setup_plan,
     };
     use crate::servers::{
         distro::DistroFamily,
@@ -2545,6 +2720,64 @@ mod tests {
         assert!(caddy.command.iter().any(|part| part == "pacman"));
         assert!(caddy.command.iter().any(|part| part == "caddy"));
         assert!(plan.iter().any(|step| step.name == "enable-native-caddy"));
+    }
+
+    #[test]
+    fn alpine_rootful_plan_uses_apk_and_openrc_without_systemd() {
+        let plan = setup_plan(
+            DistroFamily::Alpine,
+            IngressMode::PublicEdge,
+            PodmanMode::Rootful,
+            "root",
+        );
+        let names: Vec<_> = plan.iter().map(|step| step.name).collect();
+        assert_eq!(
+            &names[..4],
+            [
+                "verify-privileges",
+                "enable-alpine-community-repository",
+                "refresh-package-index",
+                "install-base-packages"
+            ]
+        );
+        let podman = plan
+            .iter()
+            .find(|step| step.name == "install-rootful-podman")
+            .unwrap();
+        for package in ["apk", "add", "podman", "podman-openrc", "crun", "iptables"] {
+            assert!(podman.command.iter().any(|part| part == package));
+        }
+        for name in [
+            "register-cgroups-service",
+            "start-cgroups-service",
+            "register-podman-service",
+            "enable-rootful-podman",
+            "create-caddy-log-directory",
+            "register-native-caddy",
+            "enable-native-caddy",
+        ] {
+            assert!(names.contains(&name), "{name} missing from the Alpine plan");
+        }
+        assert!(
+            !plan
+                .iter()
+                .any(|step| step.command.iter().any(|part| part == "systemctl")),
+            "an OpenRC host has no systemctl"
+        );
+        let base = plan
+            .iter()
+            .find(|step| step.name == "install-base-packages")
+            .unwrap();
+        assert!(base.command.iter().any(|part| part == "build-base"));
+        assert!(!base.command.iter().any(|part| part == "fail2ban"));
+    }
+
+    #[test]
+    fn alpine_terminal_socket_script_hands_the_socket_to_the_ssh_user() {
+        let script = alpine_podman_socket_script("deploy");
+        assert!(script.starts_with("#!/bin/sh\n"));
+        assert!(script.contains("chown deploy /run/podman/podman.sock"));
+        assert!(script.contains("chmod 0600 /run/podman/podman.sock"));
     }
 
     /// Live end-to-end coverage of `run_setup()` over real SSH per distro family, following the

@@ -12,7 +12,7 @@ use crate::servers::{repository::ServerRecord, setup};
 pub const HELPER_PATH: &str = "/usr/local/lib/litepod/serverctl";
 
 /// The version the script in this build reports. Keep in step with `helper_version=` in it.
-pub const HELPER_VERSION: u32 = 3;
+pub const HELPER_VERSION: u32 = 4;
 
 pub struct HelperRelease {
     pub version: u32,
@@ -47,6 +47,13 @@ pub const CHANGELOG: &[HelperRelease] = &[
         changes: &["Serves a page when the app does not answer (502/503/504) (`error-page-check`)"],
         #[cfg(test)]
         script_sha256: "12e612c0cd945fc0846fb2b0d253aad324e1747a35b2128a57544359bb6338cd",
+    },
+    HelperRelease {
+        version: 4,
+        summary: "Alpine Linux support",
+        changes: &["Reloads and checks Caddy through OpenRC on hosts without systemd"],
+        #[cfg(test)]
+        script_sha256: "1f955925ea153916d42ea5f121ac06f0079e337a3de871236075123344c6e053",
     },
 ];
 

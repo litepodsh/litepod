@@ -41,6 +41,12 @@ assert_eq fedora "$(distro_family)"
 write_os_release 'ID=arch'
 assert_eq arch "$(distro_family)"
 
+write_os_release 'ID=alpine'
+assert_eq alpine "$(distro_family)"
+
+write_os_release 'ID="alpine"'
+assert_eq alpine "$(distro_family)"
+
 # ── distro_family: ID_LIKE fallback for derivatives ─────────────────────────
 printf 'ID=pop\nID_LIKE=ubuntu debian\n' > "${os_release_fixture}"
 assert_eq debian "$(distro_family)"
@@ -70,6 +76,9 @@ assert_eq fail2ban "$(pkg_name fedora fail2ban)"
 assert_eq fail2ban "$(pkg_name arch fail2ban)"
 assert_eq shadow-utils "$(pkg_name fedora uidmap)"
 assert_eq '' "$(pkg_name arch uidmap)"
+assert_eq which "$(pkg_name alpine which)"
+assert_eq podman-openrc "$(pkg_name alpine podman_openrc)"
+assert_eq '' "$(pkg_name alpine uidmap)"
 assert_fails pkg_name arch nonexistent
 
 # ── pkg_refresh / pkg_install: dispatch correctness via a capturing fake ────
@@ -97,6 +106,14 @@ assert_eq 'apt-get install -y curl openssl which fail2ban podman podman-compose 
 captured=()
 pkg_install fedora fake_run curl openssl which fail2ban podman podman_compose uidmap
 assert_eq 'dnf install -y curl openssl which fail2ban podman podman-compose shadow-utils' "${captured[*]-}"
+
+captured=()
+pkg_refresh alpine fake_run
+assert_eq 'apk update' "${captured[*]-}"
+
+captured=()
+pkg_install alpine fake_run curl podman podman_openrc podman_compose uidmap
+assert_eq 'apk add curl podman podman-openrc podman-compose' "${captured[*]-}"
 
 # Arch's uidmap resolves to nothing — must be dropped from the install list,
 # not passed through as an empty argv element.

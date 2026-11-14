@@ -236,7 +236,10 @@ impl Rollout {
         containers: &[String],
     ) -> Result<(), String> {
         super::history::step(state, "health_check").await;
-        wait_running(runtime, containers).await?;
+        if let Err(error) = wait_running(runtime, containers).await {
+            log_unready_containers(state, app, runtime, containers).await;
+            return Err(error);
+        }
         let mut ports = HashMap::new();
         for (_, container, port) in targets {
             let port = u16::try_from(*port).map_err(|_| "Invalid application port".to_string())?;
@@ -480,6 +483,67 @@ fn readiness_budget(facts: &[Value]) -> Duration {
         .max()
         .unwrap_or(0);
     Duration::from_secs(60) + Duration::from_nanos(start_period)
+}
+
+fn is_ready(fact: &Value) -> bool {
+    let state = &fact["State"];
+    let health = state
+        .pointer("/Health/Status")
+        .or_else(|| state.pointer("/Healthcheck/Status"))
+        .and_then(Value::as_str);
+    completed_job(fact)
+        || (state["Running"].as_bool() == Some(true)
+            && health.is_none_or(|status| status == "healthy" || status.is_empty()))
+}
+
+/// A failed candidate is removed right after the deploy fails, and its output goes
+/// with it. Copy the tail of every container that never got ready into the
+/// deployment log first, or the user only sees "readiness timed out".
+async fn log_unready_containers(
+    state: &SharedState,
+    app: &str,
+    runtime: &ServerRuntime,
+    names: &[String],
+) {
+    let Ok(facts) = inspect(runtime, names).await else {
+        return;
+    };
+    // The application's own secret values, so a crash that prints its environment
+    // does not publish it; a read failure still leaves the pattern pass.
+    let values = super::decrypted_environment(state, app, "runtime")
+        .await
+        .unwrap_or_default();
+    for fact in facts.iter().filter(|fact| !is_ready(fact)) {
+        let name = fact["Name"].as_str().unwrap_or_default();
+        let status = fact
+            .pointer("/State/Status")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let code = fact
+            .pointer("/State/ExitCode")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        super::history::note(
+            state,
+            "error",
+            &format!(
+                "Container '{name}' did not become ready (status {status}, last exit code {code}). Last output:"
+            ),
+        )
+        .await;
+        let Ok(output) = runtime
+            .podman(&["logs".into(), "--tail".into(), "30".into(), name.into()])
+            .await
+        else {
+            continue;
+        };
+        // Podman prints the container's stderr on its own stderr.
+        let text = format!("{}{}", output.stdout, output.stderr);
+        let text = crate::assistant::redaction::redact(&text, &values);
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            super::history::note(state, "error", line).await;
+        }
+    }
 }
 
 async fn wait_running(runtime: &ServerRuntime, names: &[String]) -> Result<(), String> {
@@ -897,6 +961,16 @@ mod tests {
         Arc,
         atomic::{AtomicBool, Ordering},
     };
+
+    #[test]
+    fn restarting_container_is_not_ready_and_healthy_one_is() {
+        let crashing = serde_json::json!({"State": {"Status": "running", "Running": true, "Health": {"Status": "starting"}}});
+        let healthy = serde_json::json!({"State": {"Status": "running", "Running": true, "Health": {"Status": "healthy"}}});
+        let exited = serde_json::json!({"State": {"Status": "exited", "Running": false, "ExitCode": 1}, "HostConfig": {"RestartPolicy": {"Name": "unless-stopped"}}});
+        assert!(!is_ready(&crashing));
+        assert!(is_ready(&healthy));
+        assert!(!is_ready(&exited));
+    }
 
     #[tokio::test]
     async fn tcp_listening_accepts_silent_or_banner_and_rejects_closed() {
