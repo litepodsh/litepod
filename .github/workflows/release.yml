@@ -283,21 +283,49 @@ jobs:
                 build/_app/immutable/workers/css.worker-*.js* \
                 build/_app/immutable/workers/html.worker-*.js*
 
+      # Rust cache for the VM: the workspace is rsynced into the VM and back, so
+      # target/ and the registry restored here are what cargo finds inside it.
+      # Only branch runs save (a tag run's cache is unreadable to later tags), so
+      # next releases must go through `just bump-next litepod`.
+      - name: Restore freebsd rust cache
+        id: rust-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            apps/api/target
+            apps/.cargo-home/registry
+            apps/.cargo-home/git
+          key: freebsd-rust-${{ hashFiles('apps/api/Cargo.lock') }}
+          restore-keys: freebsd-rust-
+
       - name: Build API on FreeBSD
         uses: vmactions/freebsd-vm@v1
         with:
           release: "14.3"
           mem: 8192
           usesh: true
+          # A tag run saves caches no later tag can read; 1.8 GB of VM images per
+          # release filled the 10 GB quota and evicted the rust cache.
+          disable-cache: true
           prepare: pkg install -y rust cmake gmake pkgconf perl5 xmlsec1 llvm
           run: |
             set -e
             cd apps/api
             rm -f .cargo/config.toml
+            # Keep the registry in the workspace so it syncs back and is cached.
+            export CARGO_HOME="$(pwd)/../.cargo-home"
             cargo build --release --locked --features saml
-            # The VM syncs the workspace back to the runner: hand back the binary, not target/.
             cp target/release/litepod-api ../litepod-api-freebsd
-            rm -rf target
+
+      - name: Save freebsd rust cache
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next') && steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            apps/api/target
+            apps/.cargo-home/registry
+            apps/.cargo-home/git
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
 
       - name: Package
         run: |
@@ -346,12 +374,30 @@ jobs:
                 build/_app/immutable/workers/css.worker-*.js* \
                 build/_app/immutable/workers/html.worker-*.js*
 
+      # Rust cache for the VM: the workspace is rsynced into the VM and back, so
+      # target/ and the registry restored here are what cargo finds inside it.
+      # Only branch runs save (a tag run's cache is unreadable to later tags), so
+      # next releases must go through `just bump-next litepod`.
+      - name: Restore openbsd rust cache
+        id: rust-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            apps/api/target
+            apps/.cargo-home/registry
+            apps/.cargo-home/git
+          key: openbsd-rust-${{ hashFiles('apps/api/Cargo.lock') }}
+          restore-keys: openbsd-rust-
+
       - name: Build API on OpenBSD
         uses: vmactions/openbsd-vm@v1
         with:
           release: ${{ env.OPENBSD_RELEASE }}
           mem: 8192
           usesh: true
+          # A tag run saves caches no later tag can read; 1.8 GB of VM images per
+          # release filled the 10 GB quota and evicted the rust cache.
+          disable-cache: true
           prepare: pkg_add -I rust cmake gmake xmlsec llvm%21 duckdb
           run: |
             set -e
@@ -371,7 +417,16 @@ jobs:
             cargo build --release --locked --features saml \
               --config profile.release.opt-level=0 --config profile.release.codegen-units=256
             cp target/release/litepod-api ../litepod-api-openbsd
-            rm -rf target "${CARGO_HOME}"
+
+      - name: Save openbsd rust cache
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next') && steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            apps/api/target
+            apps/.cargo-home/registry
+            apps/.cargo-home/git
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
 
       - name: Package
         run: |
