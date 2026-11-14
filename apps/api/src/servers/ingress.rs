@@ -41,6 +41,7 @@ struct RelayEndpoint {
 // one live SSH local-forward at once.
 struct LiveRelay {
     target: SshTarget,
+    remote_host: std::net::IpAddr,
     remote_port: u16,
     credentials: (String, String, Option<String>),
     relay: SshRelay,
@@ -163,9 +164,20 @@ async fn ensure_relay(
         })?,
         server.host_key_known_hosts.clone(),
     );
+    // pf cannot send a connection from a FreeBSD host through its own published port, so the
+    // tunnel goes to the container. The supervisor calls this every 30 seconds, which moves the
+    // tunnel when a restarted container comes back with another address.
+    let (remote_host, remote_port) = if setup::is_freebsd(server) {
+        published_container_address(server, remote_port)
+            .await
+            .unwrap_or((std::net::Ipv4Addr::LOCALHOST.into(), remote_port))
+    } else {
+        (std::net::Ipv4Addr::LOCALHOST.into(), remote_port)
+    };
     let mut relays = RELAYS.lock().await;
     if let Some(live) = relays.get_mut(&relay_port)
         && live.target == target
+        && live.remote_host == remote_host
         && live.remote_port == remote_port
         && live.credentials == credentials
         && live.relay.is_running()?
@@ -181,6 +193,7 @@ async fn ensure_relay(
         &credentials.1,
         credentials.2.as_deref(),
         relay_port,
+        remote_host,
         remote_port,
     )
     .await?;
@@ -188,12 +201,51 @@ async fn ensure_relay(
         relay_port,
         LiveRelay {
             target,
+            remote_host,
             remote_port,
             credentials,
             relay,
         },
     );
     Ok(())
+}
+
+/// The address and port of the running container that publishes `127.0.0.1:<host_port>`.
+async fn published_container_address(
+    server: &repository::ServerRecord,
+    host_port: u16,
+) -> Option<(std::net::IpAddr, u16)> {
+    let listing = setup::podman_command(server, &["ps", "--format", "{{.ID}} {{.Ports}}"])
+        .await
+        .ok()?;
+    let (id, container_port) = loopback_publisher(&listing, host_port)?;
+    let addresses = setup::podman_command(
+        server,
+        &[
+            "inspect",
+            "--format",
+            "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}",
+            &id,
+        ],
+    )
+    .await
+    .ok()?;
+    let address = addresses.split_whitespace().find_map(|value| value.parse().ok())?;
+    Some((address, container_port))
+}
+
+/// From `podman ps --format '{{.ID}} {{.Ports}}'`, the container publishing
+/// `127.0.0.1:<host_port>` over TCP and the container port behind it.
+fn loopback_publisher(listing: &str, host_port: u16) -> Option<(String, u16)> {
+    let published = format!("127.0.0.1:{host_port}->");
+    listing.lines().find_map(|line| {
+        let (id, ports) = line.trim().split_once(' ')?;
+        ports.split(',').find_map(|mapping| {
+            let target = mapping.trim().strip_prefix(&published)?;
+            let port = target.strip_suffix("/tcp")?.parse().ok()?;
+            Some((id.to_string(), port))
+        })
+    })
 }
 
 async fn remove_relay(relay_port: u16) {
@@ -860,6 +912,23 @@ pub async fn public_edge_healthy(server: &repository::ServerRecord) -> Result<()
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn loopback_publisher_finds_the_container_behind_a_host_port() {
+        let listing = "da3756aa 127.0.0.1:42000->80/tcp, 443/tcp, 2019/tcp, 443/udp\n\
+                       b94779bb 80/tcp\n\
+                       c0ffee00 127.0.0.1:42001->8080/tcp\n";
+        assert_eq!(
+            super::loopback_publisher(listing, 42001),
+            Some(("c0ffee00".to_string(), 8080))
+        );
+        assert_eq!(
+            super::loopback_publisher(listing, 42000),
+            Some(("da3756aa".to_string(), 80))
+        );
+        assert_eq!(super::loopback_publisher(listing, 4200), None);
+        assert_eq!(super::loopback_publisher("", 42000), None);
+    }
+
     use super::{is_internal_relay_host, manifest_line, route_fragment};
 
     #[tokio::test]

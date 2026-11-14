@@ -524,8 +524,17 @@ async fn async_main(sentry_kind: Option<&'static str>) {
     let port = api_port.to_string();
     let base_url = format!("http://localhost:{}", port);
 
-    eprintln!("[boot] binding [::]:{port}");
-    let listener = tokio::net::TcpListener::bind(&format!("[::]:{}", port))
+    // All interfaces by default: in the container stack only Caddy shares the network. A
+    // native FreeBSD install listens on litepod-network's gateway address instead, so the
+    // API is reachable from Caddy's container and not from the host's public interfaces.
+    let listen_address = std::env::var("LITEPOD_LISTEN_ADDRESS")
+        .ok()
+        .map(|address| address.trim().to_string())
+        .filter(|address| !address.is_empty())
+        .unwrap_or_else(|| "[::]".to_string());
+    let bind_address = format!("{listen_address}:{port}");
+    eprintln!("[boot] binding {bind_address}");
+    let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
         .unwrap_or_else(|e| {
             eprintln!("[boot] bind failed: {e}");
@@ -534,7 +543,7 @@ async fn async_main(sentry_kind: Option<&'static str>) {
 
     eprintln!();
     eprintln!("  litepod API");
-    eprintln!("  Server   -> [::]:{}", port);
+    eprintln!("  Server   -> {bind_address}");
     eprintln!("  Health   -> {}/health", base_url);
     eprintln!("  Docs     -> {}/docs", base_url);
     eprintln!("  Metrics  -> {}/metrics", base_url);

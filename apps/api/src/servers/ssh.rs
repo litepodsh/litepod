@@ -827,13 +827,15 @@ impl SshExecutor {
 
     /// Starts a local forwarding-only SSH session. `bind_port` is reachable
     /// only inside litepod's Podman network (Caddy dials the API container), and
-    /// the remote destination is always an application loopback socket.
+    /// the remote destination is an application loopback socket, or on FreeBSD
+    /// (where the host cannot reach its own published ports) the container itself.
     pub async fn start_local_forward(
         target: &SshTarget,
         encrypted_private_key: &str,
         expected_fingerprint: &str,
         known_hosts_line: Option<&str>,
         bind_port: u16,
+        remote_host: std::net::IpAddr,
         remote_port: u16,
     ) -> Result<SshRelay, AppError> {
         if bind_port == 0 || remote_port == 0 {
@@ -876,7 +878,7 @@ impl SshExecutor {
                 OsString::from("ExitOnForwardFailure=yes"),
                 OsString::from("-N"),
                 OsString::from("-L"),
-                OsString::from(format!("0.0.0.0:{bind_port}:127.0.0.1:{remote_port}")),
+                OsString::from(format!("0.0.0.0:{bind_port}:{remote_host}:{remote_port}")),
             ],
         );
         let mut command = Command::new(&argv[0]);

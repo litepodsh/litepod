@@ -35,7 +35,13 @@ async fn ensure_image_pulled(podman: &Podman, image: &str) -> Result<(), String>
     if images.get(image).inspect().await.is_ok() {
         return Ok(());
     }
-    let mut pull = images.pull(&PullOpts::builder().reference(image).build());
+    let mut pull = images.pull(
+        &PullOpts::builder()
+            .reference(image)
+            // Explicit for FreeBSD servers, whose Podman defaults to freebsd images.
+            .os("linux")
+            .build(),
+    );
     while let Some(report) = pull.next().await {
         report.map_err(|error| format!("Could not pull {image}: {error}"))?;
     }

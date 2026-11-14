@@ -48,11 +48,12 @@ const MAX_POINTS: i64 = 120;
 const SAMPLE_TIMEOUT: Duration = Duration::from_secs(10);
 const RETENTION_TICK: Duration = Duration::from_secs(3600);
 const MAX_RETENTION_DAYS: i64 = 365;
-/// One SSH round trip per server per minute (`df`, `nproc`, `/proc/meminfo`).
+/// One SSH round trip per server per minute (`df`, `nproc`, `/proc/meminfo` or FreeBSD's
+/// VM counters).
 const HOST_SAMPLE_INTERVAL: Duration = Duration::from_secs(60);
-/// Never exits non-zero: a host missing one part (no `/proc/meminfo` on macOS) still
-/// reports the rest.
-const HOST_PROBE: &str = "df -Pk / 2>/dev/null; echo ---; nproc 2>/dev/null; echo ---; cat /proc/meminfo 2>/dev/null; true";
+/// Never exits non-zero: a host missing one part (no `/proc/meminfo` on macOS or FreeBSD)
+/// still reports the rest.
+const HOST_PROBE: &str = "df -Pk / 2>/dev/null; echo ---; nproc 2>/dev/null; echo ---; cat /proc/meminfo 2>/dev/null; echo ---; sysctl -n hw.physmem hw.pagesize vm.stats.vm.v_free_count vm.stats.vm.v_inactive_count vm.stats.vm.v_cache_count 2>/dev/null; true";
 
 static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
@@ -235,6 +236,24 @@ fn meminfo_usage(meminfo: &str) -> Option<(i64, i64)> {
     Some((total - field("MemAvailable:")?, total))
 }
 
+/// `(used, total)` bytes from FreeBSD's `sysctl -n hw.physmem hw.pagesize
+/// vm.stats.vm.v_free_count vm.stats.vm.v_inactive_count vm.stats.vm.v_cache_count`. Free,
+/// inactive and cache pages can all be handed out, which is what `MemAvailable` means on Linux.
+fn bsd_memory_usage(sysctl: &str) -> Option<(i64, i64)> {
+    let values = sysctl
+        .split_whitespace()
+        .map(|value| value.parse::<i64>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    let [total, page_size, free, inactive, cache] = values[..] else {
+        return None;
+    };
+    let available = free
+        .checked_add(inactive)?
+        .checked_add(cache)?
+        .checked_mul(page_size)?;
+    Some((total.checked_sub(available)?.max(0), total))
+}
+
 /// `(disk, cores, memory)`, each `(used, total)` bytes where it applies.
 type HostProbe = (Option<(i64, i64)>, Option<i32>, Option<(i64, i64)>);
 
@@ -244,6 +263,7 @@ fn parse_host_probe(output: &str) -> HostProbe {
     let disk = parts.next().and_then(df_usage);
     let cores = parts.next().and_then(|part| part.trim().parse().ok());
     let memory = parts.next().and_then(meminfo_usage);
+    let memory = memory.or_else(|| parts.next().and_then(bsd_memory_usage));
     (disk, cores, memory)
 }
 
@@ -1257,6 +1277,21 @@ mod tests {
         // macOS dev host: no /proc/meminfo.
         let (disk, _, memory) = parse_host_probe("garbage\n---\n\n---\n");
         assert_eq!((disk, memory), (None, None));
+    }
+
+    #[test]
+    fn host_probe_reads_freebsd_memory_from_sysctl() {
+        let output = "Filesystem         1024-blocks    Used    Avail Capacity  Mounted on\n\
+                      zroot/ROOT/default    29887128 2013588 27873540     7%    /\n---\n4\n---\n---\n\
+                      4195840000\n4096\n566124\n42836\n0\n";
+        assert_eq!(
+            parse_host_probe(output),
+            (
+                Some((2_013_588 * 1024, (2_013_588 + 27_873_540) * 1024)),
+                Some(4),
+                Some((4_195_840_000 - (566_124 + 42_836) * 4096, 4_195_840_000))
+            )
+        );
     }
 
     #[test]

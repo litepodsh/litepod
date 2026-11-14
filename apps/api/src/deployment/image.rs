@@ -302,7 +302,9 @@ pub async fn run(state: &SharedState, application_id: &str, run_id: &str) -> Res
         Err(error) => return Err(error.to_string()),
     };
     let mut pull_builder = PullOptsBuilder::default();
-    pull_builder = pull_builder.reference(&image);
+    // Podman on a FreeBSD server picks freebsd images unless told otherwise; litepod deploys
+    // Linux images, and on Linux this is already the default.
+    pull_builder = pull_builder.reference(&image).os("linux");
     if let Some(auth) = auth {
         let _ = pull_builder.auth(auth);
     }

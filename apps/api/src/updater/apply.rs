@@ -225,7 +225,11 @@ where
     // not proof the pull worked. Without this check a failed pull (rate
     // limit, auth, network) silently recreates the container from the stale
     // local image — the update appears to succeed and changes nothing.
-    let pull_opts = PullOpts::builder().reference(image).build();
+    let pull_opts = PullOpts::builder()
+        .reference(image)
+        // Explicit for FreeBSD hosts, whose Podman defaults to freebsd images.
+        .os("linux")
+        .build();
     let images = podman.images();
     let mut pull = images.pull(&pull_opts);
     while let Some(chunk) = pull.next().await {

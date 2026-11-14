@@ -177,7 +177,13 @@ async fn execute_local_ephemeral(
     let podman = podman_client(&state)?;
     let images = podman.images();
     if images.get(&image).inspect().await.is_err() {
-        let mut pull = images.pull(&PullOpts::builder().reference(&image).build());
+        let mut pull = images.pull(
+            &PullOpts::builder()
+                .reference(&image)
+                // Explicit for FreeBSD servers, whose Podman defaults to freebsd images.
+                .os("linux")
+                .build(),
+        );
         while let Some(report) = pull.next().await {
             match report {
                 Ok(report)

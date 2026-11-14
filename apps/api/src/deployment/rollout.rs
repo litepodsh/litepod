@@ -250,7 +250,7 @@ impl Rollout {
                         state,
                         port,
                         ServerRuntime::REMOTE_READY_BUDGET,
-                        runtime.wait_for_container_ready(container, published),
+                        runtime.wait_for_container_ready(container, published, port),
                     )
                     .await
                     .map_err(|e| e.to_string())?;
@@ -764,6 +764,11 @@ pub async fn deploy_image(
 ) -> Result<(), String> {
     use podman_api::{Podman, models};
     super::history::step(state, "start").await;
+    if runtime.is_freebsd()
+        && let Some(issue) = crate::servers::freebsd::image_issue(image, false)
+    {
+        super::history::note(state, "warn", &format!("{image}: {issue}")).await;
+    }
     let rollout = Rollout::prepare(state, app, runtime, false).await?;
     let mounts = super::managed_volumes::runtime_mounts(state, app)
         .await

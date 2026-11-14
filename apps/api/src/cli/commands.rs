@@ -77,6 +77,11 @@ pub enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Print the FreeBSD host preparation script (storage, pf, the Linux layer, the Podman
+    /// service and its helpers). The FreeBSD installer runs it before the first boot; server
+    /// Setup installs the same script on remote FreeBSD servers. Needs no database.
+    #[command(name = "freebsd-host-script")]
+    FreebsdHostScript,
 }
 
 /// Parse argv into a `Cli`. On clap parse error, render the message

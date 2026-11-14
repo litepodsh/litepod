@@ -31,6 +31,9 @@ pub enum ServerRuntime {
         host_key_fingerprint: String,
         host_key_known_hosts: String,
         podman_mode: PodmanMode,
+        /// FreeBSD runs Linux images through its Linux ABI layer, which some images and
+        /// build tools cannot use; deploys check it to refuse or warn up front.
+        freebsd: bool,
     },
 }
 
@@ -46,6 +49,11 @@ impl ServerRuntime {
             Self::Local { .. } => None,
             Self::Ssh { podman_mode, .. } => Some(*podman_mode),
         }
+    }
+
+    /// Whether this is a remote FreeBSD server (see `crate::servers::freebsd`).
+    pub const fn is_freebsd(&self) -> bool {
+        matches!(self, Self::Ssh { freebsd: true, .. })
     }
 
     /// A safe display name only; connection material stays inside the runtime.
@@ -152,6 +160,7 @@ impl ServerRuntime {
             });
         }
         let server_name = server.name.clone();
+        let freebsd = crate::servers::setup::is_freebsd(&server);
         let target =
             SshTarget::parse(
                 server.ssh_host.as_deref().ok_or_else(|| {
@@ -179,6 +188,7 @@ impl ServerRuntime {
             host_key_fingerprint,
             host_key_known_hosts,
             podman_mode: server.podman_mode,
+            freebsd,
         })
     }
 
@@ -576,6 +586,7 @@ impl ServerRuntime {
         &self,
         container_name: &str,
         host_port: u16,
+        container_port: u16,
     ) -> Result<bool, AppError> {
         if !self.is_remote() {
             return Ok(true);
@@ -586,30 +597,29 @@ impl ServerRuntime {
                 .podman(&[
                     OsString::from("inspect"),
                     OsString::from("--format"),
-                    OsString::from("{{.State.Status}} {{.State.ExitCode}}"),
+                    OsString::from(
+                        "{{.State.Status}} {{.State.ExitCode}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}",
+                    ),
                     OsString::from(container_name),
                 ])
                 .await;
             if let Ok(output) = status {
-                let state = output.stdout.split_whitespace().next().unwrap_or_default();
+                let mut fields = output.stdout.split_whitespace();
+                let state = fields.next().unwrap_or_default();
                 if state == "exited" || state == "dead" {
                     return Err(AppError::ValidationError(format!(
                         "Container '{container_name}' stopped before becoming ready"
                     )));
                 }
+                // A FreeBSD host cannot reach its own published ports (pf does not hairpin
+                // them), so the container's own address is tried when the loopback one fails.
+                let address = fields.nth(1);
                 if state == "running"
-                    && self
-                        .remote_command(&[
-                            OsString::from("curl"),
-                            OsString::from("-sS"),
-                            OsString::from("-o"),
-                            OsString::from("/dev/null"),
-                            OsString::from("--max-time"),
-                            OsString::from("2"),
-                            OsString::from(format!("http://127.0.0.1:{host_port}/")),
-                        ])
-                        .await
-                        .is_ok()
+                    && (self.answers_http(&format!("127.0.0.1:{host_port}")).await
+                        || match address {
+                            Some(ip) => self.answers_http(&format!("{ip}:{container_port}")).await,
+                            None => false,
+                        })
                 {
                     return Ok(true);
                 }
@@ -617,6 +627,20 @@ impl ServerRuntime {
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
         Ok(false)
+    }
+
+    async fn answers_http(&self, authority: &str) -> bool {
+        self.remote_command(&[
+            OsString::from("curl"),
+            OsString::from("-sS"),
+            OsString::from("-o"),
+            OsString::from("/dev/null"),
+            OsString::from("--max-time"),
+            OsString::from("2"),
+            OsString::from(format!("http://{authority}/")),
+        ])
+        .await
+        .is_ok()
     }
 
     /// Streams a fixed non-Podman remote command whose output is consumed

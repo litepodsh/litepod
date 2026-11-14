@@ -12,7 +12,7 @@ use crate::servers::{repository::ServerRecord, setup};
 pub const HELPER_PATH: &str = "/usr/local/lib/litepod/serverctl";
 
 /// The version the script in this build reports. Keep in step with `helper_version=` in it.
-pub const HELPER_VERSION: u32 = 4;
+pub const HELPER_VERSION: u32 = 5;
 
 pub struct HelperRelease {
     pub version: u32,
@@ -54,6 +54,15 @@ pub const CHANGELOG: &[HelperRelease] = &[
         changes: &["Reloads and checks Caddy through OpenRC on hosts without systemd"],
         #[cfg(test)]
         script_sha256: "1f955925ea153916d42ea5f121ac06f0079e337a3de871236075123344c6e053",
+    },
+    HelperRelease {
+        version: 5,
+        summary: "FreeBSD support",
+        changes: &[
+            "Reloads Caddy through rc.d and dials containers by address on FreeBSD (`refresh-upstreams`)",
+        ],
+        #[cfg(test)]
+        script_sha256: "bff1a765ea9a91451318d20977f773c271821aa0b37d1a1f392db269e48f6ba6",
     },
 ];
 

@@ -362,6 +362,11 @@ pub async fn apply(
                     "Fail2ban is not set up on Alpine Linux servers".into(),
                 ));
             }
+            if family == DistroFamily::FreeBsd {
+                return Err(AppError::ValidationError(
+                    "Fail2ban is not set up on FreeBSD servers".into(),
+                ));
+            }
             let packages = family.resolve_packages(&[LogicalPackage::Fail2ban]);
             let install = sudo(server)
                 .iter()

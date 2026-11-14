@@ -388,7 +388,11 @@ async fn with_helper_timing<T>(
             "volume workspace timing"
         );
         let pull_started = Instant::now();
-        let pull_options = PullOpts::builder().reference(HELPER_IMAGE).build();
+        let pull_options = PullOpts::builder()
+            .reference(HELPER_IMAGE)
+            // Explicit for FreeBSD servers, whose Podman defaults to freebsd images.
+            .os("linux")
+            .build();
         let mut pull = images.pull(&pull_options);
         while let Some(report) = pull.next().await {
             if let Err(error) = report {

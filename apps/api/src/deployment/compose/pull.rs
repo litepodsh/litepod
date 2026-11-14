@@ -11,6 +11,8 @@ use crate::{deployment::history, servers::runtime::ServerRuntime, state::state::
 pub struct ComposeServiceImage {
     pub name: String,
     pub image: Option<String>,
+    /// The service's `user:`, which FreeBSD needs for images that drop root themselves.
+    pub user: Option<String>,
 }
 
 /// Walks a Compose document and returns every service that pins a registry
@@ -32,9 +34,16 @@ pub fn extract_service_images(content: &str) -> Result<Vec<ComposeServiceImage>,
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_owned);
+        let user = match config.get("user") {
+            Some(serde_yaml::Value::String(user)) => Some(user.trim().to_owned()),
+            Some(serde_yaml::Value::Number(user)) => Some(user.to_string()),
+            _ => None,
+        }
+        .filter(|user| !user.is_empty());
         out.push(ComposeServiceImage {
             name: name.to_owned(),
             image,
+            user,
         });
     }
     Ok(out)
@@ -218,6 +227,18 @@ pub async fn pull_compose_images(
         let Some(image) = service.image else {
             continue;
         };
+        if runtime.is_freebsd() {
+            let runs_as_user = service
+                .user
+                .as_deref()
+                .is_some_and(|user| !matches!(user.split(':').next(), Some("0" | "root")));
+            if let Some(issue) = crate::servers::freebsd::image_issue(&image, runs_as_user)
+                && let Some(run_id) = run_id
+            {
+                let line = format!("Service '{}' ({image}): {issue}", service.name);
+                let _ = history::append(state, run_id, "warn", &line).await;
+            }
+        }
         let before = podman_image_digest(runtime, &image).await?;
         let after = podman_pull(runtime, state, application_id, run_id, &image).await?;
         let changed = before.as_deref() != Some(after.as_str());
@@ -284,18 +305,22 @@ services:
                 ComposeServiceImage {
                     name: "web".into(),
                     image: Some("nginx:latest".into()),
+                    user: None,
                 },
                 ComposeServiceImage {
                     name: "api".into(),
                     image: Some("ghcr.io/me/api:1.4.0".into()),
+                    user: None,
                 },
                 ComposeServiceImage {
                     name: "builder".into(),
                     image: None,
+                    user: None,
                 },
                 ComposeServiceImage {
                     name: "sidecar".into(),
                     image: Some("redis:7".into()),
+                    user: None,
                 },
             ]
         );

@@ -682,6 +682,13 @@ async fn remote_docker_pipeline(
             "No Dockerfile found at {dockerfile_path} in the repository"
         ));
     }
+    if runtime.is_freebsd() {
+        let contents = std::fs::read_to_string(&dockerfile).unwrap_or_default();
+        for (image, issue) in crate::servers::freebsd::dockerfile_issues(&contents) {
+            let line = format!("Base image {image}: {issue}");
+            let _ = super::history::append(state, run_id, "warn", &line).await;
+        }
+    }
 
     // The clone's .git directory can include the source URL; never transfer it
     // to a deployment server once the commit metadata has been recorded.
@@ -772,6 +779,9 @@ async fn remote_railpack_pipeline(
     repo: &Path,
     runtime: &crate::servers::runtime::ServerRuntime,
 ) -> Result<(), String> {
+    if runtime.is_freebsd() {
+        return Err(crate::servers::freebsd::RAILPACK_UNSUPPORTED.into());
+    }
     if !super::managed_volumes::runtime_mounts(state, application_id)
         .await
         .map_err(|error| error.to_string())?

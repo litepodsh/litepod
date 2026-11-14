@@ -1,6 +1,7 @@
 pub mod boot_restore;
 pub mod bootstrap;
 pub mod distro;
+pub mod freebsd;
 pub mod geoip;
 pub mod groups;
 pub mod helper;
