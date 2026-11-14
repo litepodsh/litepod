@@ -315,7 +315,9 @@ bump component version:
 #   just bump-next litepod v0.1.30-next.1
 #   just bump-next dragonfly v2.0.1
 #   just bump-next caddy 2.11.5
-# Bumping litepod tags HEAD as vX.Y.Z-next.N and (after a prompt) pushes it.
+# Bumping litepod on the `next` branch pushes it and (after a prompt) dispatches
+# the release workflow there, which tags vX.Y.Z-next.N itself and reuses the
+# rust cache of previous next runs. On any other branch it tags HEAD and pushes.
 bump-next component version:
     @just _ensure-up-to-date
     @just _bump next {{component}} {{version}}
@@ -362,6 +364,29 @@ _release-tag channel component:
         echo "  git push origin ${tag}"
         echo
         echo "pushing tag ${tag} starts .github/workflows/release.yml (on: push tags v*.*.*)."
+        exit 0
+    fi
+    # Next releases dispatch the workflow on the `next` branch instead of
+    # pushing a tag: only a run on that branch saves and restores its rust
+    # cache (a tag run cannot read it). The release creates the tag itself.
+    if [[ '{{channel}}' == next && "${branch}" == next ]]; then
+        dispatch_cmd=(gh workflow run release.yml --ref next -f version="${tag}" -f dry_run=false)
+        if [[ -t 0 ]]; then
+            read -r -p "push next and dispatch the ${tag} release (it creates the tag)? [y/N] " answer
+            if [[ "${answer}" == [yY] ]]; then
+                git push origin "HEAD:refs/heads/next"
+                sha="$(git rev-parse HEAD)"
+                "${dispatch_cmd[@]}"
+                for _ in $(seq 30); do
+                    run_id="$(gh run list --workflow release.yml --event workflow_dispatch --branch next --commit "${sha}" -L1 --json databaseId -q '.[0].databaseId')"
+                    [[ -n "${run_id}" ]] && break
+                    sleep 2
+                done
+                [[ -n "${run_id:-}" ]] && echo "release run: $(gh run view "${run_id}" --json url -q .url)"
+                exit 0
+            fi
+        fi
+        echo "not released. To release: git push origin HEAD:refs/heads/next && ${dispatch_cmd[*]}"
         exit 0
     fi
     [[ "${branch}" == main ]] || echo "warning: tagging from ${branch}, not main" >&2

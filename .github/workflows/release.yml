@@ -10,23 +10,26 @@ name: release
 #
 # Triggers:
 #   - push a tag vX.Y.Z           -> stable channel (:vX.Y.Z + :latest)
-#   - push a tag vX.Y.Z-next.N   -> next channel  (:vX.Y.Z-next.N + :next)
+#   - dispatch on `next` with vX.Y.Z-next.N and dry_run=false
+#                                 -> next channel  (:vX.Y.Z-next.N + :next)
+#   - push a tag vX.Y.Z-next.N   -> next channel too (same result)
 #   - manual dispatch with a version (same rules). `dry_run` (default on)
 #     builds, probes and assembles the manifest but pushes nothing.
-#   - push to main touching the Rust deps, or weekly -> cache warm-up: only
+#   - push to main or next touching the Rust deps, or weekly (main) -> cache warm-up: only
 #     the binaries are built, no image, nothing published.
 #
 # The runners are always fresh, so the Dockerfile's sccache mount is empty
 # every run. Both binaries are therefore built on the runner and COPYed in
 # (PREBUILT_API), with `api/target` persisted per arch by rust-cache.
 # Actions caches are scoped per ref: a tag run can only restore caches saved
-# by its own tag or by main, and every release is a new tag. So only runs on
-# main save: `just bump litepod` dispatches a dry run on main first, and the
-# tag run queues behind it (concurrency group) and restores what it saved.
-# Actions caches are scoped per ref: a tag run can only restore caches saved
-# by its own tag or by main, and every release is a new tag. So only main
-# saves (warm-up runs and dispatches from main); tag runs just restore. The
-# weekly run keeps the cache alive past GitHub's 7-day eviction.
+# by its own tag or by main, and every release is a new tag. So stable
+# releases (tagged on main) are warmed by a dry run on main: `just bump litepod`
+# dispatches it first and the tag run queues behind it (concurrency group).
+# Next releases do not use tags to start: `just bump-next litepod` dispatches
+# this workflow on the `next` branch, which saves and restores its own cache
+# (save-if below), and the release creates the vX.Y.Z-next.N tag itself. A push
+# to `next` touching Cargo.lock re-warms that cache. The weekly schedule only
+# runs on main, so an idle `next` cache can expire after 7 days (cold build).
 #
 # version.json and the install scripts are published from the website
 # (litepod.sh), not here.
@@ -36,7 +39,7 @@ on:
     tags:
       - "v*.*.*"
     # Path filters are not evaluated for tag pushes, so tags still trigger.
-    branches: [main]
+    branches: [main, next]
     paths: ["apps/api/Cargo.lock", "apps/api/Cross.toml"]
   schedule:
     - cron: "0 6 * * 1"
@@ -93,6 +96,11 @@ jobs:
           fi
           if [[ "${version}" == *-next.* ]]; then channel=next; else channel=stable; fi
           bash podx/scripts/validate-release-tag.sh "${channel}" "${version}"
+          # A real (non-dry) next release may only come from a tag or from the
+          # `next` branch, whose rust cache it shares. Never from main or a PR branch.
+          if [[ "${channel}" == next && "${DRY_RUN}" != true && "${GITHUB_REF_TYPE}" == branch && "${GITHUB_REF_NAME}" != next ]]; then
+            echo "next releases dispatch from the next branch, not ${GITHUB_REF_NAME}" >&2; exit 1
+          fi
           # scripts/install.sh is a symlink into the web repo, absent in CI.
           caddy="$(sed -n 's/.*docker\.io\/library\/caddy:\${CADDY_IMAGE_TAG:-\([^}]*\)}.*/\1/p' podman-compose-prod.yml)"
           : "${caddy:?caddy pin missing in podman-compose-prod.yml}"
@@ -141,7 +149,7 @@ jobs:
           # Bumped from the default v0 to skip the near-empty caches saved
           # while the cargo metadata call above was failing.
           prefix-key: v1-rust
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next' }}
 
       - uses: taiki-e/install-action@v2
         if: matrix.arch == 'arm64'
@@ -316,7 +324,7 @@ jobs:
           tool: git-cliff
 
       - name: GitHub release
-        if: env.DRY_RUN != 'true' && github.ref_type == 'tag'
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -324,10 +332,19 @@ jobs:
             echo "release ${VERSION} already exists"
             exit 0
           fi
-          git cliff --latest -o "${RUNNER_TEMP}/notes.md"
           flags=()
           [[ "${CHANNEL}" == next ]] && flags+=(--prerelease)
-          gh release create "${VERSION}" --verify-tag --notes-file "${RUNNER_TEMP}/notes.md" --title "${VERSION}" "${flags[@]}"
+          if [[ "${GITHUB_REF_TYPE}" == tag ]]; then
+            git cliff --latest -o "${RUNNER_TEMP}/notes.md"
+            flags+=(--verify-tag)
+          else
+            # Dispatched from the next branch: the tag does not exist yet, so
+            # the release creates it at this commit and the notes cover the
+            # commits since the previous tag.
+            git cliff --unreleased --tag "${VERSION}" -o "${RUNNER_TEMP}/notes.md"
+            flags+=(--target "${GITHUB_SHA}")
+          fi
+          gh release create "${VERSION}" --notes-file "${RUNNER_TEMP}/notes.md" --title "${VERSION}" "${flags[@]}"
 
       - name: Summary
         run: |
