@@ -51,9 +51,13 @@ impl ServerRuntime {
         }
     }
 
-    /// Whether this is a remote FreeBSD server (see `crate::servers::freebsd`).
+    /// Whether this server runs FreeBSD (see `crate::servers::freebsd`): a remote one
+    /// whose facts say so, or the local one when litepod itself runs natively there.
     pub const fn is_freebsd(&self) -> bool {
-        matches!(self, Self::Ssh { freebsd: true, .. })
+        match self {
+            Self::Ssh { freebsd, .. } => *freebsd,
+            Self::Local { .. } => cfg!(target_os = "freebsd"),
+        }
     }
 
     /// A safe display name only; connection material stays inside the runtime.

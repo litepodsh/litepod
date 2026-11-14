@@ -64,6 +64,63 @@ pub fn dockerfile_issues(dockerfile: &str) -> Vec<(String, &'static str)> {
     issues
 }
 
+/// Prints what [`meminfo_from_sysctl`] reads: FreeBSD has no `/proc/meminfo`. `-i` skips
+/// the ZFS counters on a host without ZFS instead of failing.
+pub const MEMINFO_SCRIPT: &str = "sysctl -i hw.pagesize vm.stats.vm.v_free_count vm.stats.vm.v_inactive_count kstat.zfs.misc.arcstats.size kstat.zfs.misc.arcstats.c_min; swapctl -sk";
+
+/// The `MemAvailable:` and `SwapFree:` lines of `/proc/meminfo`, built from the output of
+/// [`MEMINFO_SCRIPT`] so the Linux parsers read FreeBSD too. Available memory is the free
+/// and inactive pages plus the ZFS cache above its floor, which the kernel hands back
+/// under pressure the way Linux drops its page cache.
+pub fn meminfo_from_sysctl(output: &str) -> Option<String> {
+    let value = |key: &str| {
+        output.lines().find_map(|line| {
+            line.strip_prefix(key)?
+                .strip_prefix(':')?
+                .trim()
+                .parse::<u64>()
+                .ok()
+        })
+    };
+    let page = value("hw.pagesize")?;
+    let pages = value("vm.stats.vm.v_free_count")? + value("vm.stats.vm.v_inactive_count")?;
+    let arc = match (
+        value("kstat.zfs.misc.arcstats.size"),
+        value("kstat.zfs.misc.arcstats.c_min"),
+    ) {
+        (Some(size), Some(min)) => size.saturating_sub(min),
+        _ => 0,
+    };
+    let available_kb = (pages.saturating_mul(page) + arc) / 1024;
+    // `swapctl -sk`: `Total:  <size KiB>  <used KiB>`.
+    let swap_free_kb = output
+        .lines()
+        .find_map(|line| {
+            let mut words = line.strip_prefix("Total:")?.split_whitespace();
+            let total = words.next()?.parse::<u64>().ok()?;
+            let used = words.next()?.parse::<u64>().ok()?;
+            Some(total.saturating_sub(used))
+        })
+        .unwrap_or(0);
+    Some(format!(
+        "MemAvailable: {available_kb} kB\nSwapFree: {swap_free_kb} kB\n"
+    ))
+}
+
+/// This host's memory as `/proc/meminfo` text, on Linux or FreeBSD.
+pub async fn local_meminfo() -> Option<String> {
+    if cfg!(target_os = "freebsd") {
+        let output = tokio::process::Command::new("/bin/sh")
+            .args(["-c", MEMINFO_SCRIPT])
+            .output()
+            .await
+            .ok()?;
+        meminfo_from_sysctl(&String::from_utf8_lossy(&output.stdout))
+    } else {
+        tokio::fs::read_to_string("/proc/meminfo").await.ok()
+    }
+}
+
 /// `docker.io/library/node:22-alpine@sha256:…` → `("node", "22-alpine")`. The tag is
 /// empty when the reference has none.
 fn name_and_tag(reference: &str) -> (&str, &str) {
@@ -124,5 +181,27 @@ COPY --from=build /app/dist /usr/share/nginx/html
             ]
         );
         assert!(dockerfile_issues("FROM node:22-slim\nCMD [\"node\"]\n").is_empty());
+    }
+
+    #[test]
+    fn meminfo_from_sysctl_counts_free_inactive_and_reclaimable_zfs_cache() {
+        let output = "\
+hw.pagesize: 4096
+vm.stats.vm.v_free_count: 454435
+vm.stats.vm.v_inactive_count: 55452
+kstat.zfs.misc.arcstats.size: 484130560
+kstat.zfs.misc.arcstats.c_min: 131120000
+Total:           2097152      46936
+";
+        assert_eq!(
+            meminfo_from_sysctl(output).as_deref(),
+            Some("MemAvailable: 2384284 kB\nSwapFree: 2050216 kB\n")
+        );
+        assert_eq!(
+            meminfo_from_sysctl("hw.pagesize: 4096\nvm.stats.vm.v_free_count: 256\nvm.stats.vm.v_inactive_count: 0\n").as_deref(),
+            Some("MemAvailable: 1024 kB\nSwapFree: 0 kB\n"),
+            "a host without ZFS or swap still reports its free pages"
+        );
+        assert_eq!(meminfo_from_sysctl("sysctl: unknown oid"), None);
     }
 }

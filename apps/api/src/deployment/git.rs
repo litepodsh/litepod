@@ -683,11 +683,7 @@ async fn remote_docker_pipeline(
         ));
     }
     if runtime.is_freebsd() {
-        let contents = std::fs::read_to_string(&dockerfile).unwrap_or_default();
-        for (image, issue) in crate::servers::freebsd::dockerfile_issues(&contents) {
-            let line = format!("Base image {image}: {issue}");
-            let _ = super::history::append(state, run_id, "warn", &line).await;
-        }
+        warn_freebsd_base_images(state, run_id, &dockerfile).await;
     }
 
     // The clone's .git directory can include the source URL; never transfer it
@@ -765,6 +761,16 @@ async fn remote_docker_pipeline(
         runtime,
     )
     .await
+}
+
+/// Warns in the deploy log about base images that do not run on FreeBSD; the build
+/// still runs, since a later stage may replace the image that fails.
+async fn warn_freebsd_base_images(state: &SharedState, run_id: &str, dockerfile: &Path) {
+    let contents = std::fs::read_to_string(dockerfile).unwrap_or_default();
+    for (image, issue) in crate::servers::freebsd::dockerfile_issues(&contents) {
+        let line = format!("Base image {image}: {issue}");
+        let _ = super::history::append(state, run_id, "warn", &line).await;
+    }
 }
 
 /// Runs the same two-stage Railpack build on the selected server. The source
@@ -1008,6 +1014,18 @@ async fn default_build_memory_for(
         return None;
     }
     let meminfo = match remote {
+        Some(runtime) if runtime.is_freebsd() => {
+            let output = runtime
+                .remote_command(&[
+                    OsString::from("sh"),
+                    OsString::from("-c"),
+                    OsString::from(crate::servers::freebsd::MEMINFO_SCRIPT),
+                ])
+                .await
+                .ok()?
+                .stdout;
+            crate::servers::freebsd::meminfo_from_sysctl(&output)?
+        }
         Some(runtime) => {
             runtime
                 .remote_command(&[OsString::from("cat"), OsString::from("/proc/meminfo")])
@@ -1015,7 +1033,7 @@ async fn default_build_memory_for(
                 .ok()?
                 .stdout
         }
-        None => tokio::fs::read_to_string("/proc/meminfo").await.ok()?,
+        None => crate::servers::freebsd::local_meminfo().await?,
     };
     let (memory, memswap) = default_build_memory(&meminfo)?;
     let line = default_build_memory_log_line(memory, memswap);
@@ -1330,6 +1348,9 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
             return compose::run(state, application_id, &source, &repo).await;
         }
         "railpack" => {
+            if runtime.is_freebsd() {
+                return Err(crate::servers::freebsd::RAILPACK_UNSUPPORTED.into());
+            }
             let _ =
                 super::history::append(state, run_id, "info", "Starting Railpack builder").await;
             let _ = super::history::append(
@@ -1353,6 +1374,9 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
         return Err(format!(
             "No Dockerfile found at {dockerfile_path} in the repository"
         ));
+    }
+    if runtime.is_freebsd() {
+        warn_freebsd_base_images(state, run_id, &dockerfile).await;
     }
 
     // Build the image, keeping the tail of the log for error reporting.
