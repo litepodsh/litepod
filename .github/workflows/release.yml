@@ -306,7 +306,9 @@ jobs:
           mkdir -p "${staging}"
           cp litepod-api-freebsd "${staging}/litepod-api"
           cp -R ui/build "${staging}/ui"
-          tar -C "${staging}" -czf "${RUNNER_TEMP}/${name}" litepod-api ui
+          # The API reads its migrations from the directory next to the binary.
+          cp -R api/migrations "${staging}/migrations"
+          tar -C "${staging}" -czf "${RUNNER_TEMP}/${name}" litepod-api ui migrations
           (cd "${RUNNER_TEMP}" && sha256sum "${name}" > "${name}.sha256")
 
       - uses: actions/upload-artifact@v4
