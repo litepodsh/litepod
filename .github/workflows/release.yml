@@ -581,3 +581,28 @@ jobs:
       - name: Remove credentials
         if: always()
         run: podman logout docker.io || true
+
+  # The repo has a 10 GB cache quota. Keep the 2 newest caches of each kind
+  # (same key minus its hashes) and drop every cache a tag run saved, since
+  # no later run can read those.
+  prune-caches:
+    needs: [build, build-freebsd, build-openbsd]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Delete old caches
+        working-directory: .
+        run: |
+          gh cache list --limit 1000 --json id,key,ref,createdAt --jq '
+            (map(select(.ref | contains("refs/tags/"))) | .[].id),
+            (map(select(.ref | contains("refs/tags/") | not))
+              | group_by(.ref + " " + (.key | gsub("[0-9a-f]{16,}"; "")))
+              | .[] | sort_by(.createdAt) | reverse | .[2:][] | .id)' |
+          while read -r id; do
+            gh cache delete "$id" && echo "deleted cache $id"
+          done
