@@ -66,14 +66,14 @@ defaults:
 
 jobs:
   prepare:
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       version: ${{ steps.version.outputs.version }}
       channel: ${{ steps.version.outputs.channel }}
       dry_run: ${{ steps.version.outputs.dry_run }}
       warm: ${{ steps.version.outputs.warm }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
 
       - name: Resolve version and channel
         id: version
@@ -105,7 +105,7 @@ jobs:
 
   build:
     needs: prepare
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 90
     strategy:
       matrix:
@@ -114,7 +114,7 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       IMAGE: localhost/litepod-build-${{ matrix.arch }}:${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
 
       # The release cargo build (duckdb, etc.) overflows the runner's default
       # free disk otherwise ("no space left on device").
@@ -248,7 +248,7 @@ jobs:
   publish:
     needs: [prepare, build]
     if: needs.prepare.outputs.warm != 'true'
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
     env:
@@ -257,7 +257,7 @@ jobs:
       DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
       REPOSITORY: litepod/litepod
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
         with:
           # git-cliff needs the previous tags to compute the release range.
           fetch-depth: 0

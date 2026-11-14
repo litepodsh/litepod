@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   api:
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       # apps/api/.cargo/config.toml sets rustc-wrapper = "sccache"; back it with
       # the GitHub Actions cache.
@@ -33,7 +33,7 @@ jobs:
       run:
         working-directory: apps/api
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
 
       - name: Install native deps (xmlsec1 for saml, libclang for bindgen)
         run: |
@@ -60,12 +60,12 @@ jobs:
         run: cargo audit
 
   ui:
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     defaults:
       run:
         working-directory: apps/ui
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
 
       - uses: oven-sh/setup-bun@v2
 
