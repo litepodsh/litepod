@@ -61,7 +61,7 @@ scan() {
     trap 'exit 1' HUP INT TERM
     mkdir "$work/host" "$work/out" "$work/template"
 
-    for path in /etc/os-release /usr/lib/os-release /var/lib/dpkg/status /var/lib/rpm /usr/lib/sysimage/rpm /var/lib/pacman/local; do
+    for path in /etc/os-release /usr/lib/os-release /var/lib/dpkg/status /var/lib/rpm /usr/lib/sysimage/rpm /var/lib/pacman/local /lib/apk/db; do
         # On Fedora this is a link to /usr/lib/sysimage/rpm, which is copied on its own.
         if [ "$path" = /var/lib/rpm ] && [ -L "$path" ]; then continue; fi
         if [ -e "$path" ]; then
@@ -70,12 +70,13 @@ scan() {
         fi
     done
     if [ ! -e "$work/host/var/lib/dpkg/status" ] && [ ! -e "$work/host/var/lib/rpm" ] \
-        && [ ! -e "$work/host/usr/lib/sysimage/rpm" ] && [ ! -e "$work/host/var/lib/pacman/local" ]; then
+        && [ ! -e "$work/host/usr/lib/sysimage/rpm" ] && [ ! -e "$work/host/var/lib/pacman/local" ] \
+        && [ ! -e "$work/host/lib/apk/db" ]; then
         exit 3
     fi
 
     nice -n 19 podman run $common --network=none -v "$work/host:/in:ro,Z" -v "$work/out:/out:Z" "$syft" \
-        scan dir:/in --override-default-catalogers dpkg-db-cataloger,rpm-db-cataloger,alpm-db-cataloger \
+        scan dir:/in --override-default-catalogers dpkg-db-cataloger,rpm-db-cataloger,alpm-db-cataloger,apk-db-cataloger \
         -o syft-json=/out/sbom.json -q >/dev/null
 
     # A failed download is not fatal: Grype itself refuses a database that is too old.

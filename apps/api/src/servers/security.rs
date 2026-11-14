@@ -22,7 +22,7 @@ use crate::{
 const SCRIPT_PATH: &str = "/usr/local/lib/litepod/server-security";
 const SSH_CANDIDATE_PATH: &str = "/usr/local/lib/litepod/ssh-hardening.conf";
 
-/// `ssh-apply` arms a 120 s systemd timer that restores the previous sshd settings unless a
+/// `ssh-apply` arms a 120 s timer (a systemd timer, or a detached sleep on OpenRC) that restores the previous sshd settings unless a
 /// brand-new login runs `ssh-confirm` first, so a change that locks litepod out undoes itself.
 const SCRIPT: &str = r#"#!/bin/sh
 set -eu
@@ -35,7 +35,45 @@ pending=/usr/local/lib/litepod/ssh-hardening.pending
 unit=litepod-ssh-revert
 
 reload_ssh() {
-    systemctl reload ssh 2>/dev/null || systemctl reload sshd
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl reload ssh 2>/dev/null || systemctl reload sshd
+    else
+        rc-service sshd reload
+    fi
+}
+
+# systemd hosts arm the revert with a transient timer. OpenRC hosts (Alpine) run a detached
+# sleep instead; it needs no cancelling, because ssh_revert does nothing once confirm has
+# removed the pending marker.
+revert_pid=/usr/local/lib/litepod/ssh-revert.pid
+
+disarm_revert() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl stop "$unit.timer" 2>/dev/null || true
+    elif [ -f "$revert_pid" ]; then
+        kill "$(cat "$revert_pid")" 2>/dev/null || true
+        rm -f "$revert_pid"
+    fi
+}
+
+arm_revert() {
+    disarm_revert
+    if command -v systemd-run >/dev/null 2>&1; then
+        # Stopping an elapsed transient timer unloads it, so the unit name is free again.
+        systemctl reset-failed "$unit.timer" "$unit.service" 2>/dev/null || true
+        systemd-run --quiet --unit="$unit" --on-active=120 "$self" ssh-revert
+    else
+        nohup setsid sh -c 'sleep 120; exec "$1" ssh-revert' sh "$self" >/dev/null 2>&1 &
+        echo $! > "$revert_pid"
+    fi
+}
+
+service_active() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active --quiet "$1"
+    else
+        rc-service "$1" status >/dev/null 2>&1
+    fi
 }
 
 ssh_value() {
@@ -60,7 +98,7 @@ audit() {
     fi
     if ! command -v fail2ban-client >/dev/null 2>&1; then
         echo fail2ban=missing
-    elif systemctl is-active --quiet fail2ban && fail2ban-client status sshd >/dev/null 2>&1; then
+    elif service_active fail2ban && fail2ban-client status sshd >/dev/null 2>&1; then
         echo fail2ban=active
         echo "fail2ban_banned=$(fail2ban-client status sshd | awk -F: '/Currently banned/ { gsub(/[ \t]/, "", $2); print $2 }')"
     else
@@ -77,11 +115,19 @@ audit() {
         echo "security_updates=$(apt-get -s upgrade 2>/dev/null | grep -ci '^Inst .*security' || true)"
     fi
     if [ -e /var/run/reboot-required ]; then echo reboot_required=yes; fi
-    ss -Htln 2>/dev/null | awk '{ print "listen=" $4 }' || true
+    if command -v ss >/dev/null 2>&1; then
+        ss -Htln 2>/dev/null | awk '{ print "listen=" $4 }' || true
+    else
+        # busybox has no ss
+        netstat -tln 2>/dev/null | awk '$1 ~ /^tcp/ { print "listen=" $4 }' || true
+    fi
 }
 
 ssh_apply() {
-    command -v systemd-run >/dev/null 2>&1 || { echo "systemd-run is required to apply SSH settings safely." >&2; exit 1; }
+    if ! command -v systemd-run >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
+        echo "systemd-run or setsid is required to apply SSH settings safely." >&2
+        exit 1
+    fi
     [ -f "$candidate" ] || { echo "No staged SSH settings." >&2; exit 1; }
     if [ -n "$(find "$pending" -mmin -3 2>/dev/null)" ]; then
         echo "A previous SSH change is still being verified; try again in two minutes." >&2
@@ -102,11 +148,8 @@ ssh_apply() {
         echo "sshd ignores $conf (sshd_config has no Include for sshd_config.d, or an earlier line sets PasswordAuthentication); nothing changed." >&2
         exit 1
     fi
-    # Stopping an elapsed transient timer unloads it, so the unit name is free again.
-    systemctl stop "$unit.timer" 2>/dev/null || true
-    systemctl reset-failed "$unit.timer" "$unit.service" 2>/dev/null || true
     touch "$pending"
-    systemd-run --quiet --unit="$unit" --on-active=120 "$self" ssh-revert
+    arm_revert
     trap - EXIT
     reload_ssh
     echo "SSH settings applied; waiting for litepod to confirm it can still log in."
@@ -115,7 +158,7 @@ ssh_apply() {
 # Exactly one of confirm and revert wins the pending marker, so a late confirm cannot report
 # success for settings the timer already rolled back.
 ssh_confirm() {
-    systemctl stop "$unit.timer" 2>/dev/null || true
+    disarm_revert
     if rm "$pending" 2>/dev/null; then
         rm -f "$previous"
         echo "Confirmed: litepod logged in again with the new SSH settings."
@@ -314,6 +357,11 @@ pub async fn apply(
                     "Could not determine the server's Linux distribution".into(),
                 )
             })?;
+            if family == DistroFamily::Alpine {
+                return Err(AppError::ValidationError(
+                    "Fail2ban is not set up on Alpine Linux servers".into(),
+                ));
+            }
             let packages = family.resolve_packages(&[LogicalPackage::Fail2ban]);
             let install = sudo(server)
                 .iter()

@@ -9,6 +9,7 @@
 	import OmarchyIcon from '#lib/components/icons/omarchy-icon.svelte';
 	import RedHatIcon from '#lib/components/icons/red-hat-icon.svelte';
 	import RockyLinuxIcon from '#lib/components/icons/rocky-linux-icon.svelte';
+	import AlpineLinuxIcon from '#lib/components/icons/alpine-linux-icon.svelte';
 
 	let {
 		os,
@@ -35,6 +36,8 @@
 	<RedHatIcon class={className} />
 {:else if distribution === 'rocky'}
 	<RockyLinuxIcon class={className} />
+{:else if distribution === 'alpine'}
+	<AlpineLinuxIcon class={className} />
 {:else if os === 'linux' || distribution}
 	<LinuxIcon class={className} />
 {:else}
