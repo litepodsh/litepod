@@ -357,7 +357,7 @@ pub async fn list_linkable(
            AND resource.template_kind IN ({placeholders}) \
          ORDER BY resource.name COLLATE NOCASE, resource.id"
     );
-    let mut query = sqlx::query(&sql).bind(application_id);
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(application_id);
     for kind in RESOURCE_TEMPLATE_KINDS {
         query = query.bind(kind);
     }

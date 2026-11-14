@@ -217,9 +217,9 @@ pub async fn list(
     organization_id: &str,
 ) -> Result<Vec<GitProviderDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM git_providers WHERE organization_id = ?1 ORDER BY name"
-    ))
+    )))
     .bind(organization_id)
     .fetch_all(&conn)
     .await
@@ -353,9 +353,9 @@ async fn get(
     provider_id: &str,
 ) -> Result<GitProviderDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM git_providers WHERE id = ?1 AND organization_id = ?2"
-    ))
+    )))
     .bind(provider_id)
     .bind(organization_id)
     .fetch_optional(&conn)

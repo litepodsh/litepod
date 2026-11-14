@@ -138,9 +138,9 @@ pub fn validate(new: &NewManualRoute) -> Result<(), AppError> {
 
 pub async fn list(state: &SharedState, server_id: &str) -> Result<Vec<ManualRouteDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM caddy_manual_routes WHERE server_id = ?1 ORDER BY host"
-    ))
+    )))
     .bind(server_id)
     .fetch_all(&conn)
     .await
@@ -150,9 +150,9 @@ pub async fn list(state: &SharedState, server_id: &str) -> Result<Vec<ManualRout
 
 pub async fn list_all(state: &SharedState) -> Result<Vec<ManualRouteDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM caddy_manual_routes ORDER BY host"
-    ))
+    )))
     .fetch_all(&conn)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
@@ -161,9 +161,9 @@ pub async fn list_all(state: &SharedState) -> Result<Vec<ManualRouteDto>, AppErr
 
 pub async fn get(state: &SharedState, id: &str) -> Result<Option<ManualRouteDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM caddy_manual_routes WHERE id = ?1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&conn)
     .await

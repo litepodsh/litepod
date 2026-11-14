@@ -70,9 +70,9 @@ fn read_check_row(row: &sqlx::sqlite::SqliteRow) -> Result<HealthCheckRow, AppEr
 /// just off until someone turns it on.
 pub async fn get(state: &SharedState, application_id: &str) -> Result<HealthCheckDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM application_health_checks WHERE application_id = ?1"
-    ))
+    )))
     .bind(application_id)
     .fetch_optional(&conn)
     .await
@@ -175,10 +175,10 @@ pub fn spawn(state: SharedState) {
 async fn tick(state: &SharedState) -> Result<(), AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let now = chrono::Utc::now().timestamp_millis();
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM application_health_checks \
          WHERE enabled = 1 AND (last_checked_at IS NULL OR last_checked_at + (interval_seconds * 1000) <= ?1)"
-    ))
+    )))
     .bind(now)
     .fetch_all(&conn)
     .await

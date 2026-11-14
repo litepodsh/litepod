@@ -160,10 +160,10 @@ pub async fn list(
     organization_id: &str,
 ) -> Result<Vec<S3TargetDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {TARGET_DTO_COLUMNS} FROM backup_s3_targets \
          WHERE organization_id = ?1 AND is_default = 0 ORDER BY name ASC"
-    ))
+    )))
     .bind(organization_id)
     .fetch_all(&conn)
     .await
@@ -207,10 +207,10 @@ pub async fn get(
     id: &str,
 ) -> Result<Option<S3Target>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {TARGET_ROW_COLUMNS} FROM backup_s3_targets \
          WHERE id = ?1 AND organization_id = ?2 AND is_default = 0"
-    ))
+    )))
     .bind(id)
     .bind(organization_id)
     .fetch_optional(&conn)
@@ -286,10 +286,10 @@ pub async fn resolve_recorded(
         return recorded_global(state).await;
     };
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {TARGET_ROW_COLUMNS} FROM backup_s3_targets \
          WHERE id = ?1 AND is_default = 0 AND (organization_id = ?2 OR organization_id IS NULL)"
-    ))
+    )))
     .bind(id)
     .bind(organization_id)
     .fetch_optional(&conn)

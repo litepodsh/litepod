@@ -368,9 +368,9 @@ pub async fn get(
     task_id: &str,
 ) -> Result<ScheduledTaskDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {TASK_COLUMNS} FROM scheduled_tasks WHERE id = ?1 AND organization_id = ?2"
-    ))
+    )))
     .bind(task_id)
     .bind(organization_id)
     .fetch_optional(&conn)
@@ -386,9 +386,9 @@ pub async fn list(
     organization_id: &str,
 ) -> Result<Vec<ScheduledTaskDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {TASK_COLUMNS} FROM scheduled_tasks WHERE organization_id = ?1 ORDER BY created_at DESC"
-    ))
+    )))
     .bind(organization_id)
     .fetch_all(&conn)
     .await
@@ -887,7 +887,7 @@ pub async fn list_executions(
     task_id: &str,
 ) -> Result<Vec<ScheduledTaskExecutionDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!("SELECT {EXECUTION_COLUMNS} FROM scheduled_task_executions WHERE organization_id = ?1 AND task_id = ?2 ORDER BY queued_at DESC LIMIT 100"))
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {EXECUTION_COLUMNS} FROM scheduled_task_executions WHERE organization_id = ?1 AND task_id = ?2 ORDER BY queued_at DESC LIMIT 100")))
         .bind(organization_id)
         .bind(task_id)
         .fetch_all(&conn)
@@ -903,7 +903,7 @@ pub async fn get_execution(
     execution_id: &str,
 ) -> Result<ScheduledTaskExecutionDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(&format!("SELECT {EXECUTION_COLUMNS} FROM scheduled_task_executions WHERE organization_id = ?1 AND task_id = ?2 AND id = ?3"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {EXECUTION_COLUMNS} FROM scheduled_task_executions WHERE organization_id = ?1 AND task_id = ?2 AND id = ?3")))
         .bind(organization_id)
         .bind(task_id)
         .bind(execution_id)

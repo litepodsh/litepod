@@ -51,9 +51,9 @@ fn row_to_record(row: &sqlx::sqlite::SqliteRow) -> Result<RestoreRecordDto, AppE
 
 pub async fn list(state: &SharedState) -> Result<Vec<RestoreRecordDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM restore_history ORDER BY started_at DESC"
-    ))
+    )))
     .fetch_all(&conn)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
@@ -62,9 +62,9 @@ pub async fn list(state: &SharedState) -> Result<Vec<RestoreRecordDto>, AppError
 
 async fn get(state: &SharedState, id: &str) -> Result<Option<RestoreRecordDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let Some(row) = sqlx::query(&format!(
+    let Some(row) = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM restore_history WHERE id = ?1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&conn)
     .await
@@ -562,7 +562,7 @@ async fn replay_dump(conn: &mut sqlx::SqliteConnection, sql: &str) -> Result<(),
         .await
         .map_err(|error| AppError::DatabaseError(error.to_string()))?;
     for statement in &objects {
-        sqlx::query(statement)
+        sqlx::query(sqlx::AssertSqlSafe(statement.as_str()))
             .execute(&mut *conn)
             .await
             .map_err(|error| AppError::DatabaseError(error.to_string()))?;
@@ -585,7 +585,7 @@ async fn replay_dump(conn: &mut sqlx::SqliteConnection, sql: &str) -> Result<(),
     // constraint's default value) is never mistaken for a statement boundary —
     // matching how SQLite's own multi-statement parser treats the dump we wrote.
     for statement in split_sql_statements(&replay_sql) {
-        sqlx::query(statement)
+        sqlx::query(sqlx::AssertSqlSafe(statement))
             .execute(&mut *conn)
             .await
             .map_err(|error| AppError::DatabaseError(error.to_string()))?;
@@ -714,7 +714,7 @@ mod tests {
     }
 
     async fn count(state: &SharedState, sql: &str) -> i64 {
-        sqlx::query_scalar(sql).fetch_one(&state.db).await.unwrap()
+        sqlx::query_scalar(sqlx::AssertSqlSafe(sql)).fetch_one(&state.db).await.unwrap()
     }
 
     #[tokio::test]

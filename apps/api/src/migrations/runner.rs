@@ -35,7 +35,7 @@ pub async fn run(pool: &sqlx::SqlitePool) {
         let sql = std::fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("[migrations] failed to read {}: {}", name, e));
 
-        sqlx::raw_sql(&sql)
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str()))
             .execute(pool)
             .await
             .unwrap_or_else(|e| panic!("[migrations] failed applying {}: {}", name, e));
@@ -336,7 +336,7 @@ mod tests {
             .await
             .unwrap();
         for table in ["environments", "applications"] {
-            let row = sqlx::query(&format!("SELECT COUNT(*) FROM {table}"))
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -638,7 +638,7 @@ mod tests {
             "notification_subscriptions",
             "notification_deliveries",
         ] {
-            let row = sqlx::query(&format!("SELECT COUNT(*) FROM {table}"))
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -1121,7 +1121,7 @@ mod tests {
             .partition(|p| p.file_name().unwrap().to_str().unwrap() < "0017");
         for path in &before_0017 {
             let sql = std::fs::read_to_string(path).unwrap();
-            sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str())).execute(&pool).await.unwrap();
         }
 
         sqlx::query("INSERT INTO users (id, email, hashed_password, name) VALUES ('user-1', 'user@example.com', 'hash', 'User')").execute(&pool).await.unwrap();
@@ -1135,7 +1135,7 @@ mod tests {
 
         for path in &from_0017 {
             let sql = std::fs::read_to_string(path).unwrap();
-            sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str())).execute(&pool).await.unwrap();
         }
 
         let run_count: i64 =
@@ -1192,7 +1192,7 @@ mod tests {
             .into_iter()
             .partition(|p| p.file_name().unwrap().to_str().unwrap() < "0039");
         for path in &before {
-            sqlx::raw_sql(&std::fs::read_to_string(path).unwrap())
+            sqlx::raw_sql(sqlx::AssertSqlSafe(std::fs::read_to_string(path).unwrap()))
                 .execute(&pool)
                 .await
                 .unwrap();
@@ -1224,7 +1224,7 @@ mod tests {
         }
 
         for path in &from {
-            sqlx::raw_sql(&std::fs::read_to_string(path).unwrap())
+            sqlx::raw_sql(sqlx::AssertSqlSafe(std::fs::read_to_string(path).unwrap()))
                 .execute(&pool)
                 .await
                 .unwrap();
@@ -1459,7 +1459,7 @@ mod tests {
         run(&pool).await;
         let mut failures = Vec::new();
         for (file, sql) in &statements {
-            if let Err(error) = sqlx::query(&format!("EXPLAIN {sql}"))
+            if let Err(error) = sqlx::query(sqlx::AssertSqlSafe(format!("EXPLAIN {sql}")))
                 .fetch_all(&pool)
                 .await
             {

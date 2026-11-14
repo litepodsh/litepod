@@ -138,9 +138,9 @@ pub async fn get_policy(
     .execute(&conn)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {POLICY_COLUMNS} FROM database_backup_policies WHERE application_id = ?1"
-    ))
+    )))
     .bind(application_id)
     .fetch_one(&conn)
     .await
@@ -557,10 +557,10 @@ pub async fn list_backups(
     application_id: &str,
 ) -> Result<Vec<DatabaseBackupDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {BACKUP_COLUMNS} FROM database_backups \
          WHERE application_id = ?1 ORDER BY started_at DESC LIMIT 100"
-    ))
+    )))
     .bind(application_id)
     .fetch_all(&conn)
     .await

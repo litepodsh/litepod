@@ -236,7 +236,7 @@ pub async fn update(
             sql.push_str(", realm = ?");
         }
         sql.push_str(" WHERE id = ?");
-        let mut query = sqlx::query(&sql).bind(now);
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(now);
         if let Some(enabled) = request.enabled {
             query = query.bind(enabled as i64);
         }
@@ -259,7 +259,7 @@ pub async fn update(
         let sql = format!(
             "SELECT id FROM application_domains WHERE application_id = ? AND id IN ({placeholders})",
         );
-        let mut query = sqlx::query(&sql).bind(application_id);
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(application_id);
         for id in ids {
             query = query.bind(id);
         }

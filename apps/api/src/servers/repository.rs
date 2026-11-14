@@ -152,7 +152,7 @@ const OWNED_BY: &str = "(organization_id = ?1 OR organization_id IS NULL)";
 
 pub async fn get(state: &SharedState, id: &str) -> Result<Option<ServerRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(&format!("SELECT {SELECT} FROM servers WHERE id = ?1"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {SELECT} FROM servers WHERE id = ?1")))
         .bind(id)
         .fetch_optional(&conn)
         .await
@@ -199,9 +199,9 @@ async fn get_scoped(
     } else {
         " AND kind = 'ssh'"
     };
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT} FROM servers WHERE id = ?2 AND {OWNED_BY}{filter}"
-    ))
+    )))
     .bind(organization_id)
     .bind(id)
     .fetch_optional(&conn)
@@ -221,7 +221,7 @@ pub async fn list_monitorable(state: &SharedState) -> Result<Vec<ServerRecord>, 
          WHERE kind = 'local' OR (kind = 'ssh' AND state IN ('ready', 'degraded', 'offline')) \
          ORDER BY kind, name"
     );
-    let rows = sqlx::query(&sql)
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .fetch_all(&conn)
         .await
         .map_err(|error| AppError::DatabaseError(error.to_string()))?;
@@ -255,7 +255,7 @@ pub async fn list_ready_for_organization(
     let sql = format!(
         "SELECT {SELECT} FROM servers WHERE state = 'ready' AND {OWNED_BY}{filter} ORDER BY kind, name"
     );
-    let rows = sqlx::query(&sql)
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(organization_id)
         .fetch_all(&conn)
         .await
@@ -277,7 +277,7 @@ pub async fn list_for_organization(
         ""
     };
     let sql = format!("SELECT {SELECT} FROM servers WHERE {OWNED_BY}{filter} ORDER BY kind, name");
-    let rows = sqlx::query(&sql)
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(organization_id)
         .fetch_all(&conn)
         .await
@@ -294,7 +294,7 @@ pub async fn list(state: &SharedState) -> Result<Vec<ServerRecord>, AppError> {
         ""
     };
     let sql = format!("SELECT {SELECT} FROM servers{filter} ORDER BY kind, name");
-    let rows = sqlx::query(&sql)
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .fetch_all(&conn)
         .await
         .map_err(|error| AppError::DatabaseError(error.to_string()))?;
@@ -608,9 +608,9 @@ pub async fn create_job(
 
 pub async fn get_job(state: &SharedState, id: &str) -> Result<Option<ServerJobRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_JOB} FROM server_jobs WHERE id = ?1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&conn)
     .await
@@ -624,9 +624,9 @@ pub async fn list_jobs(
     server_id: &str,
 ) -> Result<Vec<ServerJobRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_JOB} FROM server_jobs WHERE server_id = ?1 ORDER BY created_at DESC"
-    ))
+    )))
     .bind(server_id)
     .fetch_all(&conn)
     .await

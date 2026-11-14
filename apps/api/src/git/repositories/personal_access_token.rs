@@ -120,7 +120,7 @@ pub async fn find_active_identity_by_digest(
          FROM personal_access_tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_digest = ?1 AND t.revoked_at IS NULL"
     );
-    let row = sqlx::query(&sql)
+    let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(digest(token))
         .fetch_optional(&conn)
         .await

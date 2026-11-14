@@ -40,9 +40,9 @@ pub async fn list(
     organization_id: &str,
 ) -> Result<Vec<ServerGroupRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_GROUP} FROM server_groups WHERE organization_id = ?1 ORDER BY name"
-    ))
+    )))
     .bind(organization_id)
     .fetch_all(&conn)
     .await
@@ -52,9 +52,9 @@ pub async fn list(
 
 pub async fn get(state: &SharedState, id: &str) -> Result<Option<ServerGroupRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_GROUP} FROM server_groups WHERE id = ?1"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&conn)
     .await
@@ -82,9 +82,9 @@ pub async fn get_for_organization(
     organization_id: &str,
 ) -> Result<Option<ServerGroupRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_GROUP} FROM server_groups WHERE id = ?1 AND organization_id = ?2"
-    ))
+    )))
     .bind(id)
     .bind(organization_id)
     .fetch_optional(&conn)

@@ -457,7 +457,7 @@ async fn table_rows(conn: &SqlitePool) -> Vec<TableUsage> {
     for name in names {
         // the name comes from sqlite_master, quoted as an identifier; only the count is read
         let sql = format!("SELECT COUNT(*) FROM \"{}\"", name.replace('"', "\"\""));
-        let rows = sqlx::query_scalar::<_, i64>(&sql)
+        let rows = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
             .fetch_one(conn)
             .await
             .ok();

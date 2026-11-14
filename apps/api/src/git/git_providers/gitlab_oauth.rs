@@ -163,9 +163,9 @@ async fn load_row(
     organization_id: &str,
 ) -> Result<OauthRow, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {OAUTH_COLUMNS} FROM git_providers WHERE id = ?1 AND organization_id = ?2"
-    ))
+    )))
     .bind(provider_id)
     .bind(organization_id)
     .fetch_optional(&conn)
@@ -180,9 +180,9 @@ async fn load_row(
 /// provider — rather than from attacker-supplied request input. Never call this from a handler.
 async fn load_row_unscoped(state: &SharedState, provider_id: &str) -> Result<OauthRow, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {OAUTH_COLUMNS} FROM git_providers WHERE id = ?1"
-    ))
+    )))
     .bind(provider_id)
     .fetch_optional(&conn)
     .await

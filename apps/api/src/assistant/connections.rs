@@ -343,10 +343,10 @@ pub async fn list(
     organization_id: &str,
 ) -> Result<Vec<ConnectionDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM assistant_connections \
          WHERE organization_id = ?1 ORDER BY is_default DESC, name"
-    ))
+    )))
     .bind(organization_id)
     .fetch_all(&conn)
     .await
@@ -372,9 +372,9 @@ async fn row(
     connection_id: &str,
 ) -> Result<sqlx::sqlite::SqliteRow, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM assistant_connections WHERE id = ?1 AND organization_id = ?2"
-    ))
+    )))
     .bind(connection_id)
     .bind(organization_id)
     .fetch_optional(&conn)
@@ -447,8 +447,8 @@ pub async fn resolve(
          WHERE organization_id = ?1 AND is_default = 1"
     );
     let found = match connection_id {
-        Some(id) => sqlx::query(&by_id).bind(id).bind(organization_id),
-        None => sqlx::query(&by_default).bind(organization_id),
+        Some(id) => sqlx::query(sqlx::AssertSqlSafe(by_id.as_str())).bind(id).bind(organization_id),
+        None => sqlx::query(sqlx::AssertSqlSafe(by_default.as_str())).bind(organization_id),
     }
     .fetch_optional(&conn)
     .await

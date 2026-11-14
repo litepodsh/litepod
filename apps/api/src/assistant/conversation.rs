@@ -547,7 +547,7 @@ pub async fn list(
             }
             sql.push_str(" ORDER BY c.updated_at DESC LIMIT 20");
 
-            let mut builder = sqlx::query(&sql).bind(q).bind(&tokens[0]);
+            let mut builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(q).bind(&tokens[0]);
             for token in tokens.iter().skip(1) {
                 builder = builder.bind(token);
             }

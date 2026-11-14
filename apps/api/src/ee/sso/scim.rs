@@ -927,7 +927,7 @@ mod tests {
     }
 
     async fn count(state: &SharedState, sql: &str, user_id: &str) -> i64 {
-        sqlx::query_scalar(sql)
+        sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .bind(user_id)
             .fetch_one(&state.db)
             .await

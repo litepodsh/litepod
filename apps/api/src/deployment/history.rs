@@ -493,7 +493,7 @@ async fn replicas_for(
          FROM application_deployment_run_replicas rr LEFT JOIN servers s ON s.id = rr.server_id \
          WHERE rr.run_id IN ({placeholders}) ORDER BY rr.server_name"
     );
-    let mut query = sqlx::query(&sql);
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     for run_id in run_ids {
         query = query.bind(run_id);
     }
@@ -813,9 +813,9 @@ pub async fn list(
     application_id: &str,
 ) -> Result<Vec<DeploymentRunDto>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {RUN_COLUMNS} FROM application_deployment_runs r {RUN_JOINS} WHERE r.application_id = ?1 ORDER BY r.started_at DESC, r.id DESC LIMIT 10"
-    ))
+    )))
     .bind(application_id)
     .fetch_all(&conn)
     .await
@@ -837,9 +837,9 @@ pub async fn get(
     tail: Option<usize>,
 ) -> Result<DeploymentRunDetailDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {RUN_COLUMNS} FROM application_deployment_runs r {RUN_JOINS} WHERE r.id = ?1 AND r.application_id = ?2"
-    ))
+    )))
     .bind(run_id)
     .bind(application_id)
     .fetch_optional(&conn)

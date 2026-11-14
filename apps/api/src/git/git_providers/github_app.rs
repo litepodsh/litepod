@@ -129,11 +129,11 @@ pub async fn get(
 ) -> Result<GithubApp, AppError> {
     use sqlx::Row;
     let conn = crate::git::repositories::db::get_conn(state).await;
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {APP_COLUMNS} FROM github_apps ga \
          INNER JOIN git_providers gp ON gp.id = ga.git_provider_id \
          WHERE ga.git_provider_id = ?1 AND gp.organization_id = ?2"
-    ))
+    )))
     .bind(provider_id)
     .bind(organization_id)
     .fetch_optional(&conn)
