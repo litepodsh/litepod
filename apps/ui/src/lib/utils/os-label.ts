@@ -4,6 +4,7 @@ export const OS_LABELS: Record<string, string> = {
 	arch: 'Arch Linux',
 	debian: 'Debian',
 	fedora: 'Fedora',
+	freebsd: 'FreeBSD',
 	linux: 'Linux',
 	macos: 'macOS',
 	omarchy: 'Omarchy',

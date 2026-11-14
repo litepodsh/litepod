@@ -10,6 +10,7 @@
 	import RedHatIcon from '#lib/components/icons/red-hat-icon.svelte';
 	import RockyLinuxIcon from '#lib/components/icons/rocky-linux-icon.svelte';
 	import AlpineLinuxIcon from '#lib/components/icons/alpine-linux-icon.svelte';
+	import FreeBsdIcon from '#lib/components/icons/freebsd-icon.svelte';
 
 	let {
 		os,
@@ -19,7 +20,7 @@
 </script>
 
 <!-- Remote servers only report a distribution id, so a known distro stands on its own
-     without the caller also having to say it is Linux. -->
+     without the caller also having to say it is Linux (or, for FreeBSD, that it is not). -->
 {#if os === 'macos'}
 	<AppleIcon class={className} />
 {:else if distribution === 'debian'}
@@ -38,6 +39,8 @@
 	<RockyLinuxIcon class={className} />
 {:else if distribution === 'alpine'}
 	<AlpineLinuxIcon class={className} />
+{:else if distribution === 'freebsd'}
+	<FreeBsdIcon class={className} />
 {:else if os === 'linux' || distribution}
 	<LinuxIcon class={className} />
 {:else}

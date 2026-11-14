@@ -10,7 +10,7 @@ const stagePattern = /^==>|^#\d+\s+\[/;
 
 export function deploymentLogTone(level: string, message: string): DeploymentLogTone {
 	if (level === 'error' || errorPattern.test(message)) return 'error';
-	if (warningPattern.test(message)) return 'warning';
+	if (level === 'warn' || warningPattern.test(message)) return 'warning';
 	if (successPattern.test(message)) return 'success';
 	if (stagePattern.test(message)) return 'stage';
 	return 'neutral';
