@@ -317,8 +317,81 @@ jobs:
           path: ${{ runner.temp }}/litepod-*-x86_64-unknown-freebsd.tar.gz*
           retention-days: 1
 
+  # OpenBSD has no Podman, so litepod runs there as the control panel only
+  # (install-openbsd.sh). OpenBSD changes its libc ABI between releases, so the
+  # archive is built for one release and named after it.
+  build-openbsd:
+    needs: prepare
+    if: needs.prepare.outputs.warm != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      OPENBSD_RELEASE: "8.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build UI
+        working-directory: apps/ui
+        env:
+          VITE_API_URL: ""
+          VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEJF4ZVxaxz5WzUH"
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+          test -f build/404.html
+          rm -f build/_app/immutable/workers/ts.worker-*.js* \
+                build/_app/immutable/workers/css.worker-*.js* \
+                build/_app/immutable/workers/html.worker-*.js*
+
+      - name: Build API on OpenBSD
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: ${{ env.OPENBSD_RELEASE }}
+          mem: 8192
+          usesh: true
+          prepare: pkg_add -I rust cmake gmake xmlsec llvm%21
+          run: |
+            set -e
+            df -h
+            cd apps/api
+            rm -f .cargo/config.toml
+            # Root's default datasize limit is too small to link the API.
+            ulimit -d unlimited
+            ulimit -n 1024
+            # samael's bindgen needs libclang, which OpenBSD keeps outside the default paths.
+            export LIBCLANG_PATH=/usr/local/llvm21/lib
+            # Keep the registry next to the sources: the VM's root partition is small.
+            export CARGO_HOME="$(pwd)/../.cargo-home"
+            # Fastest compile, not fastest binary: the VM build at -O3 is too slow (C++ in duckdb).
+            cargo build --release --locked --features saml \
+              --config profile.release.opt-level=0 --config profile.release.codegen-units=256
+            cp target/release/litepod-api ../litepod-api-openbsd
+            rm -rf target "${CARGO_HOME}"
+
+      - name: Package
+        run: |
+          name="litepod-${VERSION}-x86_64-unknown-openbsd${OPENBSD_RELEASE}.tar.gz"
+          staging="${RUNNER_TEMP}/openbsd"
+          mkdir -p "${staging}"
+          cp litepod-api-openbsd "${staging}/litepod-api"
+          cp -R ui/build "${staging}/ui"
+          cp -R api/migrations "${staging}/migrations"
+          # install-openbsd.sh refuses an archive built for another OpenBSD release.
+          printf '%s\n' "${OPENBSD_RELEASE}" > "${staging}/openbsd-release"
+          tar -C "${staging}" -czf "${RUNNER_TEMP}/${name}" litepod-api ui migrations openbsd-release
+          (cd "${RUNNER_TEMP}" && sha256sum "${name}" > "${name}.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openbsd
+          path: ${{ runner.temp }}/litepod-*-x86_64-unknown-openbsd*.tar.gz*
+          retention-days: 1
+
   publish:
-    needs: [prepare, build, build-freebsd]
+    needs: [prepare, build, build-freebsd, build-openbsd]
     if: needs.prepare.outputs.warm != 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -423,6 +496,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${VERSION}" "${RUNNER_TEMP}"/freebsd/* --clobber
+
+      - uses: actions/download-artifact@v4
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
+        with:
+          name: openbsd
+          path: ${{ runner.temp }}/openbsd
+
+      - name: Attach OpenBSD build
+        if: env.DRY_RUN != 'true' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && env.CHANNEL == 'next'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${VERSION}" "${RUNNER_TEMP}"/openbsd/* --clobber
 
       - name: Summary
         run: |

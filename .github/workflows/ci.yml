@@ -59,6 +59,33 @@ jobs:
       - name: cargo audit
         run: cargo audit
 
+  # The release builds the OpenBSD binary (install-openbsd.sh); this catches a break
+  # before then. Same VM, packages and settings as release.yml's build-openbsd.
+  api-openbsd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cargo check on OpenBSD
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: "8.0"
+          mem: 8192
+          usesh: true
+          copyback: false
+          prepare: pkg_add -I rust cmake gmake xmlsec llvm%21
+          run: |
+            set -e
+            cd apps/api
+            rm -f .cargo/config.toml
+            ulimit -d unlimited
+            ulimit -n 1024
+            export LIBCLANG_PATH=/usr/local/llvm21/lib
+            export CARGO_HOME="$(pwd)/../.cargo-home"
+            # Cargo.toml builds dependencies at -O3 even in dev; a compile check does not need it.
+            cargo check --locked --features saml --config 'profile.dev.package."*".opt-level=0'
+
   ui:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     defaults:
