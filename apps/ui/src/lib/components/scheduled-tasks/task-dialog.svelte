@@ -171,7 +171,9 @@
 	]);
 
 	function defaultServerId(): string {
-		if (isCloud) return groups.remote.find((server) => server.state === 'ready')?.id ?? '';
+		// A panel-only install (OpenBSD) lists no local server either.
+		if (isCloud || groups.local.length === 0)
+			return groups.remote.find((server) => server.state === 'ready')?.id ?? '';
 		return 'local';
 	}
 
