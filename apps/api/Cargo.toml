@@ -27,7 +27,6 @@ bytes = "1"
 clap = { version = "4.5", features = ["derive"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 cookie = "0.18.1"
-duckdb = { version = "1.10506.0", features = ["bundled"] }
 croner = "3.0.1"
 dotenvy = "0.15.7"
 futures-util = "0.3.32"
@@ -91,6 +90,14 @@ hickory-resolver = "0.26"
 samael = { version = "0.0.22", optional = true }
 maxminddb = { version = "0.32", features = ["mmap"] }
 flate2 = "1"
+
+# DuckDB's bundled C++ does not build on OpenBSD (it includes glibc's <features.h>),
+# so OpenBSD links the system library from packages (`pkg_add duckdb`).
+[target.'cfg(not(target_os = "openbsd"))'.dependencies]
+duckdb = { version = "1.10506.0", features = ["bundled"] }
+
+[target.'cfg(target_os = "openbsd")'.dependencies]
+duckdb = "1.10506.0"
 
 [dev-dependencies]
 syn = { version = "2", features = ["full", "visit"] }

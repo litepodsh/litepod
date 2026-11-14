@@ -49,7 +49,7 @@ fn host_version() -> Option<String> {
     )
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))]
 fn host_kernel_version() -> Option<String> {
     std::process::Command::new("uname")
         .arg("-r")
@@ -61,7 +61,7 @@ fn host_kernel_version() -> Option<String> {
         .filter(|version| !version.is_empty())
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd")))]
 fn host_kernel_version() -> Option<String> {
     None
 }

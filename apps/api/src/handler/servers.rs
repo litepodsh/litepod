@@ -51,7 +51,7 @@ fn local_memory_bytes() -> Option<u64> {
     memory_bytes_from_meminfo(&std::fs::read_to_string("/proc/meminfo").ok()?)
 }
 
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
 fn local_memory_bytes() -> Option<u64> {
     let key = if cfg!(target_os = "macos") {
         "hw.memsize"
@@ -67,7 +67,12 @@ fn local_memory_bytes() -> Option<u64> {
         .and_then(|bytes| bytes.trim().parse().ok())
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "freebsd")))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd"
+)))]
 fn local_memory_bytes() -> Option<u64> {
     None
 }
