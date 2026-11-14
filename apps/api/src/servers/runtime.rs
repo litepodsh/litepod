@@ -79,7 +79,21 @@ impl ServerRuntime {
             .iter()
             .map(OsString::from)
             .collect::<Vec<_>>();
-        command.push(OsString::from("podman"));
+        if args.first().is_some_and(|arg| arg == "compose") {
+            // podman-compose 1.3 chdirs into the first file's directory and then opens each
+            // `--file` by its original path, so workspace-relative paths must become absolute.
+            command.extend(
+                [
+                    "sh",
+                    "-c",
+                    r#"n=$#; for a; do case $a in .local/share/litepod/*) a="$PWD/$a" ;; esac; set -- "$@" "$a"; done; shift "$n"; exec podman "$@""#,
+                    "sh",
+                ]
+                .map(OsString::from),
+            );
+        } else {
+            command.push(OsString::from("podman"));
+        }
         command.extend(args.iter().cloned());
         command
     }
@@ -849,5 +863,32 @@ impl ServerRuntime {
         ])
         .await?;
         Ok(Some(format!("{workspace}/{directory_name}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_compose_runs_with_absolute_workspace_paths() {
+        let target = SshTarget { host: "h".into(), port: 22, user: "deploy".into() };
+        let args = ["compose", "--file", ".local/share/litepod/apps/a/c.yml", "up"].map(OsString::from);
+        let argv = ServerRuntime::remote_podman_argv(PodmanMode::Rootful, &target, &args);
+        let script = argv[4].to_string_lossy().into_owned();
+        let output = std::process::Command::new("sh")
+            .current_dir("/")
+            .arg("-c")
+            .arg(script.replace("exec podman", "printf '%s\\n'"))
+            .args(&argv[5..])
+            .output()
+            .unwrap();
+        assert_eq!(&argv[..4], ["sudo", "-n", "sh", "-c"].map(OsString::from));
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "compose\n--file\n//.local/share/litepod/apps/a/c.yml\nup\n"
+        );
+        let ps = ServerRuntime::remote_podman_argv(PodmanMode::Rootful, &target, &[OsString::from("ps")]);
+        assert_eq!(ps, ["sudo", "-n", "podman", "ps"].map(OsString::from));
     }
 }
