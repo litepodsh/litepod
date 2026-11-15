@@ -528,7 +528,13 @@ jobs:
           fi
           flags=()
           [[ "${CHANNEL}" == next ]] && flags+=(--prerelease)
-          if [[ "${GITHUB_REF_TYPE}" == tag ]]; then
+          if [[ "${GITHUB_REF_TYPE}" == tag && "${CHANNEL}" == stable ]]; then
+            # Count from the previous stable tag: with the next.N tags in between,
+            # a stable release would only list the commits after the last next.N.
+            prev="$(git describe --tags --abbrev=0 --exclude '*-next.*' "${VERSION}^")"
+            git cliff "${prev}..${VERSION}" --ignore-tags '.*-next\..*' -o "${RUNNER_TEMP}/notes.md"
+            flags+=(--verify-tag)
+          elif [[ "${GITHUB_REF_TYPE}" == tag ]]; then
             git cliff --latest -o "${RUNNER_TEMP}/notes.md"
             flags+=(--verify-tag)
           else
