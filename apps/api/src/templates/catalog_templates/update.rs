@@ -270,6 +270,15 @@ pub async fn check(
         return Ok(None);
     };
     let latest = latest_template(&base.template_id).await?;
+    compare(state, application_id, base, latest).await.map(Some)
+}
+
+async fn compare(
+    state: &SharedState,
+    application_id: &str,
+    base: project::CatalogBase,
+    latest: DecodedTemplate,
+) -> Result<CatalogUpdateDto, AppError> {
     let (compose, env) = current_state(state, application_id).await?;
     let base_env = base
         .env
@@ -295,7 +304,7 @@ pub async fn check(
         None => differs,
     };
     let ignored = base.ignored_version.as_deref() == Some(version.as_str());
-    Ok(Some(CatalogUpdateDto {
+    Ok(CatalogUpdateDto {
         template_id: base.template_id,
         current_version: base.version,
         update_available: newer && !ignored,
@@ -307,7 +316,67 @@ pub async fn check(
         requires_https: latest.template.requires_https,
         url_persisted: latest.template.url_persisted,
         setup: (!latest.setup.is_empty()).then_some(latest.setup),
-    }))
+    })
+}
+
+/// How long a template fetched for the application cards is reused. Cards are
+/// drawn on every page load; the catalog is a network call.
+const CARD_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+type CardCache = std::sync::Mutex<
+    std::collections::HashMap<String, (std::time::Instant, std::sync::Arc<DecodedTemplate>)>,
+>;
+
+fn card_cache() -> &'static CardCache {
+    static CACHE: std::sync::OnceLock<CardCache> = std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+async fn cached_template(template_id: &str) -> Result<std::sync::Arc<DecodedTemplate>, AppError> {
+    if let Some((fetched, template)) = card_cache().lock().unwrap().get(template_id) {
+        if fetched.elapsed() < CARD_CACHE_TTL {
+            return Ok(template.clone());
+        }
+    }
+    let template = std::sync::Arc::new(latest_template(template_id).await?);
+    card_cache().lock().unwrap().insert(
+        template_id.to_owned(),
+        (std::time::Instant::now(), template.clone()),
+    );
+    Ok(template)
+}
+
+/// The applications of one environment that have a template update waiting,
+/// as `application id -> new template version`, for the "update" tag on their
+/// cards. An unreachable catalog or a broken application never fails the
+/// list: it only means no tag.
+pub async fn pending_for_environment(
+    state: &SharedState,
+    environment_id: &str,
+) -> Result<BTreeMap<String, String>, AppError> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM applications WHERE environment_id = ?1 AND catalog_template_id IS NOT NULL",
+    )
+    .bind(environment_id)
+    .fetch_all(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    let mut pending = BTreeMap::new();
+    for id in ids {
+        let Ok(Some(base)) = project::get_catalog_base(state, &id).await else {
+            continue;
+        };
+        let Ok(latest) = cached_template(&base.template_id).await else {
+            continue;
+        };
+        if let Ok(update) = compare(state, &id, base, (*latest).clone()).await {
+            if update.update_available {
+                pending.insert(id, update.latest_version);
+            }
+        }
+    }
+    Ok(pending)
 }
 
 /// Moves the application to the template version the user reviewed. Rewrites

@@ -3,7 +3,7 @@ use crate::{
         catalog_template::{CatalogFileDto, CatalogPortDto, CatalogTemplateDto},
         response::{AppError, created, ok},
     },
-    security::authz::extract::{RequireApp, RequireOrg, perm},
+    security::authz::extract::{RequireApp, RequireEnv, RequireOrg, perm},
     security::middleware::auth::AuthUser,
     state::state::SharedState,
     templates::catalog_templates::{self, CatalogClient, CatalogQuery, CatalogTemplate},
@@ -197,4 +197,15 @@ pub async fn update_ignore_handler(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     catalog_update::ignore(&state, &app.application_id, &request).await?;
     Ok(ok(serde_json::json!({ "ignored": request.version })))
+}
+
+/// Applications of an environment with a template update waiting, keyed by
+/// application id, for the tag on their cards.
+pub async fn environment_updates_handler(
+    State(state): State<SharedState>,
+    RequireEnv(env, _): RequireEnv<perm::ProjectRead>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    Ok(ok(
+        catalog_update::pending_for_environment(&state, &env.environment_id).await?,
+    ))
 }

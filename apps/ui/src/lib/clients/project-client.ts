@@ -3323,3 +3323,15 @@ export async function catalogUpdateIgnore(
 		{ method: 'POST', body: JSON.stringify({ version }) },
 	);
 }
+
+/** Applications of an environment with a template update waiting, by id. */
+export async function catalogUpdatesForEnvironment(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+): Promise<Record<string, string>> {
+	const response = await api<Record<string, string>>(
+		`/api/v1/organizations/${encodeURIComponent(organizationId)}/projects/${encodeURIComponent(projectId)}/environments/${encodeURIComponent(environmentId)}/catalog-updates`,
+	);
+	return response.data ?? {};
+}

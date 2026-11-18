@@ -615,6 +615,7 @@ title = "Al reiniciar el servidor"
 [catalog_update]
 applied = "Actualización del template aplicada. Vuelve a desplegar para ejecutarla."
 apply = "Aplicar actualización"
+badge = "Actualización"
 compose = "Archivo compose"
 compose_none = "El archivo compose no cambia."
 customized = "Editaste este compose. Reemplazarlo descarta tus ediciones; conservarlo deja fuera los cambios del nuevo template."

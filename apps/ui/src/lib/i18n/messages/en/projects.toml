@@ -615,6 +615,7 @@ title = "When the server restarts"
 [catalog_update]
 applied = "Template update applied. Redeploy to run it."
 apply = "Apply update"
+badge = "Update"
 compose = "Compose file"
 compose_none = "The compose file is unchanged."
 customized = "You edited this compose file. Replacing it discards your edits; keeping it leaves the new template's changes out."

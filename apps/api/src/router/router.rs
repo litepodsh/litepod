@@ -723,6 +723,10 @@ pub fn create_router(state: SharedState) -> Router {
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications",
             post(projects::create_application_handler),
         )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/catalog-updates",
+            get(catalog_templates::environment_updates_handler),
+        )
         .route("/api/v1/catalog-templates", get(catalog_templates::list_handler))
         .route("/api/v1/catalog-templates/{template_id}", get(catalog_templates::get_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/catalog-templates/{template_id}", post(catalog_templates::create_handler))

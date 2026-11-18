@@ -153,7 +153,7 @@
 						</Label>
 						<ul class="mt-2 grid gap-1 font-mono text-xs">
 							{#each update.env.added as variable (variable.name)}
-								<li class="text-emerald-600 dark:text-emerald-400">
+								<li class="text-success">
 									+ {variable.name}={variable.value}
 								</li>
 							{/each}
@@ -165,7 +165,7 @@
 						<p class="mb-1 text-sm">{t('projects.catalog_update.env_removed')}</p>
 						<ul class="font-mono">
 							{#each update.env.removed as name (name)}
-								<li class="text-red-600 dark:text-red-400">- {name}</li>
+								<li class="text-destructive">- {name}</li>
 							{/each}
 						</ul>
 					</div>
@@ -209,9 +209,9 @@
 					<pre
 						class="bg-muted max-h-80 overflow-auto rounded-lg p-3 font-mono text-xs leading-relaxed">{#each update.compose.diff as line, index (index)}<span
 								class={line.tag === 'insert'
-									? 'block bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+									? 'bg-success/15 text-success block'
 									: line.tag === 'delete'
-										? 'block bg-red-500/15 text-red-700 dark:text-red-300'
+										? 'bg-destructive/15 text-destructive block'
 										: 'text-muted-foreground block'}
 								>{line.tag === 'insert'
 									? '+ '
