@@ -142,7 +142,9 @@ function createUpdateStore() {
 			stopWithMessage(t('common.update.target_incomplete'));
 			return;
 		}
-		versions = { from: info.version, to: state.latest_version };
+		// Tags come as `v0.3.39-next.2`; the overlay adds its own `v`.
+		const bare = (v: string) => v.replace(/^v/i, '');
+		versions = { from: bare(info.version), to: bare(state.latest_version) };
 
 		const core = state.core_services;
 		if (!core.caddy.target_tag || !core.dragonfly.target_tag) {
