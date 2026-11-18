@@ -81,7 +81,7 @@
 										class={cn('flex min-w-0 items-center gap-1.5', stat.href && 'group/stat')}>
 										{#if stat.icon}
 											{@const Icon = stat.icon}
-											<Icon class="size-3.5 shrink-0 text-muted-foreground" />
+											<Icon {...stat.iconProps} class="size-3.5 shrink-0 text-muted-foreground" />
 										{/if}
 										<span class="min-w-0 truncate group-hover/stat:underline">{stat.value}</span>
 										{#if stat.href && stat.external}

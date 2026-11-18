@@ -16,6 +16,7 @@
 	import KeyDbResourceDetail from '#lib/components/projects/keydb-resource-detail.svelte';
 	import SqlServerResourceDetail from '#lib/components/projects/sqlserver-resource-detail.svelte';
 	import ServerMark from '#lib/components/servers/server-mark.svelte';
+	import OsIcon from '#lib/components/os-icon.svelte';
 	import ServerGroupMark from '#lib/components/server-groups/server-group-mark.svelte';
 	import { getServerGroup } from '#lib/clients/server-group-client.js';
 	import ApplicationIcon from '#lib/components/projects/application-icon.svelte';
@@ -1032,6 +1033,10 @@
 						? `/organizations/${encodeURIComponent(organizationId)}/servers/${encodeURIComponent(current.server.id)}`
 						: undefined,
 					external: Boolean(current.server),
+					icon: current.server ? OsIcon : undefined,
+					iconProps: current.server
+						? { os: current.server.os, distribution: current.server.distribution }
+						: undefined,
 				},
 				{
 					label: t('projects.application_form.source'),

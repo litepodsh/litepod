@@ -53,6 +53,8 @@ export type HeroStat = {
 	/** Opens `href` in a new tab, with an external-link icon next to the value. */
 	external?: boolean;
 	icon?: Component;
+	/** Extra props for `icon`, e.g. the OS of a server mark. */
+	iconProps?: Record<string, unknown>;
 };
 export type HeroSibling = {
 	id: string;
