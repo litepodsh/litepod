@@ -83,6 +83,7 @@
 	// binds undefined — so never assume this is a string.
 	let port = $state<string | number | undefined>('');
 	let https = $state(false);
+	let httpsRedirect = $state(true);
 	let primary = $state(false);
 	let certificateProvider = $state<CertificateProvider>('automatic');
 	let certificateId = $state('');
@@ -259,6 +260,7 @@
 			path = domain?.path ?? '';
 			port = domain?.port?.toString() ?? '';
 			https = domain?.https ?? false;
+			httpsRedirect = domain?.https_redirect ?? true;
 			primary = domain?.is_primary ?? false;
 			certificateProvider = domain?.certificate_provider ?? 'automatic';
 			certificateId = domain?.certificate_id ?? '';
@@ -309,6 +311,7 @@
 		const shared = {
 			port: effectivePort,
 			https,
+			https_redirect: httpsRedirect,
 			certificate_provider: https ? certificateProvider : 'automatic',
 			...(https && certificateProvider === 'custom' ? { certificate_id: certificateId } : {}),
 			...(pinServers.length ? { server_id: serverId } : {}),
@@ -663,6 +666,15 @@
 							<SoftSwitch id="domain-https" bind:checked={https} disabled={isLocal} />
 						</div>
 						{#if https}
+							<div class="flex items-center justify-between gap-3">
+								<div>
+									<Label for="domain-https-redirect">{t('projects.domain_form.https_redirect')}</Label>
+									<p class="mt-1 text-xs text-muted-foreground">
+										{t('projects.domain_form.https_redirect_hint')}
+									</p>
+								</div>
+								<SoftSwitch id="domain-https-redirect" bind:checked={httpsRedirect} />
+							</div>
 							<CertificateFields
 								bind:provider={certificateProvider}
 								bind:certificateId

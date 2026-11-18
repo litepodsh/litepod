@@ -43,6 +43,8 @@ export type DomainInput = CertificateInput & {
 	path?: string | null;
 	port: number;
 	https: boolean;
+	/** Plain HTTP answers with a redirect to HTTPS. Defaults to on. */
+	https_redirect?: boolean;
 	is_primary?: boolean;
 	/** Server pin for a group-targeted application; ignored for single-server apps. */
 	server_id?: string | null;
@@ -54,6 +56,7 @@ export type DomainDto = {
 	path: string | null;
 	port: number;
 	https: boolean;
+	https_redirect: boolean;
 	certificate_provider?: CertificateProvider;
 	has_custom_certificate?: boolean;
 	certificate_id?: string | null;

@@ -610,7 +610,19 @@ pub async fn sync_server_routes(
                 .and_then(|pages| crate::deployment::error_page::edge_token(pages, &domain.id));
             // Optional trailing fields: the unset ones before a set one become "-", and
             // the trailing unset ones are left off so an older helper still parses the line.
-            let mut extra = vec![auth, maintenance, error_page];
+            // The tenth field turns the HTTPS redirect off; on is the default.
+            let no_redirect = (domain.https && !domain.https_redirect).then(|| "false".to_string());
+            if no_redirect.is_some()
+                && setup::caddy_helper(server, &[OsString::from("https-redirect-check")])
+                    .await
+                    .is_err()
+            {
+                return Err(AppError::ValidationError(
+                    "Turning off the HTTPS redirect needs a newer server script. Open Servers and choose Update script"
+                        .into(),
+                ));
+            }
+            let mut extra = vec![auth, maintenance, error_page, no_redirect];
             while extra.last().is_some_and(Option::is_none) {
                 extra.pop();
             }

@@ -353,7 +353,7 @@ pub(crate) fn credentials(server: &ServerRecord) -> Result<(&str, &str, Option<&
 pub(crate) const CADDY_HELPER: &str = r#"#!/bin/sh
 set -eu
 
-helper_version=5
+helper_version=6
 
 routes=/etc/litepod/caddy/routes.d
 caddyfile=/etc/caddy/Caddyfile
@@ -542,7 +542,7 @@ apply_manifest() {
 
     # Render every desired fragment into a scratch dir first. Any malformed
     # token aborts here, before the live directory is touched at all.
-    while read -r id host port https provider certificate auth maint errpage rest; do
+    while read -r id host port https provider certificate auth maint errpage redirect rest; do
         [ -n "$id" ] || continue
         case "$id" in ''|*[!0-9a-f-]*) exit 64 ;; esac
         case "$host" in ''|*[!A-Za-z0-9.:-]*) exit 64 ;; esac
@@ -551,6 +551,14 @@ apply_manifest() {
         [ -z "$rest" ] || exit 64
         tls=''
         case "${https:-true}" in true) ;; false) host="http://$host" ;; *) exit 64 ;; esac
+        # Listing the http:// address too makes Caddy serve plain HTTP instead of
+        # redirecting it, for a proxy in front that connects over HTTP.
+        case "${https:-true}:${redirect:-true}" in
+            *:true) ;;
+            true:false) host="$host, http://$host" ;;
+            false:false) ;;
+            *) exit 64 ;;
+        esac
         case "${provider:-automatic}" in
             automatic) ;;
             letsencrypt) tls='\ttls {\n\t\tissuer acme {\n\t\t\tca https://acme-v02.api.letsencrypt.org/directory\n\t\t}\n\t}\n' ;;
@@ -724,6 +732,7 @@ case "${1:-}" in
     basic-auth-check) exit 0 ;;
     maintenance-check) exit 0 ;;
     error-page-check) exit 0 ;;
+    https-redirect-check) exit 0 ;;
     version) [ "$#" -eq 1 ] || exit 64; echo "$helper_version" ;;
     install-certificate) [ "$#" -eq 3 ] || exit 64; install_certificate "$2" "$3" ;;
     health) caddy validate --config "$caddyfile" --adapter caddyfile; caddy_running ;;
@@ -2546,6 +2555,31 @@ mod tests {
             std::fs::read_to_string(dir.join("routes.d/aaaa.caddy")).unwrap(),
             secure
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_routes_serves_plain_http_when_the_redirect_is_off() {
+        let dir = std::env::temp_dir().join(format!(
+            "litepod-serverctl-redirect-{}",
+            uuid::Uuid::now_v7()
+        ));
+        let out = run_sync(
+            &dir,
+            0,
+            "aaaa api.example.com 42000 true automatic - - - - false\nbbbb web.example.com 42001 true automatic - - - - true\n",
+        );
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let open = std::fs::read_to_string(dir.join("routes.d/aaaa.caddy")).unwrap();
+        assert!(open.starts_with("api.example.com, http://api.example.com {"));
+        let redirected = std::fs::read_to_string(dir.join("routes.d/bbbb.caddy")).unwrap();
+        assert!(redirected.starts_with("web.example.com {"));
+        let failed = run_sync(&dir, 0, "aaaa api.example.com 42000 true automatic - - - - maybe\n");
+        assert!(!failed.status.success());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

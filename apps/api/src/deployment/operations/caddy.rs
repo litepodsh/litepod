@@ -5,8 +5,8 @@ use crate::{dtos::response::AppError, state::state::SharedState};
 /// `container_port` is the port Caddy dials inside the container, which a
 /// domain may override. When `https` is set this also opens the `:443`
 /// listener, adds a TLS connection policy for `hostname`, and enables Caddy's
-/// automatic HTTPS (certificate issuance + the implicit HTTP->HTTPS redirect)
-/// for that host. Posting a single route via `/config/.../routes` (the old
+/// automatic HTTPS (certificate issuance) for that host; the HTTP->HTTPS
+/// redirect comes from `http_redirect`. Posting a single route via `/config/.../routes` (the old
 /// approach) skips all of that — Caddyfile adaptation normally wires it up,
 /// but raw JSON posted straight to the admin API does not, so HTTPS domains
 /// had no TLS listener anywhere and every browser saw ERR_SSL_PROTOCOL_ERROR.
@@ -204,10 +204,18 @@ where
         .await
         .inspect_err(|error| tracing::warn!(%error, "could not read error page settings"))
         .ok();
+    let redirect_opt_outs = crate::deployment::http_redirect::load_opt_outs(state)
+        .await
+        .inspect_err(|error| tracing::warn!(%error, "could not read HTTPS redirect settings"))
+        .ok();
     let previous = config.clone();
     mutate(&mut config)?;
     if let Some(pages) = &error_pages {
         crate::deployment::error_page::sync(&mut config, pages);
+    }
+    // After the error pages: the HTTP server copies srv0's routes and errors.
+    if let Some(opt_outs) = &redirect_opt_outs {
+        crate::deployment::http_redirect::sync(&mut config, opt_outs);
     }
     // Request analytics; this round trip runs every 30s (route recovery), so a restarted
     // Caddy gets its access log back without a separate job.
@@ -524,8 +532,7 @@ pub(super) fn apply_app_domain_to_config(
         conn_policies.push(serde_json::json!({ "match": { "sni": [hostname] } }));
     }
 
-    // Automatic HTTPS also supplies the implicit HTTP->HTTPS redirect, so a
-    // domain with https=true doesn't need a hand-written redirect route.
+    // The HTTP->HTTPS redirect is not Caddy's: `http_redirect` writes it.
     let automatic_https = server
         .entry("automatic_https")
         .or_insert_with(|| serde_json::json!({}))
