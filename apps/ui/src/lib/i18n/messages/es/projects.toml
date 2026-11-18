@@ -1,7 +1,6 @@
 [application]
 advanced = "Avanzado"
 analytics = "Analíticas"
-apps_in = "Apps en {project}"
 backups = "Copias de seguridad"
 containers = "Contenedores"
 delete = "Eliminar aplicación"

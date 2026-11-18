@@ -56,14 +56,6 @@ export type HeroStat = {
 	/** Extra props for `icon`, e.g. the OS of a server mark. */
 	iconProps?: Record<string, unknown>;
 };
-export type HeroSibling = {
-	id: string;
-	label: string;
-	href: string;
-	/** Omitted when the status is not known; no dot is drawn then. */
-	tone?: 'ok' | 'warn' | 'off';
-	current: boolean;
-};
 export type ScopeHero = {
 	title: string;
 	avatar?: Snippet;
@@ -71,8 +63,6 @@ export type ScopeHero = {
 	meta?: Snippet;
 	actions?: Snippet;
 	stats?: HeroStat[];
-	siblings?: HeroSibling[];
-	siblingsLabel?: string;
 	path: string;
 };
 

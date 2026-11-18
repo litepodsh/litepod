@@ -992,7 +992,6 @@
 	$effect(() => {
 		if (!application || !environment || !projectDetail) return;
 		const current = application;
-		const base = `/projects/${encodeURIComponent(projectId)}/environments/${encodeURIComponent(environment.id)}/applications`;
 		const compose = source?.deploy_type === 'compose';
 		const total = compose ? composeServiceStatuses.length : containerStatus ? 1 : 0;
 		const running = compose
@@ -1044,13 +1043,6 @@
 					icon: sourceStat?.icon,
 				},
 			],
-			siblingsLabel: t('projects.application.apps_in', { project: projectDetail.project.name }),
-			siblings: environment.applications.map((item) => ({
-				id: item.id,
-				label: item.name,
-				href: `${base}/${encodeURIComponent(item.id)}`,
-				current: item.id === current.id,
-			})),
 		});
 	});
 
