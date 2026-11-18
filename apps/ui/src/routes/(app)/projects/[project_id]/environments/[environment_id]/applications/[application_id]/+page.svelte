@@ -29,6 +29,7 @@
 	import RedeployWithPullDialog from '#lib/components/projects/redeploy-with-pull-dialog.svelte';
 	import ApplicationLogsTab from '#lib/components/projects/application-logs-tab.svelte';
 	import { askAboutLogs } from '#lib/components/assistant/thread.svelte.js';
+	import CatalogUpdateBanner from '#lib/components/projects/catalog-update-banner.svelte';
 	import ApplicationDeploymentTab from '#lib/components/projects/application-deployment-tab.svelte';
 	import ApplicationTerminalTab from '#lib/components/projects/application-terminal-tab.svelte';
 	import ApplicationMetricsTab from '#lib/components/projects/application-metrics-tab.svelte';
@@ -2335,6 +2336,14 @@
 		</div>
 	{:else if application && environment && projectDetail}
 		{#if deployment}
+			{#if application.catalog_template_id}
+				<CatalogUpdateBanner
+					{organizationId}
+					{projectId}
+					environmentId={environment.id}
+					{applicationId}
+					onApplied={() => refreshTab(activeTab)} />
+			{/if}
 			<div class="mt-2 min-w-0 max-w-full">
 				<!-- Containers stays mounted while loading: a shorter skeleton collapses the page and moves the scroll. -->
 				{#if refreshingTab && !['general', 'deployment', 'containers'].includes(activeTab)}

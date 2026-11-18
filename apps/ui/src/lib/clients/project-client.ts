@@ -3251,3 +3251,72 @@ export async function listReplicaContainers(
 	);
 	return response.data ?? [];
 }
+
+export type CatalogUpdateDiffLine = { tag: 'equal' | 'insert' | 'delete'; text: string };
+
+export type CatalogUpdate = {
+	template_id: string;
+	current_version: string | null;
+	latest_version: string;
+	update_available: boolean;
+	ignored: boolean;
+	has_baseline: boolean;
+	compose: {
+		status: 'unchanged' | 'clean' | 'customized';
+		images: { service: string; from: string | null; to: string | null }[];
+		diff: CatalogUpdateDiffLine[];
+	};
+	env: {
+		added: { name: string; value: string }[];
+		removed: string[];
+		changed_defaults: { name: string; from: string; to: string }[];
+	};
+	requires_https: boolean;
+	url_persisted: boolean;
+	setup: string | null;
+};
+
+export async function catalogUpdateGet(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): Promise<CatalogUpdate | null> {
+	const response = await api<CatalogUpdate | null>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'catalog-update'),
+	);
+	return response.data ?? null;
+}
+
+export async function catalogUpdateApply(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	input: { version: string; compose: 'replace' | 'keep'; add_env: boolean },
+): Promise<CatalogUpdate> {
+	const response = await api<CatalogUpdate>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'catalog-update/apply'),
+		{ method: 'POST', body: JSON.stringify(input) },
+	);
+	return response.data!;
+}
+
+export async function catalogUpdateIgnore(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	version: string,
+): Promise<void> {
+	await api(
+		deploymentPath(
+			organizationId,
+			projectId,
+			environmentId,
+			applicationId,
+			'catalog-update/ignore',
+		),
+		{ method: 'POST', body: JSON.stringify({ version }) },
+	);
+}

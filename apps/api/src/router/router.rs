@@ -1187,6 +1187,18 @@ pub fn create_router(state: SharedState) -> Router {
             get(compose::compose_content_get_handler).put(compose::compose_content_put_handler),
         )
         .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/catalog-update",
+            get(catalog_templates::update_get_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/catalog-update/apply",
+            post(catalog_templates::update_apply_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/catalog-update/ignore",
+            post(catalog_templates::update_ignore_handler),
+        )
+        .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/compose/validate",
             post(compose::compose_validate_handler),
         )

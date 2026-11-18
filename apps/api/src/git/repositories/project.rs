@@ -198,6 +198,79 @@ pub async fn set_catalog_metadata(
     .map_err(|error| error.to_string())
 }
 
+/// Snapshot of the catalog template an application was created from or last
+/// updated to: the baseline a later template version is diffed against.
+pub struct CatalogBase {
+    pub template_id: String,
+    pub version: Option<String>,
+    pub compose: Option<String>,
+    pub env: Option<String>,
+    pub ignored_version: Option<String>,
+}
+
+pub async fn set_catalog_base(
+    conn: &sqlx::SqlitePool,
+    application_id: &str,
+    version: &str,
+    compose: &str,
+    env: &str,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE applications SET catalog_template_version = ?1, catalog_base_compose = ?2, catalog_base_env = ?3, catalog_ignored_version = NULL WHERE id = ?4",
+    )
+    .bind(version)
+    .bind(compose)
+    .bind(env)
+    .bind(application_id)
+    .execute(conn)
+    .await
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
+
+pub async fn set_catalog_ignored_version(
+    state: &SharedState,
+    application_id: &str,
+    version: &str,
+) -> Result<(), String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query("UPDATE applications SET catalog_ignored_version = ?1 WHERE id = ?2")
+        .bind(version)
+        .bind(application_id)
+        .execute(&conn)
+        .await
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+pub async fn get_catalog_base(
+    state: &SharedState,
+    application_id: &str,
+) -> Result<Option<CatalogBase>, String> {
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    let row = sqlx::query(
+        "SELECT catalog_template_id, catalog_template_version, catalog_base_compose, catalog_base_env, catalog_ignored_version FROM applications WHERE id = ?1",
+    )
+    .bind(application_id)
+    .fetch_optional(&conn)
+    .await
+    .map_err(|error| error.to_string())?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let template_id: Option<String> = row.try_get(0).map_err(|error| error.to_string())?;
+    let Some(template_id) = template_id else {
+        return Ok(None);
+    };
+    Ok(Some(CatalogBase {
+        template_id,
+        version: row.try_get(1).map_err(|error| error.to_string())?,
+        compose: row.try_get(2).map_err(|error| error.to_string())?,
+        env: row.try_get(3).map_err(|error| error.to_string())?,
+        ignored_version: row.try_get(4).map_err(|error| error.to_string())?,
+    }))
+}
+
 pub async fn get_catalog_primary_port(
     state: &SharedState,
     application_id: &str,

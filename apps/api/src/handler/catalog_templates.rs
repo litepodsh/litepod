@@ -3,7 +3,7 @@ use crate::{
         catalog_template::{CatalogFileDto, CatalogPortDto, CatalogTemplateDto},
         response::{AppError, created, ok},
     },
-    security::authz::extract::{RequireOrg, perm},
+    security::authz::extract::{RequireApp, RequireOrg, perm},
     security::middleware::auth::AuthUser,
     state::state::SharedState,
     templates::catalog_templates::{self, CatalogClient, CatalogQuery, CatalogTemplate},
@@ -152,4 +152,49 @@ pub async fn create_handler(
     .await;
     crate::handler::dashboard::invalidate_organization_dashboard(&state, &organization_id).await;
     Ok(created(application))
+}
+
+use crate::templates::catalog_templates::update::{
+    self as catalog_update, ApplyCatalogUpdateRequest, IgnoreCatalogUpdateRequest,
+};
+
+/// What a newer catalog version would change for this application. `null`
+/// data when the application was not created from a template.
+pub async fn update_get_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppRead>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    Ok(ok(catalog_update::check(&state, &app.application_id).await?))
+}
+
+pub async fn update_apply_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    Json(request): Json<ApplyCatalogUpdateRequest>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    let result = catalog_update::apply(&state, &app.application_id, &request).await?;
+    let _ = crate::git::repositories::audit_log::record(
+        &state,
+        &app.organization_id,
+        &app.user,
+        "catalog_update.applied",
+        Some("application"),
+        Some(&app.application_id),
+        Some(&app.application_name),
+        Some(&request.version),
+        None,
+        None,
+        None,
+    )
+    .await;
+    Ok(ok(result))
+}
+
+pub async fn update_ignore_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    Json(request): Json<IgnoreCatalogUpdateRequest>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    catalog_update::ignore(&state, &app.application_id, &request).await?;
+    Ok(ok(serde_json::json!({ "ignored": request.version })))
 }
