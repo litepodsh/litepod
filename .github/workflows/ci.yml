@@ -99,6 +99,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - run: bun install --frozen-lockfile
-      - run: bun audit --audit-level=high
+      # GHSA-fc5q-39xc-vjpf: picomatch ReDoS, no patched release (<= 4.0.7 is the latest).
+      # Only build tooling pulls it (vite, vitest, svelte-check) on our own globs; the UI
+      # ships as static files, so no user input reaches it. Review 2027-02-01.
+      - run: bun audit --audit-level=high --ignore=GHSA-fc5q-39xc-vjpf
       - run: bun run check
       - run: bun run build
