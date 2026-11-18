@@ -811,7 +811,17 @@ pub(crate) async fn install_root_file(
     SshExecutor::run(&target, key, fingerprint, known_hosts, &mkdir).await?;
     let install = maintenance_command(
         prefix,
-        &["install", "-o", "0", "-g", "0", "-m", mode, &staging_path, destination],
+        &[
+            "install",
+            "-o",
+            "0",
+            "-g",
+            "0",
+            "-m",
+            mode,
+            &staging_path,
+            destination,
+        ],
     );
     SshExecutor::run(&target, key, fingerprint, known_hosts, &install).await?;
     Ok(())
@@ -2147,7 +2157,11 @@ where
             .await
             .is_ok_and(|value| value.trim() == "0")
     {
-        on_step("check-resource-accounting", FREEBSD_RACCT_ADVICE.to_string()).await?;
+        on_step(
+            "check-resource-accounting",
+            FREEBSD_RACCT_ADVICE.to_string(),
+        )
+        .await?;
     }
     let (facts, state) = preflight(server).await?;
     if state == ServerState::Unsupported {

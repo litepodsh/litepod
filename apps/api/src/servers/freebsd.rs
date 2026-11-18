@@ -146,8 +146,14 @@ mod tests {
     #[test]
     fn image_issue_names_the_images_that_fail_under_the_linux_layer() {
         assert_eq!(image_issue("nginx:alpine", false), Some(NGINX));
-        assert_eq!(image_issue("docker.io/library/nginx:1.27", false), Some(NGINX));
-        assert_eq!(image_issue("docker.io/library/postgres:17.2", false), Some(POSTGRES));
+        assert_eq!(
+            image_issue("docker.io/library/nginx:1.27", false),
+            Some(NGINX)
+        );
+        assert_eq!(
+            image_issue("docker.io/library/postgres:17.2", false),
+            Some(POSTGRES)
+        );
         assert_eq!(image_issue("mariadb:11.8", false), Some(MARIADB));
         assert_eq!(image_issue("redis:7-alpine", false), Some(DROPS_ROOT));
         assert_eq!(image_issue("redis:7", true), None);

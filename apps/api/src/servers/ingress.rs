@@ -230,7 +230,9 @@ async fn published_container_address(
     )
     .await
     .ok()?;
-    let address = addresses.split_whitespace().find_map(|value| value.parse().ok())?;
+    let address = addresses
+        .split_whitespace()
+        .find_map(|value| value.parse().ok())?;
     Some((address, container_port))
 }
 

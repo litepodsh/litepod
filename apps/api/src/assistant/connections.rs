@@ -447,7 +447,9 @@ pub async fn resolve(
          WHERE organization_id = ?1 AND is_default = 1"
     );
     let found = match connection_id {
-        Some(id) => sqlx::query(sqlx::AssertSqlSafe(by_id.as_str())).bind(id).bind(organization_id),
+        Some(id) => sqlx::query(sqlx::AssertSqlSafe(by_id.as_str()))
+            .bind(id)
+            .bind(organization_id),
         None => sqlx::query(sqlx::AssertSqlSafe(by_default.as_str())).bind(organization_id),
     }
     .fetch_optional(&conn)

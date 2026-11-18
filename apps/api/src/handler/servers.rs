@@ -1138,7 +1138,9 @@ pub async fn vulnerabilities_get_handler(
     Path((_, server_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     let server = maintenance_server(&state, &org.organization_id, &server_id).await?;
-    Ok(ok(crate::servers::vulnerabilities::get(&state, &server.id).await?))
+    Ok(ok(
+        crate::servers::vulnerabilities::get(&state, &server.id).await?
+    ))
 }
 
 /// Also what turns scanning on: the first scan is the moment the user accepts the disk it takes.
@@ -1163,9 +1165,10 @@ pub async fn vulnerabilities_scan_handler(
         )
         .await;
     }
-    Ok(ok(
-        crate::servers::vulnerabilities::scan_now(&state, server).await?
-    ))
+    Ok(ok(crate::servers::vulnerabilities::scan_now(
+        &state, server,
+    )
+    .await?))
 }
 
 pub async fn vulnerabilities_disable_handler(
