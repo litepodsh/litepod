@@ -142,6 +142,22 @@ verify_title = "Verify this fingerprint before trusting it"
 vps_firewall = "If your VPS provider offers an external firewall or security groups, allow the same ports there."
 where_title = "Where to allow these ports"
 
+[detail]
+applications = "Applications on this server"
+containers_desc = "Browse containers, images, volumes and networks on this host."
+fullscreen = "Full screen"
+hardening = "Hardening guide"
+health_desc = "Check SSH, Podman and disk, and refresh the server facts."
+ingress = "Ingress"
+maintenance_desc = "Update packages, clean up disk, restart Podman or reboot the host."
+no_applications = "No applications deploy to this server yet."
+ports = "Published ports"
+security_desc = "Harden SSH, firewall and updates, and scan installed packages for known vulnerabilities."
+system = "System"
+tab_overview = "Overview"
+tab_terminal = "Terminal"
+terminal_desc = "Open a shell on the host from the browser."
+
 [helper]
 explanation = "The script litepod installed on this server is v{installed}; this litepod needs v{latest}. Some features, like basic authentication on domains, will not work until it is updated. Updating only replaces that script."
 failed = "Could not update the server script"
