@@ -17,6 +17,8 @@
 	import FilePlusIcon from '@lucide/svelte/icons/file-plus';
 	import SaveIcon from '@lucide/svelte/icons/save';
 	import UploadIcon from '@lucide/svelte/icons/upload';
+	import ZoomInIcon from '@lucide/svelte/icons/zoom-in';
+	import ZoomOutIcon from '@lucide/svelte/icons/zoom-out';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 
@@ -38,6 +40,26 @@
 	let treeHost = $state<HTMLDivElement | null>(null);
 	let editorHost = $state<HTMLDivElement | null>(null);
 	let fileInput = $state<HTMLInputElement | null>(null);
+	let imageViewer = $state<HTMLDivElement | null>(null);
+	let imageWidth = $state(0);
+	let zoom = $state(1);
+	const ZOOM_MIN = 0.05;
+	const ZOOM_MAX = 8;
+	const ZOOM_STEP = 1.25;
+	/** What the explorer can show of a binary file, using the browser's own viewers. */
+	const preview = $derived.by(() => {
+		const mime = selected && !selected.is_text ? (selected.mime_type ?? '') : '';
+		if (mime.startsWith('image/')) return 'image';
+		if (mime.startsWith('audio/')) return 'audio';
+		if (mime.startsWith('video/')) return 'video';
+		return mime === 'application/pdf' ? 'pdf' : null;
+	});
+	/** Opens an image at its natural size, shrunk to fit the viewer when it is wider. */
+	function fitImage(image: HTMLImageElement) {
+		imageWidth = image.naturalWidth;
+		const room = (imageViewer?.clientWidth ?? imageWidth) - 32;
+		zoom = imageWidth > room && room > 0 ? Math.max(ZOOM_MIN, room / imageWidth) : 1;
+	}
 	let editor = $state<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
 	let monacoApi = $state<typeof import('monaco-editor') | null>(null);
 	let tree: {
@@ -345,6 +367,51 @@
 			</div>{:else if fileLoading}<div
 				class="flex flex-1 items-center justify-center gap-2 p-8 text-muted-foreground">
 				<LoaderCircleIcon class="size-4 animate-spin" />{t('projects.volume_files.loading_file')}
+			</div>{:else if selected && preview}<div class="flex min-h-0 flex-1 flex-col">
+				<div
+					bind:this={imageViewer}
+					class="flex min-h-[16rem] flex-1 bg-muted/20 {preview === 'pdf' ? '' : 'overflow-auto p-4'}">
+					{#if preview === 'pdf'}<iframe
+							src={client.downloadUrl(selected.path, true)}
+							title={selected.path}
+							class="size-full flex-1 border-0"></iframe>
+					{:else}<div class="m-auto grid min-w-max place-items-center">
+							{#if preview === 'image'}<img
+									src={client.downloadUrl(selected.path, true)}
+									alt={selected.path}
+									class="max-w-none"
+									style:width={imageWidth ? `${imageWidth * zoom}px` : undefined}
+									onload={(event) => fitImage(event.currentTarget as HTMLImageElement)} />
+							{:else if preview === 'video'}<!-- svelte-ignore a11y_media_has_caption -->
+								<video
+									controls
+									src={client.downloadUrl(selected.path, true)}
+									class="max-h-[70vh] max-w-full rounded-lg"></video>
+							{:else}<audio
+									controls
+									src={client.downloadUrl(selected.path, true)}
+									class="w-[min(36rem,80vw)]"></audio>{/if}
+						</div>{/if}
+				</div>
+				<div class="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t bg-card p-3">
+					{#if preview === 'image'}<Button
+							variant="outline"
+							size="icon"
+							aria-label={t('projects.application_terminal.zoom_out')}
+							disabled={zoom <= ZOOM_MIN}
+							onclick={() => (zoom = Math.max(ZOOM_MIN, zoom / ZOOM_STEP))}><ZoomOutIcon /></Button>
+						<span class="w-12 text-center font-mono text-xs text-muted-foreground tabular-nums"
+							>{Math.round(zoom * 100)}%</span>
+						<Button
+							variant="outline"
+							size="icon"
+							aria-label={t('projects.application_terminal.zoom_in')}
+							disabled={zoom >= ZOOM_MAX}
+							onclick={() => (zoom = Math.min(ZOOM_MAX, zoom * ZOOM_STEP))}><ZoomInIcon /></Button
+						>{/if}
+					<Button href={client.downloadUrl(selected.path)}
+						><DownloadIcon />{t('projects.volume_files.download')}</Button>
+				</div>
 			</div>{:else if selected}<div
 				class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
 				<p class="font-medium">{t('projects.volume_files.binary_file')}</p>

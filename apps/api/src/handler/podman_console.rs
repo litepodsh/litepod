@@ -6,9 +6,7 @@
 use std::{convert::Infallible, ffi::OsString, time::Duration};
 
 use axum::{
-    body::Body,
     extract::{Multipart, Path, Query, State},
-    http::header,
     response::{
         IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
@@ -706,6 +704,9 @@ pub async fn events_stream_handler(
 #[derive(Deserialize)]
 pub struct WorkspacePathQuery {
     pub path: String,
+    /// Show a previewable file in the browser instead of downloading it.
+    #[serde(default)]
+    pub inline: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -833,22 +834,5 @@ pub async fn volume_workspace_download_handler(
 ) -> Result<Response, AppError> {
     let root = volume_root(&state, &org.organization_id, &server_id, volume).await?;
     let (bytes, mime) = volume_workspace::read_file_bytes(&state, root, &query.path).await?;
-    let filename = std::path::Path::new(&query.path)
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
-    let mut response = Response::new(Body::from(bytes));
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_str(
-            &mime.unwrap_or_else(|| "application/octet-stream".into()),
-        )
-        .map_err(|error| AppError::InternalError(error.to_string()))?,
-    );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        axum::http::HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
-            .map_err(|error| AppError::InternalError(error.to_string()))?,
-    );
-    Ok(response)
+    crate::handler::workspace_download::file_response(bytes, mime, &query.path, query.inline)
 }

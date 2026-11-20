@@ -46,5 +46,6 @@ pub mod templates;
 pub mod terminal_sessions;
 pub mod users;
 pub mod webhooks;
+pub mod workspace_download;
 
 pub mod certificates;
