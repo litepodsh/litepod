@@ -37,6 +37,7 @@
 	let selectionVersion = 0;
 	let treeHost = $state<HTMLDivElement | null>(null);
 	let editorHost = $state<HTMLDivElement | null>(null);
+	let fileInput = $state<HTMLInputElement | null>(null);
 	let editor = $state<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
 	let monacoApi = $state<typeof import('monaco-editor') | null>(null);
 	let tree: {
@@ -245,7 +246,9 @@
 		}
 	}
 	async function upload(event: Event) {
-		const file = (event.currentTarget as HTMLInputElement).files?.[0];
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = ''; // let the same file be picked again
 		if (!file) return;
 		const path = prompt(t('projects.volume_files.prompt_upload'), file.name);
 		if (!path) return;
@@ -315,10 +318,9 @@
 						><FilePlusIcon />{t('projects.volume_files.new_file')}</Button
 					><Button size="sm" variant="outline" onclick={() => create('directory')}
 						><FolderPlusIcon />{t('projects.volume_files.folder')}</Button
-					><label
-						><Button size="sm" variant="outline"
-							><UploadIcon />{t('projects.volume_files.upload')}</Button
-						><Input type="file" class="sr-only" onchange={upload} /></label>
+					><Button size="sm" variant="outline" onclick={() => fileInput?.click()}
+						><UploadIcon />{t('projects.volume_files.upload')}</Button
+					><input bind:this={fileInput} type="file" class="hidden" onchange={upload} />
 				</div>{/if}
 		</div>
 		{#if selected?.is_text}<div class="relative min-h-[16rem] flex-1">
