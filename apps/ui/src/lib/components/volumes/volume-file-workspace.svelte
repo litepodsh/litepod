@@ -37,6 +37,7 @@
 	let selectionVersion = 0;
 	let treeHost = $state<HTMLDivElement | null>(null);
 	let editorHost = $state<HTMLDivElement | null>(null);
+	let fileInput = $state<HTMLInputElement | null>(null);
 	let editor = $state<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
 	let monacoApi = $state<typeof import('monaco-editor') | null>(null);
 	let tree: {
@@ -138,8 +139,9 @@
 		}
 	}
 	onMount(async () => {
-		await refresh();
-		const { FileTree } = await import('@pierre/trees');
+		// Load the tree and editor code while the first listing is in flight.
+		const editorCode = Promise.all([loadNerdFont(), loadMonaco()]);
+		const [, { FileTree }] = await Promise.all([refresh(), import('@pierre/trees')]);
 		if (treeHost) {
 			tree = new FileTree({
 				paths: pathsForTree(),
@@ -150,7 +152,7 @@
 			});
 			tree.render({ containerWrapper: treeHost });
 		}
-		const [, monaco] = await Promise.all([loadNerdFont(), loadMonaco()]);
+		const [, monaco] = await editorCode;
 		monacoApi = monaco;
 		const applyTheme = () =>
 			monacoApi?.editor.setTheme(
@@ -235,8 +237,8 @@
 		);
 		if (!path) return;
 		try {
-			await client.create(path, kind, kind === 'file' ? '' : undefined);
-			await refresh();
+			mergeEntries([await client.create(path, kind, kind === 'file' ? '' : undefined)]);
+			updateTree();
 			toast.success(t('projects.volume_files.created_toast', { path }));
 		} catch (error) {
 			toast.error(
@@ -245,13 +247,15 @@
 		}
 	}
 	async function upload(event: Event) {
-		const file = (event.currentTarget as HTMLInputElement).files?.[0];
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = ''; // let the same file be picked again
 		if (!file) return;
 		const path = prompt(t('projects.volume_files.prompt_upload'), file.name);
 		if (!path) return;
 		try {
-			await client.upload(path, file);
-			await refresh();
+			mergeEntries([await client.upload(path, file)]);
+			updateTree();
 			toast.success(t('projects.volume_files.uploaded_toast', { path }));
 		} catch (error) {
 			toast.error(
@@ -315,10 +319,9 @@
 						><FilePlusIcon />{t('projects.volume_files.new_file')}</Button
 					><Button size="sm" variant="outline" onclick={() => create('directory')}
 						><FolderPlusIcon />{t('projects.volume_files.folder')}</Button
-					><label
-						><Button size="sm" variant="outline"
-							><UploadIcon />{t('projects.volume_files.upload')}</Button
-						><Input type="file" class="sr-only" onchange={upload} /></label>
+					><Button size="sm" variant="outline" onclick={() => fileInput?.click()}
+						><UploadIcon />{t('projects.volume_files.upload')}</Button
+					><input bind:this={fileInput} type="file" class="hidden" onchange={upload} />
 				</div>{/if}
 		</div>
 		{#if selected?.is_text}<div class="relative min-h-[16rem] flex-1">

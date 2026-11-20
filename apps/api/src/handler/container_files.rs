@@ -1,6 +1,12 @@
 //! File explorer over a container's own filesystem. Every route needs `app.exec`: browsing and
 //! editing a container's files is as powerful as a shell in it, so it gets the terminal's floor.
 
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
+};
+
 use axum::{
     Json,
     extract::{Multipart, Path, Query, State},
@@ -41,14 +47,41 @@ async fn target(
     application_id: &str,
     container_id: &str,
 ) -> Result<ServerRuntime, AppError> {
-    if !container_names(state, application_id)
-        .await?
-        .iter()
-        .any(|name| name == container_id)
-    {
-        return Err(AppError::ResourceNotFound);
+    let key = (application_id.to_owned(), container_id.to_owned());
+    if !owned_recently(&key) {
+        // For compose apps this is a `podman compose ps`, about a second, so it is not paid on
+        // every click of the explorer.
+        if !container_names(state, application_id)
+            .await?
+            .iter()
+            .any(|name| name == container_id)
+        {
+            return Err(AppError::ResourceNotFound);
+        }
+        remember_owned(key);
     }
     ServerRuntime::for_application(state, application_id).await
+}
+
+type OwnedKey = (String, String);
+/// Containers recently proven to belong to an application. Names carry the application's
+/// prefix, so a cached proof cannot start pointing at another tenant's container.
+static OWNED: LazyLock<Mutex<HashMap<OwnedKey, Instant>>> = LazyLock::new(Default::default);
+const OWNED_TTL: Duration = Duration::from_secs(60);
+
+fn owned_recently(key: &OwnedKey) -> bool {
+    OWNED
+        .lock()
+        .ok()
+        .and_then(|owned| owned.get(key).copied())
+        .is_some_and(|at| at.elapsed() < OWNED_TTL)
+}
+
+fn remember_owned(key: OwnedKey) {
+    if let Ok(mut owned) = OWNED.lock() {
+        owned.retain(|_, at| at.elapsed() < OWNED_TTL);
+        owned.insert(key, Instant::now());
+    }
 }
 
 async fn audit(
@@ -232,4 +265,18 @@ pub async fn download_handler(
             .map_err(|error| AppError::InternalError(error.to_string()))?,
     );
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ownership_is_remembered_per_application_and_container() {
+        let key = ("app-cache-test".to_owned(), "app-cache-test-web-1".to_owned());
+        assert!(!owned_recently(&key));
+        remember_owned(key.clone());
+        assert!(owned_recently(&key));
+        assert!(!owned_recently(&("other-app".to_owned(), key.1.clone())));
+    }
 }

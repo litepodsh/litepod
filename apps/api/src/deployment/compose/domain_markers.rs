@@ -342,6 +342,7 @@ mod tests {
             host: host.into(),
             port: 80,
             https,
+            https_redirect: true,
             is_primary,
             url: format!("{}://{host}", if https { "https" } else { "http" }),
             is_local: false,

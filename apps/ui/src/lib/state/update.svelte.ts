@@ -31,6 +31,7 @@ function sleep(ms: number): Promise<void> {
 function createUpdateStore() {
 	let applying = $state(false);
 	let phase = $state<UpdatePhase>('idle');
+	let versions = $state<{ from: string; to: string } | null>(null);
 
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 	let reloaded = false;
@@ -141,6 +142,9 @@ function createUpdateStore() {
 			stopWithMessage(t('common.update.target_incomplete'));
 			return;
 		}
+		// Tags come as `v0.3.39-next.2`; the overlay adds its own `v`.
+		const bare = (v: string) => v.replace(/^v/i, '');
+		versions = { from: bare(info.version), to: bare(state.latest_version) };
 
 		const core = state.core_services;
 		if (!core.caddy.target_tag || !core.dragonfly.target_tag) {
@@ -191,6 +195,9 @@ function createUpdateStore() {
 		},
 		get phase() {
 			return phase;
+		},
+		get versions() {
+			return versions;
 		},
 		startUpdate,
 		reset,

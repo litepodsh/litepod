@@ -1337,7 +1337,10 @@ mod tests {
     }
 
     async fn exec(state: &SharedState, sql: &str) {
-        sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&state.db).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .execute(&state.db)
+            .await
+            .unwrap();
     }
 
     fn assign_body(

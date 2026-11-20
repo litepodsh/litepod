@@ -12,7 +12,7 @@ use crate::servers::{repository::ServerRecord, setup};
 pub const HELPER_PATH: &str = "/usr/local/lib/litepod/serverctl";
 
 /// The version the script in this build reports. Keep in step with `helper_version=` in it.
-pub const HELPER_VERSION: u32 = 5;
+pub const HELPER_VERSION: u32 = 6;
 
 pub struct HelperRelease {
     pub version: u32,
@@ -63,6 +63,13 @@ pub const CHANGELOG: &[HelperRelease] = &[
         ],
         #[cfg(test)]
         script_sha256: "bff1a765ea9a91451318d20977f773c271821aa0b37d1a1f392db269e48f6ba6",
+    },
+    HelperRelease {
+        version: 6,
+        summary: "HTTPS redirect setting on public-edge servers",
+        changes: &["Serves plain HTTP instead of redirecting when a domain turns the redirect off (`https-redirect-check`)"],
+        #[cfg(test)]
+        script_sha256: "7ac3de4d4b6b88982c630b3b63423ff9632a3bb19266bac4085d65becbb5301f",
     },
 ];
 

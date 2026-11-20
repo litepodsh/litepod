@@ -714,7 +714,10 @@ mod tests {
     }
 
     async fn count(state: &SharedState, sql: &str) -> i64 {
-        sqlx::query_scalar(sqlx::AssertSqlSafe(sql)).fetch_one(&state.db).await.unwrap()
+        sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+            .fetch_one(&state.db)
+            .await
+            .unwrap()
     }
 
     #[tokio::test]

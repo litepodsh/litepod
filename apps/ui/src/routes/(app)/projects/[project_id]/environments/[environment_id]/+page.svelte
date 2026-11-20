@@ -40,6 +40,7 @@
 		type ProjectDto,
 		type ServerSummaryDto,
 		listReadyServers,
+		catalogUpdatesForEnvironment,
 	} from '#lib/clients/project-client.js';
 	import { getSystemVersion, type SystemVersion } from '#lib/clients/system-client.js';
 	import { createCatalogTemplateApplication } from '#lib/clients/template-client.js';
@@ -286,6 +287,19 @@
 		};
 	});
 
+	// Application id -> template version it could update to. Best effort: a slow
+	// or unreachable catalog just means no tags.
+	let templateUpdates = $state<Record<string, string>>({});
+	async function refreshTemplateUpdates(env: EnvironmentDto) {
+		if (!organizationId) return;
+		try {
+			const updates = await catalogUpdatesForEnvironment(organizationId, projectId, env.id);
+			if (!cancelled) templateUpdates = updates;
+		} catch {
+			/* no tags */
+		}
+	}
+
 	async function refreshStatuses(env: EnvironmentDto) {
 		if (!organizationId) return;
 		const results = await Promise.allSettled(
@@ -426,6 +440,7 @@
 			projects = projectList;
 			environment = resolvedEnvironment;
 			void refreshStatuses(resolvedEnvironment);
+			void refreshTemplateUpdates(resolvedEnvironment);
 			// One call for every app card's 24h chart; on failure the charts stay hidden.
 			getRequestSparklines(organizationId).then(
 				(result) => (sparklines = cancelled ? sparklines : result),
@@ -949,7 +964,8 @@
 						searchPlaceholder={t('projects.common.search_environments')}
 						emptyText={t('projects.common.no_environment_found')} />
 					{#if currentEnvironment.is_production}<span
-							class={`rounded-full corner-soft px-2 py-0.5 text-xs font-medium ${toneClass('ok')}`}>prod</span
+							class={`rounded-full corner-soft px-2 py-0.5 text-xs font-medium ${toneClass('ok')}`}
+							>prod</span
 						>{/if}
 				</div>
 				<div class="flex gap-2">
@@ -1156,7 +1172,16 @@
 									bind:failedApplicationIds={failedIconApplicationIds} />
 							</div>
 							<div class="min-w-0 flex-1">
-								<h3 class="truncate font-semibold">{application.name}</h3>
+								<div class="flex min-w-0 items-center gap-2">
+									<h3 class="truncate font-semibold">{application.name}</h3>
+									{#if templateUpdates[application.id]}
+										<span
+											class={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${toneClass('info')}`}
+											title={t('projects.catalog_update.title', {
+												version: templateUpdates[application.id],
+											})}>{t('projects.catalog_update.badge')}</span>
+									{/if}
+								</div>
 								<p class="mt-1 line-clamp-2 min-h-10 text-sm text-muted-foreground">
 									{application.description || t('projects.projects.no_description')}
 								</p>

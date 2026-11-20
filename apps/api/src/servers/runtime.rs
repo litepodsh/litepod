@@ -872,8 +872,18 @@ mod tests {
 
     #[test]
     fn remote_compose_runs_with_absolute_workspace_paths() {
-        let target = SshTarget { host: "h".into(), port: 22, user: "deploy".into() };
-        let args = ["compose", "--file", ".local/share/litepod/apps/a/c.yml", "up"].map(OsString::from);
+        let target = SshTarget {
+            host: "h".into(),
+            port: 22,
+            user: "deploy".into(),
+        };
+        let args = [
+            "compose",
+            "--file",
+            ".local/share/litepod/apps/a/c.yml",
+            "up",
+        ]
+        .map(OsString::from);
         let argv = ServerRuntime::remote_podman_argv(PodmanMode::Rootful, &target, &args);
         let script = argv[4].to_string_lossy().into_owned();
         let output = std::process::Command::new("sh")
@@ -888,7 +898,11 @@ mod tests {
             String::from_utf8(output.stdout).unwrap(),
             "compose\n--file\n//.local/share/litepod/apps/a/c.yml\nup\n"
         );
-        let ps = ServerRuntime::remote_podman_argv(PodmanMode::Rootful, &target, &[OsString::from("ps")]);
+        let ps = ServerRuntime::remote_podman_argv(
+            PodmanMode::Rootful,
+            &target,
+            &[OsString::from("ps")],
+        );
         assert_eq!(ps, ["sudo", "-n", "podman", "ps"].map(OsString::from));
     }
 }

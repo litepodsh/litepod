@@ -270,6 +270,9 @@ pub struct DomainDto {
     /// Path prefix such as `/api`, routed and stripped by Caddy. `None` is the host's root.
     pub path: Option<String>,
     pub https: bool,
+    /// Plain HTTP answers with a 308 to HTTPS. Only meaningful with `https`; path
+    /// domains follow their root.
+    pub https_redirect: bool,
     pub is_primary: bool,
     /// Fully resolved address, e.g. `http://localhost:10000`.
     pub url: String,
@@ -439,6 +442,9 @@ pub struct CreateDomainRequest {
     pub host: String,
     pub port: i64,
     pub https: Option<bool>,
+    /// Redirect plain HTTP to HTTPS. Defaults to on when creating.
+    #[serde(default)]
+    pub https_redirect: Option<bool>,
     pub is_primary: Option<bool>,
     /// `/api` style prefix; empty or `/` means the host's root (on update: clears it).
     #[serde(default)]
@@ -454,6 +460,9 @@ pub struct UpdateDomainRequest {
     pub host: Option<String>,
     pub port: Option<i64>,
     pub https: Option<bool>,
+    /// Redirect plain HTTP to HTTPS. Defaults to on when creating.
+    #[serde(default)]
+    pub https_redirect: Option<bool>,
     pub is_primary: Option<bool>,
     /// `/api` style prefix; empty or `/` means the host's root (on update: clears it).
     #[serde(default)]

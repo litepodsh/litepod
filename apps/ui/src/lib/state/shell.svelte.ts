@@ -53,14 +53,8 @@ export type HeroStat = {
 	/** Opens `href` in a new tab, with an external-link icon next to the value. */
 	external?: boolean;
 	icon?: Component;
-};
-export type HeroSibling = {
-	id: string;
-	label: string;
-	href: string;
-	/** Omitted when the status is not known; no dot is drawn then. */
-	tone?: 'ok' | 'warn' | 'off';
-	current: boolean;
+	/** Extra props for `icon`, e.g. the OS of a server mark. */
+	iconProps?: Record<string, unknown>;
 };
 export type ScopeHero = {
 	title: string;
@@ -69,8 +63,6 @@ export type ScopeHero = {
 	meta?: Snippet;
 	actions?: Snippet;
 	stats?: HeroStat[];
-	siblings?: HeroSibling[];
-	siblingsLabel?: string;
 	path: string;
 };
 

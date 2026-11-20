@@ -10,6 +10,7 @@ pub mod domains;
 pub mod error_page;
 pub mod git;
 pub mod history;
+pub mod http_redirect;
 
 pub mod image;
 pub mod log_buffer;

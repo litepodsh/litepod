@@ -12,6 +12,7 @@ const publicEdgeDomain: DomainDto = {
 	path: null,
 	port: 80,
 	https: true,
+	https_redirect: true,
 	is_primary: true,
 	url: 'https://app.example.com',
 	is_local: false,

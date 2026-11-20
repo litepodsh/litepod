@@ -327,9 +327,7 @@ mod tests {
     #[test]
     fn stable_sorting_wins_over_same_base_next_and_next_counter_increases() {
         assert!(parse_version("v1.2.3").unwrap() > parse_version("v1.2.3-next.9").unwrap());
-        assert!(
-            parse_version("v1.2.3-next.10").unwrap() > parse_version("v1.2.3-next.9").unwrap()
-        );
+        assert!(parse_version("v1.2.3-next.10").unwrap() > parse_version("v1.2.3-next.9").unwrap());
     }
 
     #[test]

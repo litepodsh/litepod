@@ -99,6 +99,9 @@ pub struct DecodedTemplate {
     pub environment: String,
     pub setup: String,
     pub icon_url: Option<String>,
+    /// The template's `.env` before secret markers were resolved; set by
+    /// `create_application`, empty from `decode`.
+    pub base_environment: String,
 }
 
 impl CatalogQuery {
@@ -305,9 +308,10 @@ pub fn decode(template: CatalogTemplate) -> Result<DecodedTemplate, AppError> {
         environment,
         setup,
         icon_url,
+        base_environment: String::new(),
     })
 }
-fn catalog_ports(template: &CatalogTemplate) -> Vec<domain_markers::CatalogPort> {
+pub(super) fn catalog_ports(template: &CatalogTemplate) -> Vec<domain_markers::CatalogPort> {
     template
         .ports
         .iter()
@@ -321,7 +325,7 @@ fn catalog_ports(template: &CatalogTemplate) -> Vec<domain_markers::CatalogPort>
 
 /// Rejects a template whose `{{url:...}}` markers name a port no service owns,
 /// before any application row exists.
-fn validate_domain_markers(decoded: &DecodedTemplate) -> Result<(), AppError> {
+pub(super) fn validate_domain_markers(decoded: &DecodedTemplate) -> Result<(), AppError> {
     let env = deployment::parse_environment_content(&decoded.environment)?;
     domain_markers::required_routes(&env, &catalog_ports(&decoded.template), &decoded.compose)
         .map(|_| ())
@@ -331,7 +335,7 @@ fn validate_domain_markers(decoded: &DecodedTemplate) -> Result<(), AppError> {
 /// Same check `ComposeFileStore::write_content` runs, done before anything is
 /// created so a refused template (a reserved service name, a bind mount) reaches
 /// the user as a validation error instead of a generic internal one.
-fn validate_compose(compose: &str) -> Result<(), AppError> {
+pub(super) fn validate_compose(compose: &str) -> Result<(), AppError> {
     deployment::compose::validate_tenant_compose(compose, true).map_err(AppError::ValidationError)
 }
 
@@ -353,6 +357,7 @@ pub async fn create_application(
     server_id: &str,
 ) -> Result<ApplicationDto, AppError> {
     let mut decoded = decode(CatalogClient::new()?.get(template_id).await?)?;
+    decoded.base_environment = decoded.environment.clone();
     decoded.environment =
         crate::templates::secrets::substitute_placeholder_secrets(&decoded.environment);
     deployment::validate_environment_content(&decoded.environment)?;
@@ -458,6 +463,17 @@ pub async fn create_application(
             &catalog_ports(&decoded.template),
             decoded.template.requires_https,
             decoded.template.url_persisted,
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
+        // The pristine template (markers unresolved), kept as the baseline for
+        // `update::diff` when the catalog publishes a newer version.
+        project::set_catalog_base(
+            &conn,
+            &id,
+            &decoded.template.version,
+            &decoded.compose,
+            &decoded.base_environment,
         )
         .await
         .map_err(AppError::DatabaseError)
@@ -625,6 +641,7 @@ mod tests {
             environment: env.into(),
             setup: String::new(),
             icon_url: None,
+            base_environment: String::new(),
         }
     }
 

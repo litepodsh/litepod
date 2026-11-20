@@ -575,6 +575,7 @@ pub(super) async fn apply_add_domain(
             port,
             https: arguments.https,
             is_primary: arguments.is_primary,
+            https_redirect: None,
             server_id: None,
         },
     )
@@ -620,6 +621,7 @@ pub(super) async fn apply_update_domain(
             port: arguments.port,
             https: arguments.https,
             is_primary: arguments.is_primary,
+            https_redirect: None,
             server_id: None,
         },
     )
@@ -1075,6 +1077,7 @@ async fn ensure_primary_domain(
                     port: Some(port),
                     https,
                     is_primary: Some(true),
+                    https_redirect: None,
                     server_id: None,
                 },
             )
@@ -1091,6 +1094,7 @@ async fn ensure_primary_domain(
                     port,
                     https,
                     is_primary: Some(true),
+                    https_redirect: None,
                     server_id: None,
                 },
             )
@@ -1237,6 +1241,7 @@ pub(super) async fn apply_from_template(
                             port,
                             https: arguments.https,
                             is_primary: Some(true),
+                            https_redirect: None,
                             server_id: None,
                         },
                     )
@@ -1455,6 +1460,7 @@ pub(super) async fn apply_deploy_compose(
                             port,
                             https: arguments.https,
                             is_primary: Some(true),
+                            https_redirect: None,
                             server_id: None,
                         },
                     )

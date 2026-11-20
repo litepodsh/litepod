@@ -43,6 +43,8 @@ export type DomainInput = CertificateInput & {
 	path?: string | null;
 	port: number;
 	https: boolean;
+	/** Plain HTTP answers with a redirect to HTTPS. Defaults to on. */
+	https_redirect?: boolean;
 	is_primary?: boolean;
 	/** Server pin for a group-targeted application; ignored for single-server apps. */
 	server_id?: string | null;
@@ -54,6 +56,7 @@ export type DomainDto = {
 	path: string | null;
 	port: number;
 	https: boolean;
+	https_redirect: boolean;
 	certificate_provider?: CertificateProvider;
 	has_custom_certificate?: boolean;
 	certificate_id?: string | null;
@@ -3250,4 +3253,85 @@ export async function listReplicaContainers(
 		deploymentPath(organizationId, projectId, environmentId, applicationId, 'replicas/containers'),
 	);
 	return response.data ?? [];
+}
+
+export type CatalogUpdateDiffLine = { tag: 'equal' | 'insert' | 'delete'; text: string };
+
+export type CatalogUpdate = {
+	template_id: string;
+	current_version: string | null;
+	latest_version: string;
+	update_available: boolean;
+	ignored: boolean;
+	has_baseline: boolean;
+	compose: {
+		status: 'unchanged' | 'clean' | 'customized';
+		images: { service: string; from: string | null; to: string | null }[];
+		diff: CatalogUpdateDiffLine[];
+	};
+	env: {
+		added: { name: string; value: string }[];
+		removed: string[];
+		changed_defaults: { name: string; from: string; to: string }[];
+	};
+	requires_https: boolean;
+	url_persisted: boolean;
+	setup: string | null;
+};
+
+export async function catalogUpdateGet(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): Promise<CatalogUpdate | null> {
+	const response = await api<CatalogUpdate | null>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'catalog-update'),
+	);
+	return response.data ?? null;
+}
+
+export async function catalogUpdateApply(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	input: { version: string; compose: 'replace' | 'keep'; add_env: boolean },
+): Promise<CatalogUpdate> {
+	const response = await api<CatalogUpdate>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'catalog-update/apply'),
+		{ method: 'POST', body: JSON.stringify(input) },
+	);
+	return response.data!;
+}
+
+export async function catalogUpdateIgnore(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	version: string,
+): Promise<void> {
+	await api(
+		deploymentPath(
+			organizationId,
+			projectId,
+			environmentId,
+			applicationId,
+			'catalog-update/ignore',
+		),
+		{ method: 'POST', body: JSON.stringify({ version }) },
+	);
+}
+
+/** Applications of an environment with a template update waiting, by id. */
+export async function catalogUpdatesForEnvironment(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+): Promise<Record<string, string>> {
+	const response = await api<Record<string, string>>(
+		`/api/v1/organizations/${encodeURIComponent(organizationId)}/projects/${encodeURIComponent(projectId)}/environments/${encodeURIComponent(environmentId)}/catalog-updates`,
+	);
+	return response.data ?? {};
 }

@@ -90,7 +90,7 @@ async fn effective_domain_server(
 }
 
 pub(super) const SELECT_COLUMNS: &str =
-    "id, application_id, host, port, https, is_primary, created_at, updated_at, server_id, path";
+    "id, application_id, host, port, https, is_primary, created_at, updated_at, server_id, path, https_redirect";
 
 pub(super) fn row_to_dto(row: &sqlx::sqlite::SqliteRow) -> Result<DomainDto, AppError> {
     let read = |index: usize| -> Result<String, AppError> {
@@ -124,6 +124,7 @@ pub(super) fn row_to_dto(row: &sqlx::sqlite::SqliteRow) -> Result<DomainDto, App
         host,
         port,
         https,
+        https_redirect: read_int(10)? != 0,
         is_primary: read_int(5)? != 0,
         server_id: row
             .try_get::<Option<String>, _>(8)
@@ -452,7 +453,7 @@ async fn create_with_origin_locked(
     let id = Uuid::now_v7().to_string();
     let timestamp = now_ms();
     sqlx::query(
-        "INSERT INTO application_domains (id, application_id, host, port, https, is_primary, created_at, updated_at, is_generated, server_id, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO application_domains (id, application_id, host, port, https, is_primary, created_at, updated_at, is_generated, server_id, path, https_redirect) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
     )
     .bind(id.clone())
     .bind(application_id)
@@ -465,6 +466,7 @@ async fn create_with_origin_locked(
     .bind(is_generated as i64)
     .bind(server_id)
     .bind(&path)
+    .bind(request.https_redirect.unwrap_or(true) as i64)
     .execute(&mut *tx)
     .await
     .map_err(|error| map_domain_write_error(error, &host, request.port))?;
@@ -579,7 +581,7 @@ pub async fn update(
     }
 
     sqlx::query(
-        "UPDATE application_domains SET host = ?1, port = ?2, https = ?3, is_primary = ?4, server_id = ?5, updated_at = ?6, path = ?9 WHERE id = ?7 AND application_id = ?8",
+        "UPDATE application_domains SET host = ?1, port = ?2, https = ?3, is_primary = ?4, server_id = ?5, updated_at = ?6, path = ?9, https_redirect = ?10 WHERE id = ?7 AND application_id = ?8",
     )
     .bind(host.clone())
     .bind(port)
@@ -590,6 +592,7 @@ pub async fn update(
     .bind(domain_id)
     .bind(application_id)
     .bind(&path)
+    .bind(request.https_redirect.unwrap_or(current.https_redirect) as i64)
     .execute(&mut *tx)
     .await
     .map_err(|error| map_domain_write_error(error, &host, port))?;
@@ -613,8 +616,8 @@ pub async fn update(
             .execute(&mut *tx)
             .await
             .map_err(map_write_error)?;
-        sqlx::query("UPDATE application_domains SET host=?, port=?, https=?, is_primary=?, updated_at=?, path=? WHERE id=?")
-            .bind(&current.host).bind(current.port).bind(current.https as i64).bind(current.is_primary as i64).bind(current.updated_at).bind(&current.path).bind(domain_id).execute(&mut *tx).await.map_err(map_write_error)?;
+        sqlx::query("UPDATE application_domains SET host=?, port=?, https=?, is_primary=?, updated_at=?, path=?, https_redirect=? WHERE id=?")
+            .bind(&current.host).bind(current.port).bind(current.https as i64).bind(current.is_primary as i64).bind(current.updated_at).bind(&current.path).bind(current.https_redirect as i64).bind(domain_id).execute(&mut *tx).await.map_err(map_write_error)?;
         if current.path.is_none() {
             set_path_domains_https(&mut tx, &current.host, current.https).await?;
         }
@@ -879,6 +882,7 @@ pub async fn generate_with(
             port,
             https: Some(false),
             is_primary: Some(is_primary),
+            https_redirect: None,
             // A group replica pins its seeded domain to the server it is deploying.
             server_id: crate::servers::replica::current(),
         },

@@ -147,6 +147,7 @@ fn dns_candidate() -> DomainDto {
         host: "app.example.com".into(),
         port: 80,
         https: true,
+        https_redirect: true,
         is_primary: true,
         url: "https://app.example.com".into(),
         is_local: false,
@@ -219,6 +220,7 @@ async fn first_domain_becomes_primary_and_later_ones_do_not() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -235,6 +237,7 @@ async fn first_domain_becomes_primary_and_later_ones_do_not() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -270,6 +273,7 @@ async fn the_control_plane_host_cannot_be_claimed_as_an_application_domain() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await;
@@ -290,6 +294,7 @@ async fn the_control_plane_host_cannot_be_claimed_as_an_application_domain() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -352,6 +357,7 @@ async fn group_targeted_application_requires_a_domain_pin() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -370,6 +376,7 @@ async fn group_targeted_application_requires_a_domain_pin() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -455,6 +462,7 @@ async fn promoting_a_domain_demotes_the_previous_primary() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -470,6 +478,7 @@ async fn promoting_a_domain_demotes_the_previous_primary() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -487,6 +496,7 @@ async fn promoting_a_domain_demotes_the_previous_primary() {
             port: None,
             https: None,
             is_primary: Some(true),
+            https_redirect: None,
         },
     )
     .await
@@ -516,6 +526,7 @@ async fn deleting_the_primary_promotes_the_oldest_remaining() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -531,6 +542,7 @@ async fn deleting_the_primary_promotes_the_oldest_remaining() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -568,6 +580,7 @@ async fn duplicate_host_and_port_is_a_conflict() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -583,6 +596,7 @@ async fn duplicate_host_and_port_is_a_conflict() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await;
@@ -607,6 +621,7 @@ async fn edge_route_targets_lists_non_local_domains_for_one_server() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -622,6 +637,7 @@ async fn edge_route_targets_lists_non_local_domains_for_one_server() {
             port: 12345,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -648,6 +664,7 @@ async fn rejects_a_second_public_domain_reusing_a_host_on_the_same_server() {
             port: 8001,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -665,6 +682,7 @@ async fn rejects_a_second_public_domain_reusing_a_host_on_the_same_server() {
             port: 8002,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await;
@@ -685,6 +703,7 @@ async fn rejects_a_second_public_domain_reusing_a_host_on_the_same_server() {
             port: 8002,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -702,6 +721,7 @@ async fn rejects_a_second_public_domain_reusing_a_host_on_the_same_server() {
             port: 15000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -724,6 +744,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -739,6 +760,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -757,6 +779,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
             port: None,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -775,6 +798,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
             port: None,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await;
@@ -796,6 +820,7 @@ async fn update_may_keep_its_own_host_but_not_take_a_siblings() {
             port: Some(8080),
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await;
@@ -973,6 +998,7 @@ async fn generate_allocates_the_next_free_local_port() {
             port: 10_000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -996,6 +1022,7 @@ async fn validation_rejects_bad_input_before_writing() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await;
@@ -1011,6 +1038,7 @@ async fn validation_rejects_bad_input_before_writing() {
             port: 0,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await;
@@ -1029,6 +1057,7 @@ async fn validation_rejects_bad_input_before_writing() {
             port: 10_000,
             https: Some(true),
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await;
@@ -1054,6 +1083,7 @@ async fn port_mappings_cover_local_domains_only() {
             port: 10_000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1069,6 +1099,7 @@ async fn port_mappings_cover_local_domains_only() {
             port: 10_001,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1084,6 +1115,7 @@ async fn port_mappings_cover_local_domains_only() {
             port: 80,
             https: Some(true),
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1148,6 +1180,7 @@ async fn compose_domains_dial_the_routed_service_not_the_compose_project() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1200,6 +1233,7 @@ async fn non_compose_domains_keep_dialing_the_deployment_container() {
             port: 3000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1232,6 +1266,7 @@ async fn routing_a_new_service_asks_for_a_redeploy_but_reusing_one_does_not() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1247,6 +1282,7 @@ async fn routing_a_new_service_asks_for_a_redeploy_but_reusing_one_does_not() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1299,6 +1335,7 @@ async fn a_stopped_deployment_is_never_routable() {
             port: 3000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1352,6 +1389,7 @@ async fn local_port_changes_flag_stale_but_proxied_edits_do_not() {
             port: 10_000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1374,6 +1412,7 @@ async fn local_port_changes_flag_stale_but_proxied_edits_do_not() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1396,6 +1435,7 @@ async fn local_port_changes_flag_stale_but_proxied_edits_do_not() {
             port: Some(10_005),
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1481,6 +1521,7 @@ async fn local_port_outside_the_generation_range_is_accepted() {
             port: 3000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1515,6 +1556,7 @@ async fn port_constraints_lists_taken_local_ports_only() {
             port: 3000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1530,6 +1572,7 @@ async fn port_constraints_lists_taken_local_ports_only() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1558,6 +1601,7 @@ async fn duplicate_local_port_reports_the_conflicting_port() {
             port: 3000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1573,6 +1617,7 @@ async fn duplicate_local_port_reports_the_conflicting_port() {
             port: 3000,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1664,6 +1709,7 @@ async fn caddy_recovery_handles_late_start_restart_failure_and_concurrent_writes
             port: 80,
             https: Some(true),
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -1789,6 +1835,7 @@ async fn certificate_changes_and_primary_survive_failed_caddy_updates() {
             port: 8080,
             https: Some(true),
             is_primary: Some(true),
+            https_redirect: None,
             certificate: crate::deployment::certificates::CertificateRequest {
                 certificate_provider: Some("letsencrypt".into()),
                 ..Default::default()
@@ -1815,6 +1862,7 @@ async fn certificate_changes_and_primary_survive_failed_caddy_updates() {
             port: Some(8081),
             https: None,
             is_primary: None,
+            https_redirect: None,
             certificate: crate::deployment::certificates::CertificateRequest {
                 certificate_provider: Some("automatic".into()),
                 ..Default::default()
@@ -1836,6 +1884,7 @@ async fn certificate_changes_and_primary_survive_failed_caddy_updates() {
             port: 8080,
             https: Some(true),
             is_primary: Some(true),
+            https_redirect: None,
             certificate: Default::default(),
         },
     )
@@ -1876,6 +1925,7 @@ async fn add_domain(state: &SharedState, host: &str) -> DomainDto {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -2131,6 +2181,7 @@ async fn deleting_the_last_basic_auth_user_unprotects_the_domains() {
             port: 80,
             https: None,
             is_primary: None,
+            https_redirect: None,
         },
     )
     .await
@@ -2188,6 +2239,7 @@ fn path_request(
         port,
         https,
         is_primary: None,
+        https_redirect: None,
     }
 }
 
@@ -2200,6 +2252,7 @@ fn path_update(host: Option<&str>, https: Option<bool>) -> UpdateDomainRequest {
         port: None,
         https,
         is_primary: None,
+        https_redirect: None,
     }
 }
 

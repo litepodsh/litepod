@@ -152,13 +152,15 @@ const OWNED_BY: &str = "(organization_id = ?1 OR organization_id IS NULL)";
 
 pub async fn get(state: &SharedState, id: &str) -> Result<Option<ServerRecord>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {SELECT} FROM servers WHERE id = ?1")))
-        .bind(id)
-        .fetch_optional(&conn)
-        .await
-        .map_err(|error| AppError::DatabaseError(error.to_string()))?
-        .map(|record| row(&record))
-        .transpose()
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {SELECT} FROM servers WHERE id = ?1"
+    )))
+    .bind(id)
+    .fetch_optional(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?
+    .map(|record| row(&record))
+    .transpose()
 }
 
 /// The tenancy-safe `get`. A server id belonging to another organization comes

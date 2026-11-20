@@ -16,6 +16,7 @@
 	import KeyDbResourceDetail from '#lib/components/projects/keydb-resource-detail.svelte';
 	import SqlServerResourceDetail from '#lib/components/projects/sqlserver-resource-detail.svelte';
 	import ServerMark from '#lib/components/servers/server-mark.svelte';
+	import OsIcon from '#lib/components/os-icon.svelte';
 	import ServerGroupMark from '#lib/components/server-groups/server-group-mark.svelte';
 	import { getServerGroup } from '#lib/clients/server-group-client.js';
 	import ApplicationIcon from '#lib/components/projects/application-icon.svelte';
@@ -29,6 +30,7 @@
 	import RedeployWithPullDialog from '#lib/components/projects/redeploy-with-pull-dialog.svelte';
 	import ApplicationLogsTab from '#lib/components/projects/application-logs-tab.svelte';
 	import { askAboutLogs } from '#lib/components/assistant/thread.svelte.js';
+	import CatalogUpdateBanner from '#lib/components/projects/catalog-update-banner.svelte';
 	import ApplicationDeploymentTab from '#lib/components/projects/application-deployment-tab.svelte';
 	import ApplicationTerminalTab from '#lib/components/projects/application-terminal-tab.svelte';
 	import ApplicationMetricsTab from '#lib/components/projects/application-metrics-tab.svelte';
@@ -990,7 +992,6 @@
 	$effect(() => {
 		if (!application || !environment || !projectDetail) return;
 		const current = application;
-		const base = `/projects/${encodeURIComponent(projectId)}/environments/${encodeURIComponent(environment.id)}/applications`;
 		const compose = source?.deploy_type === 'compose';
 		const total = compose ? composeServiceStatuses.length : containerStatus ? 1 : 0;
 		const running = compose
@@ -1031,6 +1032,10 @@
 						? `/organizations/${encodeURIComponent(organizationId)}/servers/${encodeURIComponent(current.server.id)}`
 						: undefined,
 					external: Boolean(current.server),
+					icon: current.server ? OsIcon : undefined,
+					iconProps: current.server
+						? { os: current.server.os, distribution: current.server.distribution }
+						: undefined,
 				},
 				{
 					label: t('projects.application_form.source'),
@@ -1038,13 +1043,6 @@
 					icon: sourceStat?.icon,
 				},
 			],
-			siblingsLabel: t('projects.application.apps_in', { project: projectDetail.project.name }),
-			siblings: environment.applications.map((item) => ({
-				id: item.id,
-				label: item.name,
-				href: `${base}/${encodeURIComponent(item.id)}`,
-				current: item.id === current.id,
-			})),
 		});
 	});
 
@@ -2335,6 +2333,14 @@
 		</div>
 	{:else if application && environment && projectDetail}
 		{#if deployment}
+			{#if application.catalog_template_id}
+				<CatalogUpdateBanner
+					{organizationId}
+					{projectId}
+					environmentId={environment.id}
+					{applicationId}
+					onApplied={() => refreshTab(activeTab)} />
+			{/if}
 			<div class="mt-2 min-w-0 max-w-full">
 				<!-- Containers stays mounted while loading: a shorter skeleton collapses the page and moves the scroll. -->
 				{#if refreshingTab && !['general', 'deployment', 'containers'].includes(activeTab)}

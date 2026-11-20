@@ -142,6 +142,22 @@ verify_title = "Verifica esta huella antes de confiar en ella"
 vps_firewall = "Si tu proveedor de VPS ofrece un cortafuegos externo o grupos de seguridad, permite también los mismos puertos ahí."
 where_title = "Dónde permitir estos puertos"
 
+[detail]
+applications = "Aplicaciones en este servidor"
+containers_desc = "Explora contenedores, imágenes, volúmenes y redes de este host."
+fullscreen = "Pantalla completa"
+hardening = "Guía de refuerzo"
+health_desc = "Comprueba SSH, Podman y disco, y actualiza los datos del servidor."
+ingress = "Entrada"
+maintenance_desc = "Actualiza paquetes, libera disco, reinicia Podman o el host."
+no_applications = "Todavía no hay aplicaciones en este servidor."
+ports = "Puertos publicados"
+security_desc = "Refuerza SSH, firewall y actualizaciones, y busca vulnerabilidades conocidas en los paquetes instalados."
+system = "Sistema"
+tab_overview = "Resumen"
+tab_terminal = "Terminal"
+terminal_desc = "Abre una shell en el host desde el navegador."
+
 [helper]
 explanation = "El script que litepod instaló en este servidor es la v{installed}; este litepod necesita la v{latest}. Algunas funciones, como la autenticación básica en dominios, no funcionarán hasta actualizarlo. Actualizar solo reemplaza ese script."
 failed = "No se pudo actualizar el script del servidor"

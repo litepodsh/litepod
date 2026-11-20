@@ -9,19 +9,8 @@
 	/** The info card between the header and the tabs. Pages fill it with `setScopeHero`. */
 	let hero = $derived(scopeHero.current?.path === page.url.pathname ? scopeHero.current : null);
 
-	// Phones keep the hero to title and actions; stats and siblings fold away.
+	// Phones keep the hero to title and actions; stats fold away.
 	let expanded = $state(false);
-
-	let strip = $state<HTMLElement | null>(null);
-	$effect(() => {
-		void hero?.siblings;
-		const on = strip?.querySelector<HTMLElement>('[aria-current="page"]');
-		if (!strip || !on) return;
-		// Not scrollIntoView: pages refresh the hero while polling, and it would pull a scrolled page back up here.
-		const item = on.getBoundingClientRect();
-		const box = strip.getBoundingClientRect();
-		strip.scrollLeft += item.left + item.width / 2 - (box.left + box.width / 2);
-	});
 </script>
 
 {#if hero}
@@ -54,7 +43,7 @@
 				{/if}
 			</div>
 
-			{#if hero.stats?.length || hero.siblings?.length}
+			{#if hero.stats?.length}
 				<button
 					type="button"
 					class="flex items-center gap-1 self-start text-xs text-muted-foreground sm:hidden"
@@ -81,7 +70,7 @@
 										class={cn('flex min-w-0 items-center gap-1.5', stat.href && 'group/stat')}>
 										{#if stat.icon}
 											{@const Icon = stat.icon}
-											<Icon class="size-3.5 shrink-0 text-muted-foreground" />
+											<Icon {...stat.iconProps} class="size-3.5 shrink-0 text-muted-foreground" />
 										{/if}
 										<span class="min-w-0 truncate group-hover/stat:underline">{stat.value}</span>
 										{#if stat.href && stat.external}
@@ -92,23 +81,6 @@
 							</div>
 						{/each}
 					</dl>
-				{/if}
-
-				{#if hero.siblings?.length}
-					<nav bind:this={strip} class="siblings" aria-label={hero.siblingsLabel}>
-						{#if hero.siblingsLabel}<span class="me-1 shrink-0 text-xs text-muted-foreground"
-								>{hero.siblingsLabel}</span
-							>{/if}
-						{#each hero.siblings as sibling (sibling.id)}
-							<a
-								href={sibling.href}
-								aria-current={sibling.current ? 'page' : undefined}
-								class={cn('sib', sibling.tone && `sib-${sibling.tone}`)}>
-								{#if sibling.tone}<span class="pip" aria-hidden="true"></span>{/if}
-								{sibling.label}
-							</a>
-						{/each}
-					</nav>
 				{/if}
 			</div>
 		</div>
@@ -139,56 +111,6 @@
 		min-width: 0;
 		font-weight: 500;
 	}
-	.siblings {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding-bottom: 2px;
-		overflow-x: auto;
-		scrollbar-width: none;
-	}
-	.sib {
-		display: inline-flex;
-		flex: none;
-		align-items: center;
-		gap: 6px;
-		height: 28px;
-		padding: 0 10px;
-		border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
-		border-radius: 999px;
-		color: var(--muted-foreground);
-		font-size: 12.5px;
-		white-space: nowrap;
-		transition:
-			border-color 0.15s var(--lp-ease),
-			color 0.15s var(--lp-ease);
-	}
-	.sib:hover {
-		border-color: color-mix(in srgb, var(--foreground) 22%, transparent);
-		color: var(--foreground);
-	}
-	.sib[aria-current='page'] {
-		border-color: var(--foreground);
-		background: var(--foreground);
-		color: var(--background);
-	}
-	.pip {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		corner-shape: round;
-		background: var(--success);
-	}
-	.sib-warn .pip {
-		background: var(--warning);
-	}
-	.sib-off .pip {
-		background: var(--muted-foreground);
-	}
-	.sib[aria-current='page'] .pip {
-		background: currentColor;
-	}
-
 	@media (max-width: 640px) {
 		/* Stats become one swipeable row instead of a tall stack. */
 		.stats {
@@ -203,10 +125,6 @@
 			min-width: 128px;
 			padding: 10px 14px;
 			scroll-snap-align: start;
-		}
-		.siblings {
-			margin: 0 -16px;
-			padding: 0 16px 2px;
 		}
 	}
 </style>

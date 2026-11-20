@@ -1121,7 +1121,10 @@ mod tests {
             .partition(|p| p.file_name().unwrap().to_str().unwrap() < "0017");
         for path in &before_0017 {
             let sql = std::fs::read_to_string(path).unwrap();
-            sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str())).execute(&pool).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str()))
+                .execute(&pool)
+                .await
+                .unwrap();
         }
 
         sqlx::query("INSERT INTO users (id, email, hashed_password, name) VALUES ('user-1', 'user@example.com', 'hash', 'User')").execute(&pool).await.unwrap();
@@ -1135,7 +1138,10 @@ mod tests {
 
         for path in &from_0017 {
             let sql = std::fs::read_to_string(path).unwrap();
-            sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str())).execute(&pool).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str()))
+                .execute(&pool)
+                .await
+                .unwrap();
         }
 
         let run_count: i64 =
