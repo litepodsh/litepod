@@ -25,6 +25,7 @@
         "astronomy-engine": "^2.1.19",
         "d3-geo": "3",
         "dompurify": "^3.4.17",
+        "effect": "^3.22.1",
         "fuse.js": "^7.5.0",
         "globe.gl": "^2.46.2",
         "marked": "^18.0.7",
@@ -82,6 +83,7 @@
   "overrides": {
     "devalue": "^5.9.4",
     "dompurify": "^3.4.17",
+    "effect": "^3.22.1",
     "joi": "^17.13.8",
     "source-map-js": "^1.2.2",
     "tinypool": "^2.2.0",
@@ -571,7 +573,7 @@
 
     "earcut": ["earcut@3.2.3", "", {}, "sha512-vnS4AVwp1KHAF13i1vp1/2D5evWy3k5u/iW/B81QVsUZtV8cv2tU0b2VNFlqvh4kYwrFMDdjPCfAmfyJW9y14Q=="],
 
-    "effect": ["effect@3.21.4", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-B89v/xSgPbl1J2Ai2u18jxq3odpFauU1rC6/eSs4FeNHi72kwKdJp12VGigvRV2lK+kRnx+OOz41XV8guZd4gQ=="],
+    "effect": ["effect@3.22.5", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-AdIU4llI19BzhJ4xUBZix7kS8oiYSlCsJ61j3UM3UyJw9ecDrsrrweDFm/Ku1nHbJWMLoynK+1Me4it3Zkmjpw=="],
 
     "embla-carousel": ["embla-carousel@8.6.0", "", {}, "sha512-SjWyZBHJPbqxHOzckOfo8lHisEaJWmwd23XppYFYVh10bU66/Pn5tkVkbkCMZVdbUE5eTCI2nD8OyIP4Z+uwkA=="],
 
