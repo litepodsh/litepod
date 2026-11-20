@@ -139,8 +139,9 @@
 		}
 	}
 	onMount(async () => {
-		await refresh();
-		const { FileTree } = await import('@pierre/trees');
+		// Load the tree and editor code while the first listing is in flight.
+		const editorCode = Promise.all([loadNerdFont(), loadMonaco()]);
+		const [, { FileTree }] = await Promise.all([refresh(), import('@pierre/trees')]);
 		if (treeHost) {
 			tree = new FileTree({
 				paths: pathsForTree(),
@@ -151,7 +152,7 @@
 			});
 			tree.render({ containerWrapper: treeHost });
 		}
-		const [, monaco] = await Promise.all([loadNerdFont(), loadMonaco()]);
+		const [, monaco] = await editorCode;
 		monacoApi = monaco;
 		const applyTheme = () =>
 			monacoApi?.editor.setTheme(
@@ -236,8 +237,8 @@
 		);
 		if (!path) return;
 		try {
-			await client.create(path, kind, kind === 'file' ? '' : undefined);
-			await refresh();
+			mergeEntries([await client.create(path, kind, kind === 'file' ? '' : undefined)]);
+			updateTree();
 			toast.success(t('projects.volume_files.created_toast', { path }));
 		} catch (error) {
 			toast.error(
@@ -253,8 +254,8 @@
 		const path = prompt(t('projects.volume_files.prompt_upload'), file.name);
 		if (!path) return;
 		try {
-			await client.upload(path, file);
-			await refresh();
+			mergeEntries([await client.upload(path, file)]);
+			updateTree();
 			toast.success(t('projects.volume_files.uploaded_toast', { path }));
 		} catch (error) {
 			toast.error(
