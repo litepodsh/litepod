@@ -11,6 +11,7 @@
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import {
 		createS3Target,
+		testS3Target,
 		deleteS3Target,
 		listS3Targets,
 		type S3TargetDto,
@@ -89,6 +90,21 @@
 			);
 		} finally {
 			deleting = false;
+		}
+	}
+
+	/** Id of the target whose reachability check is in flight. */
+	let testing = $state<string | null>(null);
+
+	async function testTarget(target: S3TargetDto) {
+		testing = target.id;
+		try {
+			await testS3Target(organizationId, target.id);
+			toast.success(t('organizations.backup_targets.test_success', { name: target.name }));
+		} catch (e) {
+			toast.error(t('organizations.backup_targets.test_failed', { message: (e as Error).message }));
+		} finally {
+			testing = null;
 		}
 	}
 
@@ -180,7 +196,7 @@
 						<Table.Head>{t('organizations.backup_targets.endpoint_url')}</Table.Head>
 						<Table.Head>{t('organizations.backup_targets.bucket')}</Table.Head>
 						<Table.Head>{t('organizations.backup_targets.region')}</Table.Head>
-						<Table.Head class="w-12"
+						<Table.Head
 							><span class="sr-only">{t('organizations.backup_targets.delete')}</span></Table.Head>
 					</Table.Row>
 				</Table.Header>
@@ -191,7 +207,16 @@
 							<Table.Cell class="text-sm text-muted-foreground">{target.endpoint_url}</Table.Cell>
 							<Table.Cell class="text-sm text-muted-foreground">{target.bucket}</Table.Cell>
 							<Table.Cell class="text-sm text-muted-foreground">{target.region}</Table.Cell>
-							<Table.Cell class="text-right">
+							<Table.Cell class="text-right whitespace-nowrap">
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={testing !== null}
+									onclick={() => void testTarget(target)}>
+									{testing === target.id
+										? t('organizations.backup_targets.testing')
+										: t('organizations.backup_targets.test')}
+								</Button>
 								<Button
 									variant="ghost"
 									size="icon"

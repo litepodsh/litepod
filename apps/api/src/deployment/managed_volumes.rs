@@ -26,7 +26,7 @@ fn now_ms() -> i64 {
     Utc::now().timestamp_millis()
 }
 
-fn normalize_name(value: &str) -> Result<String, AppError> {
+pub(crate) fn normalize_name(value: &str) -> Result<String, AppError> {
     let value = value.trim();
     if value.is_empty() || value.len() > 100 {
         return Err(AppError::ValidationError(
@@ -36,7 +36,7 @@ fn normalize_name(value: &str) -> Result<String, AppError> {
     Ok(value.to_string())
 }
 
-fn normalize_mount_path(value: &str) -> Result<String, AppError> {
+pub(crate) fn normalize_mount_path(value: &str) -> Result<String, AppError> {
     let value = value.trim();
     let path = Path::new(value);
     if value.is_empty() || value == "/" || !path.is_absolute() || value.contains('\0') {
@@ -165,6 +165,29 @@ async fn update_attachment(
             "Another attached volume already uses this mount path for the same container".into(),
         ));
     }
+    // A volume the app itself declares (Compose, image) at the same path:
+    // podman-compose adds both mounts instead of replacing one, and the
+    // container is refused. Only visible while the app runs.
+    if attached {
+        let live = crate::deployment::volumes(state, application_id)
+            .await
+            .unwrap_or_default();
+        if let Some(mount) = live.iter().find(|mount| {
+            mount.destination == existing.dto.mount_path
+                && mount.source != existing.podman_name
+                && (mount.services.is_empty()
+                    || existing
+                        .dto
+                        .compose_service
+                        .as_ref()
+                        .is_none_or(|service| mount.services.contains(service)))
+        }) {
+            return Err(AppError::ValidationError(format!(
+                "The application already mounts {} at this path. To bring back its files, use \"Replace this volume\" from that volume's backups",
+                mount.source
+            )));
+        }
+    }
     let updated_at = now_ms();
     let conn = db::get_conn(state).await;
     sqlx::query(
@@ -219,6 +242,27 @@ pub async fn create_record(
             "Another attached volume already uses this mount path for the same container".into(),
         ));
     }
+    provision(
+        state,
+        application_id,
+        name,
+        mount_path,
+        compose_service,
+        true,
+    )
+    .await
+}
+
+/// Creates the Podman volume and its row. The caller has validated the input
+/// and, for an attached volume, the mount path.
+pub async fn provision(
+    state: &SharedState,
+    application_id: &str,
+    name: String,
+    mount_path: String,
+    compose_service: Option<String>,
+    attached: bool,
+) -> Result<ManagedVolumeDto, AppError> {
     let id = Uuid::now_v7().to_string();
     let podman_name = format!("litepod-managed-{id}");
     let runtime =
@@ -245,7 +289,7 @@ pub async fn create_record(
     let timestamp = now_ms();
     let conn = db::get_conn(state).await;
     let insert = sqlx::query(
-        "INSERT INTO application_managed_volumes (id, application_id, name, podman_name, mount_path, compose_service, attached, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?7)",
+        "INSERT INTO application_managed_volumes (id, application_id, name, podman_name, mount_path, compose_service, attached, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
     )
     .bind(id.clone())
     .bind(application_id)
@@ -253,6 +297,7 @@ pub async fn create_record(
     .bind(podman_name.clone())
     .bind(mount_path.clone())
     .bind(compose_service.clone())
+    .bind(i64::from(attached))
     .bind(timestamp)
     .execute(&conn)
     .await;
@@ -278,10 +323,37 @@ pub async fn create_record(
         name,
         mount_path,
         compose_service,
-        attached: true,
+        attached,
         created_at: timestamp,
         updated_at: timestamp,
     })
+}
+
+/// The app's managed volume with this Podman name, if any.
+pub async fn find_by_podman_name(
+    state: &SharedState,
+    application_id: &str,
+    podman_name: &str,
+) -> Result<Option<ManagedVolumeDto>, AppError> {
+    let conn = db::get_conn(state).await;
+    let row = sqlx::query(
+        "SELECT id, name, mount_path, compose_service, attached, created_at, updated_at, podman_name FROM application_managed_volumes WHERE application_id = ?1 AND podman_name = ?2",
+    )
+    .bind(application_id)
+    .bind(podman_name)
+    .fetch_optional(&conn)
+    .await?;
+    row.map(|row| Ok(row_to_record(&row)?.dto)).transpose()
+}
+
+/// The volume's row and its Podman name, for backup and restore.
+pub async fn get_with_podman_name(
+    state: &SharedState,
+    application_id: &str,
+    volume_id: &str,
+) -> Result<(ManagedVolumeDto, String), AppError> {
+    let record = record(state, application_id, volume_id).await?;
+    Ok((record.dto, record.podman_name))
 }
 
 pub async fn attach(

@@ -63,6 +63,9 @@
 	import {
 		applicationVolumeWorkspace,
 		managedVolumeWorkspace,
+		volumeBackups,
+		volumeRestores,
+		appVolumeBackups,
 		composeContentGet,
 		composeContentPut,
 		composeDeploy,
@@ -2835,7 +2838,18 @@
 							onDetachManagedVolume={handleDetachManagedVolume}
 							onDeleteManagedVolume={handleDeleteManagedVolume}
 							{workspaceFor}
-							{managedWorkspaceFor} />
+							{managedWorkspaceFor}
+							{organizationId}
+							restores={volumeRestores(organizationId, projectId, environment!.id, applicationId)}
+							appBackups={appVolumeBackups(organizationId, projectId, environment!.id, applicationId)}
+							backupsFor={(volumeName) =>
+								volumeBackups(
+									organizationId,
+									projectId,
+									environment!.id,
+									applicationId,
+									volumeName,
+								)} />
 						<ApplicationMetricsTab
 							organizationId={organizationId ?? ''}
 							{projectId}

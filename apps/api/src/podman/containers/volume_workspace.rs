@@ -70,7 +70,7 @@ pub struct WorkspaceListing {
     pub logs: Vec<String>,
 }
 
-const HELPER_IMAGE: &str = "docker.io/library/alpine:3.21";
+pub(crate) const HELPER_IMAGE: &str = "docker.io/library/alpine:3.21";
 
 struct HelperLifecycleTiming {
     image_preparation_ms: u64,
@@ -732,7 +732,7 @@ async fn list_named_volume_entries(
     Ok(WorkspaceListing { entries, logs })
 }
 
-fn remote_volume_mount(volume: &str) -> Result<OsString, AppError> {
+pub(crate) fn remote_volume_mount(volume: &str) -> Result<OsString, AppError> {
     if volume.is_empty()
         || volume.contains(|character: char| {
             character.is_whitespace() || matches!(character, ':' | '/' | '\\' | '\0')

@@ -69,7 +69,7 @@ fn read_backup_row(row: &sqlx::sqlite::SqliteRow) -> Result<DatabaseBackupDto, A
 
 /// Resolves the organization and name for a database application so scheduled
 /// runs (which have no request scope) can still emit org-scoped notifications.
-async fn app_org_context(
+pub(crate) async fn app_org_context(
     state: &SharedState,
     application_id: &str,
 ) -> Result<(String, String), AppError> {

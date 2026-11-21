@@ -146,6 +146,33 @@ pub async fn notify_database_backup(
     .await;
 }
 
+pub async fn notify_volume_backup(
+    state: &SharedState,
+    organization_id: &str,
+    application_name: &str,
+    volume_name: &str,
+    operation: &str,
+    succeeded: bool,
+    triggered_by: &str,
+    size_bytes: Option<i64>,
+    error: Option<&str>,
+) {
+    emit(
+        state,
+        event::volume_backup(
+            organization_id,
+            application_name,
+            volume_name,
+            operation,
+            succeeded,
+            triggered_by,
+            size_bytes,
+            error,
+        ),
+    )
+    .await;
+}
+
 pub async fn notify_restart(state: &SharedState, target: &str, actor: Option<&str>) {
     emit(state, event::litepod_restart(target, actor)).await;
 }

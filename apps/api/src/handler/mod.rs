@@ -16,6 +16,7 @@ pub mod container_files;
 pub mod containers;
 pub mod dashboard;
 pub mod database_backup;
+pub mod volume_backup;
 pub mod debug;
 pub mod deployments;
 pub mod git_providers;

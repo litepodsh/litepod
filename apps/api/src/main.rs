@@ -47,6 +47,7 @@ mod testing;
 mod updater;
 mod users;
 mod utils;
+mod volume_backup;
 
 fn main() {
     // Operator subcommands (reset-password, reset-2fa, change-email,
@@ -484,6 +485,9 @@ async fn async_main(sentry_kind: Option<&'static str>) {
     if let Err(error) = crate::backup::restore::fail_interrupted(&shared_state).await {
         tracing::warn!(error = %error, "could not reconcile interrupted restores");
     }
+    if let Err(error) = crate::volume_backup::run::fail_interrupted(&shared_state).await {
+        tracing::warn!(error = %error, "could not reconcile interrupted volume backups");
+    }
     crate::deployment::queue::start_coordinator(shared_state.clone()).await;
     crate::deployment::dns_validation::spawn_cdn_range_refresh();
 
@@ -504,6 +508,7 @@ async fn async_main(sentry_kind: Option<&'static str>) {
     crate::telemetry::spawn(shared_state.clone());
     crate::backup::scheduler::spawn(shared_state.clone());
     crate::database_backup::scheduler::spawn(shared_state.clone());
+    crate::volume_backup::scheduler::spawn(shared_state.clone());
     crate::scheduled_tasks::scheduler::spawn(shared_state.clone());
     crate::health_checks::spawn(shared_state.clone());
     crate::git::repositories::audit_log::spawn(shared_state.clone());
