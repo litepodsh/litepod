@@ -380,7 +380,7 @@ pub async fn pending_for_environment(
 ) -> Result<BTreeMap<String, String>, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let ids: Vec<String> = sqlx::query_scalar(
-        "SELECT id FROM applications WHERE environment_id = ?1 AND catalog_template_id IS NOT NULL",
+        "SELECT id FROM applications WHERE environment_id = ?1 AND catalog_template_id IS NOT NULL AND maintenance_for IS NULL",
     )
     .bind(environment_id)
     .fetch_all(&conn)
