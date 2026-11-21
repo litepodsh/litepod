@@ -50,47 +50,6 @@ pub async fn update_policy_handler(
     .await?))
 }
 
-/// Successful backups of every volume of the application, for "Add volume →
-/// from a backup".
-pub async fn list_app_backups_handler(
-    State(state): State<SharedState>,
-    RequireApp(app, _): RequireApp<perm::BackupRead>,
-) -> Result<impl IntoResponse, AppError> {
-    Ok(ok(run::list_app_backups(&state, &app.application_id).await?))
-}
-
-pub async fn list_backups_handler(
-    State(state): State<SharedState>,
-    RequireApp(app, _): RequireApp<perm::BackupRead>,
-    Path((_, _, _, _, volume_name)): Path<VolumePath>,
-) -> Result<impl IntoResponse, AppError> {
-    Ok(ok(run::list_backups(
-        &state,
-        &app.application_id,
-        &volume_name,
-    )
-    .await?))
-}
-
-/// Starts a manual backup in the background; the row comes back `running`.
-pub async fn run_backup_handler(
-    State(state): State<SharedState>,
-    RequireApp(app, _): RequireApp<perm::BackupManage>,
-    Path((_, _, _, _, volume_name)): Path<VolumePath>,
-    Json(req): Json<RunVolumeBackupRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let actor = actor_label(&app.user);
-    Ok(ok(run::request_run(
-        &state,
-        &app.application_id,
-        &volume_name,
-        req.s3_target_id.as_deref(),
-        req.stop_app,
-        &actor,
-    )
-    .await?))
-}
-
 /// Restores into a new detached volume (returned) or over the original.
 pub async fn restore_backup_handler(
     State(state): State<SharedState>,
@@ -172,7 +131,7 @@ pub async fn restore_from_upload_handler(
 /// `.../applications/{application_id}/volume-backup-groups/{group_id}`
 type GroupPath = (String, String, String, String, String);
 
-/// Whole-application runs (every named volume in one run).
+/// Every backup of the application; rows of one run share `group_id`.
 pub async fn list_app_runs_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::BackupRead>,
@@ -180,7 +139,8 @@ pub async fn list_app_runs_handler(
     Ok(ok(run::list_app_runs(&state, &app.application_id).await?))
 }
 
-/// Starts a whole-application run in the background; returns its group id.
+/// Starts a run of the picked volumes (all when none) in the background;
+/// returns its group id.
 pub async fn run_app_backup_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::BackupManage>,
@@ -192,6 +152,7 @@ pub async fn run_app_backup_handler(
         &app.application_id,
         req.s3_target_id.as_deref(),
         req.stop_app,
+        &req.volumes,
         &actor,
     )
     .await?;

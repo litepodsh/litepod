@@ -42,6 +42,9 @@ pub struct RunVolumeBackupRequest {
     /// As picked in the form, saved or not.
     #[serde(default)]
     pub stop_app: bool,
+    /// Podman names of the volumes to copy; empty copies every named volume.
+    #[serde(default)]
+    pub volumes: Vec<String>,
 }
 
 /// One backup run of a volume. `status` is `running`, `succeeded` or `failed`;
