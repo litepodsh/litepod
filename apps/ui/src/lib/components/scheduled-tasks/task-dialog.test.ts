@@ -41,6 +41,7 @@ const FIELDS = [
 	'compose_service',
 	'cron_expression',
 	'description',
+	'folder',
 	'image',
 	'name',
 	'network_access',
@@ -110,6 +111,7 @@ it('updates an existing task and keeps its enabled flag', async () => {
 		image: null,
 		application_id: null,
 		compose_service: null,
+		folder: 'maintenance',
 		shell: 'sh',
 		script: 'podman system df',
 		timeout_seconds: 300,
@@ -126,6 +128,7 @@ it('updates an existing task and keeps its enabled flag', async () => {
 	expect(Object.keys(body).sort()).toEqual([...FIELDS, 'enabled'].sort());
 	expect(body).toMatchObject({
 		enabled: false,
+		folder: 'maintenance',
 		runner: 'remote_shell',
 		shell: 'sh',
 		server_id: 'srv',

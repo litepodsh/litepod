@@ -65,6 +65,20 @@
 	let sheetTaskId = $state<string | null>(null);
 	let runOnOpen = $state(false);
 	let deleteTask = $state<ScheduledTask | null>(null);
+	let newTaskFolder = $state('');
+
+	// which folders are closed, remembered per organization in this browser
+	const collapsedKey = `lp.scheduled-tasks.collapsed.${organizationId}`;
+	let collapsed = $state<string[]>(readCollapsed());
+	function readCollapsed(): string[] {
+		try {
+			const value = JSON.parse(localStorage.getItem(collapsedKey) ?? '[]');
+			return Array.isArray(value) ? value : [];
+		} catch {
+			return [];
+		}
+	}
+	$effect(() => localStorage.setItem(collapsedKey, JSON.stringify(collapsed)));
 
 	// the server timestamp arrives as RFC3339: render it with the same locale format as the local
 	// clock, but keep it in the server's own UTC offset instead of converting to the browser's zone
@@ -90,16 +104,25 @@
 		failing: tasks.filter((task) => matches(task, 'failing')).length,
 		paused: tasks.filter((task) => matches(task, 'paused')).length,
 	});
+	const folders = $derived(
+		[...new Set(tasks.map((task) => task.folder).filter(Boolean))].sort((a, b) =>
+			a.localeCompare(b, i18n.locale),
+		),
+	);
+	// folders A-Z with ungrouped tasks last, so the table groups and the sheet's next/previous agree
+	const folderRank = (folder: string) => (folder ? folders.indexOf(folder) : folders.length);
 	const visible = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
-		return tasks.filter(
+		return tasks
+			.filter(
 			(task) =>
 				matches(task, filter) &&
 				(!needle ||
-					[task.name, task.description, task.cron_expression, task.runner].some((value) =>
-						value.toLowerCase().includes(needle),
+					[task.name, task.description, task.folder, task.cron_expression, task.runner].some(
+						(value) => value.toLowerCase().includes(needle),
 					)),
-		);
+			)
+			.sort((left, right) => folderRank(left.folder) - folderRank(right.folder));
 	});
 
 	// KPI numbers come from the runs each task's history returns
@@ -252,7 +275,8 @@
 		}
 	}
 
-	function openCreate() {
+	function openCreate(folder = '') {
+		newTaskFolder = folder;
 		editing = null;
 		cloneFrom = null;
 		dialogOpen = true;
@@ -364,7 +388,7 @@
 					></span>
 			</p>
 		</div>
-		<Button onclick={openCreate}><PlusIcon />{t('organizations.task_ui.new_task')}</Button>
+		<Button onclick={() => openCreate()}><PlusIcon />{t('organizations.task_ui.new_task')}</Button>
 	</div>
 
 	{#if loading}
@@ -527,12 +551,22 @@
 				onRun={(task) => openSheet(task, true)}
 				onEdit={(task) => void openEdit(task)}
 				onDelete={(task) => (deleteTask = task)}
-				onToggle={(task) => void toggle(task)} />
+				onToggle={(task) => void toggle(task)}
+				bind:collapsed
+				expandAll={!!query.trim()}
+				onCreateIn={openCreate} />
 		</section>
 	{/if}
 </div>
 
-<TaskDialog bind:open={dialogOpen} {organizationId} {editing} {cloneFrom} onSaved={saved} />
+<TaskDialog
+	bind:open={dialogOpen}
+	{organizationId}
+	{editing}
+	{cloneFrom}
+	{folders}
+	initialFolder={newTaskFolder}
+	onSaved={saved} />
 
 <TaskSheet
 	bind:open={sheetOpen}
