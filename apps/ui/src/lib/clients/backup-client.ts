@@ -131,6 +131,18 @@ export async function deleteS3Target(organizationId: string, id: string): Promis
 	});
 }
 
+/** Checks that a saved target is reachable with its stored credentials. */
+export async function testS3Target(organizationId: string, id: string): Promise<void> {
+	await api<boolean>(`${targetsPath(organizationId)}/${encodeURIComponent(id)}/test`, {
+		method: 'POST',
+	});
+}
+
+/** Checks that the saved default S3 storage is reachable. */
+export async function testS3Config(): Promise<void> {
+	await api<boolean>('/api/v1/settings/backup/s3-config/test', { method: 'POST' });
+}
+
 export async function updateS3Config(input: UpdateS3ConfigInput): Promise<S3ConfigDto> {
 	return (
 		await api<S3ConfigDto>('/api/v1/settings/backup/s3-config', {

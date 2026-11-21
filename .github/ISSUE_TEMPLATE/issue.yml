@@ -25,18 +25,39 @@ body:
       placeholder: "Describe the problem, not the solution. / Describe el problema, no la solución."
     validations:
       required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / Versión
+      description: Shown on the System page. / Aparece en la página Sistema.
+      placeholder: v0.3.39
+    validations:
+      required: false
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Channel / Canal
+      description: Update channel, shown on the System page. / Canal de actualizaciones, aparece en la página Sistema.
+      options:
+        - Stable
+        - Next
+        - Not sure / No sé
+    validations:
+      required: false
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install / Instalación
+      options:
+        - Self-hosted rootless
+        - Self-hosted root
+        - Litepod Cloud
+    validations:
+      required: false
   - type: textarea
     id: context
     attributes:
       label: Context / Contexto
-      description: |
-        Litepod version, how it's installed (self-hosted rootless/root, Cloud),
-        screenshots, logs — anything that helps.
-
-        Versión de Litepod, cómo está instalado (self-hosted rootless/root, Cloud),
-        capturas, logs — lo que ayude.
-      placeholder: |
-        - Version / Versión: v0.3.4
-        - Install / Instalación: self-hosted rootless
+      description: Screenshots, logs, OS — anything that helps. / Capturas, logs, sistema operativo — lo que ayude.
     validations:
       required: false

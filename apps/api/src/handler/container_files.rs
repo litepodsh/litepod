@@ -10,7 +10,6 @@ use std::{
 use axum::{
     Json,
     extract::{Multipart, Path, Query, State},
-    http::header,
     response::{IntoResponse, Response},
 };
 
@@ -32,6 +31,9 @@ type ContainerPath = (String, String, String, String, String);
 #[derive(serde::Deserialize)]
 pub struct FilePathQuery {
     pub path: String,
+    /// Show a previewable file in the browser instead of downloading it.
+    #[serde(default)]
+    pub inline: bool,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -246,25 +248,7 @@ pub async fn download_handler(
         &query.path,
     )
     .await;
-    let filename = std::path::Path::new(&query.path)
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .replace(['"', '\\', '\r', '\n'], "_");
-    let mut response = Response::new(axum::body::Body::from(bytes));
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_str(
-            &mime.unwrap_or_else(|| "application/octet-stream".into()),
-        )
-        .map_err(|error| AppError::InternalError(error.to_string()))?,
-    );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        axum::http::HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
-            .map_err(|error| AppError::InternalError(error.to_string()))?,
-    );
-    Ok(response)
+    crate::handler::workspace_download::file_response(bytes, mime, &query.path, query.inline)
 }
 
 #[cfg(test)]

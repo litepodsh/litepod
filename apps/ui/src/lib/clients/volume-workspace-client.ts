@@ -21,7 +21,8 @@ export type WorkspaceClient = {
 	save: (path: string, content: string) => Promise<WorkspaceFile>;
 	create: (path: string, kind: 'file' | 'directory', content?: string) => Promise<WorkspaceEntry>;
 	upload: (path: string, file: File) => Promise<WorkspaceEntry>;
-	downloadUrl: (path: string) => string;
+	/** `inline` shows images, audio, video and PDF in the browser instead of downloading them. */
+	downloadUrl: (path: string, inline?: boolean) => string;
 };
 
 export function workspaceClient(base: string): WorkspaceClient {
@@ -51,6 +52,7 @@ export function workspaceClient(base: string): WorkspaceClient {
 			body.append('file', file);
 			return (await apiForm<WorkspaceEntry>(withPath('upload', path), body)).data!;
 		},
-		downloadUrl: (path) => `${API_URL}${withPath('download', path)}`,
+		downloadUrl: (path, inline) =>
+			`${API_URL}${withPath('download', path)}${inline ? '&inline=true' : ''}`,
 	};
 }

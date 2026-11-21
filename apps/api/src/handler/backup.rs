@@ -21,6 +21,21 @@ pub async fn get_s3_config_handler(
     Ok(ok(config::load_dto(&state).await?))
 }
 
+/// Checks that the saved default S3 storage is still reachable.
+pub async fn test_s3_config_handler(
+    State(state): State<SharedState>,
+    Extension(user): Extension<AuthUser>,
+) -> Result<impl IntoResponse, AppError> {
+    if !user.is_sysadmin {
+        return Err(AppError::InsufficientPermissions);
+    }
+    let config = config::load(&state)
+        .await?
+        .ok_or_else(|| AppError::ValidationError("No default S3 storage is configured".into()))?;
+    s3_client::test_connection(&config).await?;
+    Ok(ok(true))
+}
+
 pub async fn update_s3_config_handler(
     State(state): State<SharedState>,
     Extension(user): Extension<AuthUser>,
@@ -270,6 +285,18 @@ pub async fn update_s3_target_handler(
     let updated = crate::backup::target::update(&state, &org.organization_id, &id, &req).await?;
     audit_target(&state, &org, "backup.s3_target_updated", &id, &updated.name).await;
     Ok(ok(updated))
+}
+
+/// Checks that a saved target is still reachable with its stored credentials.
+/// `resolve` vets the endpoint first (cloud dials from the control plane).
+pub async fn test_s3_target_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::BackupTargetsManage>,
+    Path((_organization_id, id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let config = crate::backup::target::resolve(&state, &org.organization_id, Some(&id)).await?;
+    s3_client::test_connection(&config).await?;
+    Ok(ok(true))
 }
 
 /// Deletes one of the organization's targets.

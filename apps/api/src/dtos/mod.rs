@@ -21,3 +21,4 @@ pub mod server_group;
 pub mod template;
 pub mod terminal_session;
 pub mod user;
+pub mod volume_backup;

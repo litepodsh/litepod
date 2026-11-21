@@ -57,6 +57,7 @@
 
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
+	import { slide } from 'svelte/transition';
 	import CalendarCheckIcon from '@lucide/svelte/icons/calendar-check';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import FlaskConicalIcon from '@lucide/svelte/icons/flask-conical';
@@ -103,6 +104,8 @@
 		editing = null,
 		cloneFrom = null,
 		lockedApplication = null,
+		folders = [],
+		initialFolder = '',
 		onSaved,
 	}: {
 		open?: boolean;
@@ -113,6 +116,10 @@
 		cloneFrom?: ScheduledTaskDetail | null;
 		/** Opened from an app: preselects application_exec and fixes the app. */
 		lockedApplication?: LockedApplication | null;
+		/** Existing folder names, suggested in the folder field. */
+		folders?: string[];
+		/** Folder a new task starts in (ignored while editing or cloning). */
+		initialFolder?: string;
 		onSaved?: (task: ScheduledTask, created: boolean) => void;
 	} = $props();
 
@@ -127,6 +134,7 @@
 
 	let name = $state('');
 	let description = $state('');
+	let folder = $state('');
 	let cron = $state('0 0 * * *');
 	let runner = $state<ScheduledTaskRunner>('ephemeral');
 	// ponytail: official bash image (Alpine base, ~6 MB) ships both sh and bash, enough for scripts.
@@ -186,6 +194,7 @@
 				? t('organizations.task_ui.copy_name', { name: cloneFrom.name })
 				: (task?.name ?? '');
 		description = task?.description ?? '';
+		folder = (task ? task.folder : initialFolder) ?? '';
 		cron = task?.cron_expression ?? '0 0 * * *';
 		runner = task?.runner ?? (lockedApplication ? 'application_exec' : 'ephemeral');
 		image = task?.image ?? DEFAULT_EPHEMERAL_IMAGE;
@@ -294,6 +303,7 @@
 		return {
 			name,
 			description,
+			folder: folder.trim(),
 			cron_expression: cron,
 			runner,
 			image: runner === 'ephemeral' ? image : undefined,
@@ -355,7 +365,7 @@
 		testing = true;
 		testRun = { output: '', target: null, done: null };
 		const run = testRun;
-		// the panel renders below the form, out of view in the scrolling dialog body
+		// the panel opens under the script editor, which may sit near the bottom of the scrolling dialog body
 		void tick().then(() =>
 			testPanelElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }),
 		);
@@ -453,6 +463,20 @@
 						bind:value={description}
 						autocomplete="off"
 						placeholder={t('organizations.task_ui.description_placeholder')} />
+				</div>
+				<div class="grid gap-1.5">
+					<Label for="task-folder">{t('organizations.task_ui.folder_label')}</Label>
+					<!-- native suggestions: pick an existing folder or type a new one -->
+					<Input
+						id="task-folder"
+						bind:value={folder}
+						list="task-folder-options"
+						maxlength={64}
+						autocomplete="off"
+						placeholder={t('organizations.task_ui.folder_placeholder')} />
+					<datalist id="task-folder-options">
+						{#each folders as option (option)}<option value={option}></option>{/each}
+					</datalist>
 				</div>
 			</section>
 
@@ -606,6 +630,62 @@
 							})}</button>
 					{/snippet}
 				</ScriptEditor>
+				{#if testRun}
+					{@const done = testRun.done}
+					<div
+						bind:this={testPanelElement}
+						class="overflow-hidden rounded-xl border bg-[#0f1217] text-[#c6ccd7] dark:bg-[#07080a]"
+						aria-live="polite"
+						transition:slide={{ duration: 150 }}>
+						<div
+							class="flex items-center justify-between gap-2 border-b border-black/50 px-3 py-2 font-mono text-xs text-[#8a93a3]">
+							<span class="flex items-center gap-2">
+								test-run.log
+								{#if done}
+									<span class={done.success ? 'text-[#43c983]' : 'text-[#ff6d64]'}
+										>{done.success
+											? t('organizations.tasks.test_succeeded')
+											: t('organizations.tasks.test_failed_result')}{done.exit_code !== null
+											? `, ${t('organizations.tasks.exit_code').toLowerCase()} ${done.exit_code}`
+											: ''}, {(done.duration_ms / 1000).toFixed(1)}s</span>
+								{:else if testing}
+									<span class="text-[#f0a83a]">{t('organizations.tasks.testing')}</span>
+								{:else}
+									<span class="text-[#f0a83a]">{t('organizations.tasks.test_stopped')}</span>
+								{/if}
+							</span>
+							<button
+								type="button"
+								class="grid size-6 place-items-center rounded-md hover:bg-white/10 hover:text-white"
+								aria-label={t('organizations.task_ui.hide_test')}
+								onclick={() => {
+									stopTest();
+									testRun = null;
+								}}><XIcon class="size-3.5" /></button>
+						</div>
+						{#if testRun.target}<p class="px-3 pt-2 font-mono text-xs text-[#8a93a3]">
+								{t('organizations.tasks.test_target', { target: testRun.target })}
+							</p>{/if}
+						{#if done?.error}<p class="px-3 pt-2 font-mono text-xs break-words text-[#ff8f88]">
+								{done.error}
+							</p>{/if}
+						{#if testOutput}
+							<pre
+								bind:this={testOutputElement}
+								class="h-48 overflow-auto p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{testOutput}</pre>
+						{:else if done?.success}
+							<p class="p-3 font-mono text-xs text-[#8a93a3]">
+								{t('organizations.tasks.test_no_output')}
+							</p>
+						{:else}
+							<p class="p-3">
+								<span
+									class="inline-block h-3.5 w-2 animate-pulse bg-[#c6ccd7] motion-reduce:animate-none"
+								></span>
+							</p>
+						{/if}
+					</div>
+				{/if}
 			</section>
 
 			<section class="lp-raised grid gap-3 rounded-2xl border bg-card p-4">
@@ -690,62 +770,6 @@
 					{/if}
 				</div>
 			</section>
-
-			{#if testRun}
-				{@const done = testRun.done}
-				<div
-					bind:this={testPanelElement}
-					class="overflow-hidden rounded-xl border bg-[#0f1217] text-[#c6ccd7] dark:bg-[#07080a]"
-					aria-live="polite">
-					<div
-						class="flex items-center justify-between gap-2 border-b border-black/50 px-3 py-2 font-mono text-xs text-[#8a93a3]">
-						<span class="flex items-center gap-2">
-							test-run.log
-							{#if done}
-								<span class={done.success ? 'text-[#43c983]' : 'text-[#ff6d64]'}
-									>{done.success
-										? t('organizations.tasks.test_succeeded')
-										: t('organizations.tasks.test_failed_result')}{done.exit_code !== null
-										? `, ${t('organizations.tasks.exit_code').toLowerCase()} ${done.exit_code}`
-										: ''}, {(done.duration_ms / 1000).toFixed(1)}s</span>
-							{:else if testing}
-								<span class="text-[#f0a83a]">{t('organizations.tasks.testing')}</span>
-							{:else}
-								<span class="text-[#f0a83a]">{t('organizations.tasks.test_stopped')}</span>
-							{/if}
-						</span>
-						<button
-							type="button"
-							class="grid size-6 place-items-center rounded-md hover:bg-white/10 hover:text-white"
-							aria-label={t('organizations.task_ui.hide_test')}
-							onclick={() => {
-								stopTest();
-								testRun = null;
-							}}><XIcon class="size-3.5" /></button>
-					</div>
-					{#if testRun.target}<p class="px-3 pt-2 font-mono text-xs text-[#8a93a3]">
-							{t('organizations.tasks.test_target', { target: testRun.target })}
-						</p>{/if}
-					{#if done?.error}<p class="px-3 pt-2 font-mono text-xs break-words text-[#ff8f88]">
-							{done.error}
-						</p>{/if}
-					{#if testOutput}
-						<pre
-							bind:this={testOutputElement}
-							class="max-h-60 overflow-auto p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{testOutput}</pre>
-					{:else if done?.success}
-						<p class="p-3 font-mono text-xs text-[#8a93a3]">
-							{t('organizations.tasks.test_no_output')}
-						</p>
-					{:else}
-						<p class="p-3">
-							<span
-								class="inline-block h-3.5 w-2 animate-pulse bg-[#c6ccd7] motion-reduce:animate-none"
-							></span>
-						</p>
-					{/if}
-				</div>
-			{/if}
 		</div>
 
 		<footer class="lp-groove-t flex flex-wrap items-center justify-between gap-2 bg-card px-5 py-3">

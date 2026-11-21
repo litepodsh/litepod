@@ -29,6 +29,9 @@ pub struct CreateScheduledTaskRequest {
     /// used.
     #[serde(default)]
     pub compose_service: Option<String>,
+    /// Folder that groups the task in the list; empty or absent leaves it ungrouped.
+    #[serde(default)]
+    pub folder: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -53,6 +56,9 @@ pub struct UpdateScheduledTaskRequest {
     pub application_id: Option<String>,
     #[serde(default)]
     pub compose_service: Option<String>,
+    /// Absent keeps the current folder, so clients that predate folders do not clear it.
+    #[serde(default)]
+    pub folder: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -66,6 +72,7 @@ pub struct ScheduledTaskDto {
     pub image: Option<String>,
     pub application_id: Option<String>,
     pub compose_service: Option<String>,
+    pub folder: String,
     pub network_access: bool,
     pub shell: String,
     pub timeout_seconds: i64,

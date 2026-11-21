@@ -502,6 +502,11 @@ pub async fn delete(state: &SharedState, organization_id: &str, id: &str) -> Res
         .execute(&conn)
         .await
         .ok();
+    sqlx::query("UPDATE volume_backup_policies SET s3_target_id = NULL WHERE s3_target_id = ?1")
+        .bind(id)
+        .execute(&conn)
+        .await
+        .ok();
     Ok(())
 }
 

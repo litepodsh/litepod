@@ -3029,6 +3029,152 @@ export function managedVolumeWorkspace(
 	);
 }
 
+export type VolumeBackupPolicyDto = Omit<DatabaseBackupPolicyDto, 'application_id'> & {
+	volume_name: string;
+	/** The install-wide default S3 storage exists, so "no target" still backs up. */
+	default_available: boolean;
+	/** Stop the application while the volume is exported (databases). */
+	stop_app: boolean;
+};
+export type VolumeBackupDto = Omit<DatabaseBackupDto, 'application_id' | 'engine'> & {
+	volume_name: string;
+	/** `scheduled`, `pre-restore` or the user who started it. */
+	triggered_by: string;
+	/** Shared by every volume copied in one whole-application run. */
+	group_id: string | null;
+};
+/** `new_volume`: a detached copy to check first; `in_place`: replace the original. */
+export type VolumeRestoreTarget = 'new_volume' | 'in_place';
+export type VolumeBackupClient = ReturnType<typeof volumeBackups>;
+
+export type S3TarDto = { key: string; size_bytes: number; last_modified: string };
+export type VolumeRestores = ReturnType<typeof volumeRestores>;
+
+/** Ways to create a managed volume from a `.tar`: one in an S3 destination, or an
+ *  uploaded one. Each returns the new detached volume. */
+export function volumeRestores(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+) {
+	const base = deploymentPath(
+		organizationId,
+		projectId,
+		environmentId,
+		applicationId,
+		'volume-restores',
+	);
+	return {
+		listS3Files: async (s3TargetId: string | null) =>
+			(
+				await api<S3TarDto[]>(
+					`${base}/s3-files${s3TargetId ? `?s3_target_id=${encodeURIComponent(s3TargetId)}` : ''}`,
+				)
+			).data ?? [],
+		fromS3: async (s3TargetId: string | null, key: string, input: CreateManagedVolumeInput) =>
+			(
+				await api<ManagedVolumeDto>(`${base}/s3`, {
+					method: 'POST',
+					body: JSON.stringify({ s3_target_id: s3TargetId, key, ...input }),
+				})
+			).data!,
+		fromUpload: async (file: File, input: CreateManagedVolumeInput) => {
+			const query = new URLSearchParams({ name: input.name, mount_path: input.mount_path });
+			if (input.compose_service) query.set('compose_service', input.compose_service);
+			const body = new FormData();
+			body.append('file', file);
+			return (await apiForm<ManagedVolumeDto>(`${base}/upload?${query}`, body)).data!;
+		},
+	};
+}
+
+export type AppVolumeBackupsDto = { default_available: boolean; runs: VolumeBackupDto[] };
+export type AppVolumeBackups = ReturnType<typeof appVolumeBackups>;
+
+/** Every volume backup of the application; a run copies (and restores) all its
+ *  named volumes together. */
+export function appVolumeBackups(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+) {
+	const base = deploymentPath(
+		organizationId,
+		projectId,
+		environmentId,
+		applicationId,
+		'volume-backup-groups',
+	);
+	return {
+		list: async () =>
+			(await api<AppVolumeBackupsDto>(base)).data ?? { default_available: false, runs: [] },
+		run: async (s3TargetId: string | null, stopApp: boolean) =>
+			(
+				await api<{ group_id: string }>(base, {
+					method: 'POST',
+					body: JSON.stringify({ s3_target_id: s3TargetId, stop_app: stopApp }),
+				})
+			).data!.group_id,
+		restore: async (groupId: string) => {
+			await api<boolean>(`${base}/${encodeURIComponent(groupId)}/restore`, {
+				method: 'POST',
+				body: '{}',
+			});
+		},
+	};
+}
+
+/** Compose volumes repeat the app id as `<project>-compose_`; this is the rest. */
+export function volumeLabel(volumeName: string): string {
+	return volumeName.split('-compose_').slice(1).join('-compose_') || volumeName;
+}
+
+/** Backup policy, restore and delete of one named volume the application mounts. */
+export function volumeBackups(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	volumeName: string,
+) {
+	const base = deploymentPath(
+		organizationId,
+		projectId,
+		environmentId,
+		applicationId,
+		`volume-backups/${encodeURIComponent(volumeName)}`,
+	);
+	return {
+		getPolicy: async () => (await api<VolumeBackupPolicyDto>(`${base}/policy`)).data!,
+		updatePolicy: async (input: UpdateDatabaseBackupPolicyInput & { stop_app: boolean }) =>
+			(
+				await api<VolumeBackupPolicyDto>(`${base}/policy`, {
+					method: 'PUT',
+					body: JSON.stringify(input),
+				})
+			).data!,
+		/** Returns the new volume for `new_volume`, `null` for `in_place`. `placement`
+		 *  overrides where the new volume mounts (default: where the backup came from). */
+		restore: async (
+			backupId: string,
+			target: VolumeRestoreTarget,
+			name: string | null = null,
+			placement: { mount_path: string; compose_service: string | null } | null = null,
+		) =>
+			(
+				await api<{ volume: ManagedVolumeDto | null }>(
+					`${base}/${encodeURIComponent(backupId)}/restore`,
+					{ method: 'POST', body: JSON.stringify({ target, name, ...placement }) },
+				)
+			).data!.volume,
+		remove: async (backupId: string) => {
+			await api<boolean>(`${base}/${encodeURIComponent(backupId)}`, { method: 'DELETE' });
+		},
+	};
+}
+
 export function streamDeploymentLogs(
 	organizationId: string,
 	projectId: string,
@@ -3296,7 +3442,13 @@ export async function catalogUpdateApply(
 	projectId: string,
 	environmentId: string,
 	applicationId: string,
-	input: { version: string; compose: 'replace' | 'keep'; add_env: boolean },
+	input: {
+		version: string;
+		compose: 'replace' | 'keep';
+		add_env: boolean;
+		/** Indexes into `compose.diff` of the changes to leave out. */
+		skip?: number[];
+	},
 ): Promise<CatalogUpdate> {
 	const response = await api<CatalogUpdate>(
 		deploymentPath(organizationId, projectId, environmentId, applicationId, 'catalog-update/apply'),

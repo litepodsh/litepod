@@ -47,6 +47,7 @@ export function detailToInput(detail: ScheduledTaskDetail): ScheduledTaskInput {
 		image: detail.image ?? undefined,
 		application_id: detail.application_id ?? undefined,
 		compose_service: detail.compose_service ?? undefined,
+		folder: detail.folder,
 		shell: detail.shell,
 		script: detail.script,
 		timeout_seconds: detail.timeout_seconds,

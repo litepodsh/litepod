@@ -5,12 +5,16 @@
 	import VolumeFileWorkspace from '#lib/components/volumes/volume-file-workspace.svelte';
 	import ManagedVolumeFormDialog from '#lib/components/projects/managed-volume-form-dialog.svelte';
 	import ManagedVolumeDeleteDialog from '#lib/components/projects/managed-volume-delete-dialog.svelte';
+	import VolumeBackupsPanel from '#lib/components/projects/volume-backups-panel.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import SkeletonRows from '#lib/components/custom/skeleton-rows.svelte';
 	import type {
 		CreateManagedVolumeInput,
 		ManagedVolumeDto,
+		VolumeBackupClient,
 		VolumeDto,
+		VolumeRestores,
+		AppVolumeBackups,
 	} from '#lib/clients/project-client.js';
 	import type { WorkspaceClient } from '#lib/clients/volume-workspace-client.js';
 	import { toast } from '#lib/utils/toast.js';
@@ -32,6 +36,10 @@
 		onDeleteManagedVolume,
 		workspaceFor,
 		managedWorkspaceFor,
+		organizationId,
+		backupsFor,
+		restores,
+		appBackups,
 	}: {
 		volumes?: VolumeDto[];
 		managedVolumes?: ManagedVolumeDto[];
@@ -47,12 +55,22 @@
 		onDeleteManagedVolume: (volumeId: string) => Promise<void>;
 		workspaceFor: (source: string) => WorkspaceClient;
 		managedWorkspaceFor: (volumeId: string) => WorkspaceClient;
+		organizationId: string;
+		/** Backups of a named volume, by its Podman name. */
+		backupsFor: (volumeName: string) => VolumeBackupClient;
+		restores: VolumeRestores;
+		appBackups: AppVolumeBackups;
 	} = $props();
 
 	let selectedSource = $state<string | null>(null);
 	let selectedManagedVolumeId = $state<string | null>(null);
 	let addDialogOpen = $state(false);
+	/** "Add volume" opened from Backups → Import: create it from a `.tar`. */
+	let importing = $state(false);
 	let deleteVolume = $state<ManagedVolumeDto | null>(null);
+	const namedVolumes = $derived([
+		...new Set(volumes.filter((volume) => volume.mount_type === 'volume').map((volume) => volume.source)),
+	]);
 	let selectedManagedVolume = $derived(
 		managedVolumes.find((volume) => volume.id === selectedManagedVolumeId) ?? null,
 	);
@@ -95,7 +113,11 @@
 				><RefreshCwIcon class={busy ? 'animate-spin' : ''} />{t(
 					'projects.application_volumes.refresh',
 				)}</Button>
-			<Button onclick={() => (addDialogOpen = true)}><PlusIcon />{t('projects.volume.add')}</Button>
+			<Button
+				onclick={() => {
+					importing = false;
+					addDialogOpen = true;
+				}}><PlusIcon />{t('projects.volume.add')}</Button>
 		</div>
 	</div>
 
@@ -223,7 +245,7 @@
 								>{volume.read_only
 									? t('projects.application_volumes.read_only')
 									: t('projects.application_volumes.read_write')}</td
-							><td
+							><td class="py-2 text-right"
 								><Button
 									size="sm"
 									variant="outline"
@@ -264,11 +286,30 @@
 	</Dialog.Content>
 </Dialog.Root>
 
+<VolumeBackupsPanel
+	{organizationId}
+	volumeNames={namedVolumes}
+	client={appBackups}
+	{backupsFor}
+	onImport={() => {
+		importing = true;
+		addDialogOpen = true;
+	}}
+	onRestored={onRefresh} />
+
 <ManagedVolumeFormDialog
 	bind:open={addDialogOpen}
+	{importing}
 	{isCompose}
 	services={composeServices}
-	onSubmit={onCreateManagedVolume} />
+	{organizationId}
+	onSubmit={onCreateManagedVolume}
+	{restores}
+	onRestored={async (volume) => {
+		// Attach like a new volume would be; a path conflict leaves it detached with the reason.
+		await run(() => onAttachManagedVolume(volume.id), t('projects.application_volumes.attach_failed'));
+		await onRefresh();
+	}} />
 {#if deleteVolume}<ManagedVolumeDeleteDialog
 		open={true}
 		volumeName={deleteVolume.name}

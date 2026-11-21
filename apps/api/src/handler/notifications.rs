@@ -213,8 +213,8 @@ fn action_label(action: Action) -> (&'static str, &'static str) {
             "Trigger the action when a server restarts and litepod restores its applications.",
         ),
         Action::DatabaseBackup => (
-            "Database Backup",
-            "Trigger the action when a database backup or restore completes.",
+            "Database & Volume Backup",
+            "Trigger the action when a database or volume backup or restore completes.",
         ),
         Action::SecurityAlert => (
             "Security Alert",
