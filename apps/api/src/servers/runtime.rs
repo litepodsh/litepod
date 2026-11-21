@@ -443,13 +443,26 @@ impl ServerRuntime {
     /// reads. Both placements return a child with a piped stdout so callers keep a
     /// single code path; dropping the returned value stops the command.
     pub async fn podman_stream(&self, args: &[OsString]) -> Result<SshStream, AppError> {
+        self.spawn_podman_stream(args, false).await
+    }
+
+    /// [`Self::podman_stream`] with a piped stdin: take it, write, drop it for EOF.
+    pub async fn podman_stream_with_stdin(&self, args: &[OsString]) -> Result<SshStream, AppError> {
+        self.spawn_podman_stream(args, true).await
+    }
+
+    async fn spawn_podman_stream(
+        &self,
+        args: &[OsString],
+        with_stdin: bool,
+    ) -> Result<SshStream, AppError> {
         match self {
             Self::Local { podman_socket } => {
                 let child = Command::new("podman")
                     .arg("--url")
                     .arg(podman_socket)
                     .args(args)
-                    .stdin(std::process::Stdio::null())
+                    .stdin(crate::servers::ssh::stdin_mode(with_stdin))
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
                     .kill_on_drop(true)
@@ -468,12 +481,13 @@ impl ServerRuntime {
                 ..
             } => {
                 let command = Self::remote_podman_argv(*podman_mode, target, args);
-                SshExecutor::stream_command(
+                SshExecutor::spawn_stream(
                     target,
                     private_key_encrypted,
                     host_key_fingerprint,
                     Some(host_key_known_hosts),
                     &command,
+                    with_stdin,
                 )
                 .await
             }

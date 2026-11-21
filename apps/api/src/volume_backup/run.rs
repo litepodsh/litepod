@@ -13,6 +13,9 @@ use std::time::Duration;
 
 use chrono::Utc;
 use sqlx::Row;
+use tokio::io::{AsyncRead, AsyncWriteExt};
+
+use crate::backup::stream::{feed_stdin, object_reader, put_reader, stdout_to, upload_stdout};
 
 use crate::database_backup::run::app_org_context;
 use crate::deployment::managed_volumes;
@@ -430,45 +433,62 @@ async fn export_and_upload(
 ) -> Result<(i64, String), AppError> {
     let runtime =
         crate::servers::runtime::ServerRuntime::for_application(state, application_id).await?;
-    // Only the export runs with the app down; the upload happens after it is back.
-    let was_running = stop_app && stop_if_running(state, application_id).await?;
-    // shortcut: the whole tar is held in memory (as database dumps are); stream
-    // it to S3 if volumes in the GB range become common.
-    let tar = runtime
-        .podman_bytes(
-            &[
-                OsString::from("volume"),
-                OsString::from("export"),
-                OsString::from(volume_name),
-            ],
-            TRANSFER_BUDGET,
-        )
-        .await;
-    if was_running && let Err(error) = crate::deployment::start(state, application_id, None).await {
-        tracing::warn!(%application_id, %error, "could not start the application again after a volume backup");
-    }
-    let tar =
-        tar.map_err(|error| AppError::InternalError(format!("Volume export failed: {error}")))?;
-
     let (organization_id, application_name) = app_org_context(state, application_id).await?;
     let label =
         match managed_volumes::find_by_podman_name(state, application_id, volume_name).await? {
             Some(volume) => volume.name,
             None => volume_label(volume_name).to_string(),
         };
-    let now = Utc::now();
-    let s3_key = object_key(&application_name, &label, now, backup_id);
+    let s3_key = object_key(&application_name, &label, Utc::now(), backup_id);
     let config = crate::backup::target::resolve(state, &organization_id, s3_target_id).await?;
-    let bucket = crate::backup::s3::client(&config)?;
-    let size = tar.len() as i64;
-    let mut reader = std::io::Cursor::new(tar);
     // Plain PUT, no x-amz-meta-* headers: RustFS rejects rust-s3's signature
     // once custom headers are added. The key itself names app, volume and time.
-    bucket
-        .put_object_stream(&mut reader, &s3_key)
-        .await
-        .map_err(|error| AppError::InternalError(format!("S3 upload failed: {error}")))?;
-    Ok((size, s3_key))
+    let bucket = crate::backup::s3::client(&config)?;
+    let export_args = [
+        OsString::from("volume"),
+        OsString::from("export"),
+        OsString::from(volume_name),
+    ];
+
+    let was_running = stop_app && stop_if_running(state, application_id).await?;
+    if !was_running {
+        let export = runtime.podman_stream(&export_args).await?;
+        let size =
+            upload_stdout(&bucket, &s3_key, export, TRANSFER_BUDGET, "Volume export").await?;
+        return Ok((size, s3_key));
+    }
+
+    // Only the export runs with the app down: spool it to local disk, start the
+    // app again, then upload from the file.
+    let spool = std::env::temp_dir().join(format!("litepod-volume-{backup_id}.tar"));
+    let exported = async {
+        let mut file = tokio::fs::File::create(&spool).await.map_err(spool_error)?;
+        let export = runtime.podman_stream(&export_args).await?;
+        stdout_to(export, &mut file, TRANSFER_BUDGET, "Volume export").await?;
+        file.flush().await.map_err(spool_error)
+    }
+    .await;
+    if let Err(error) = crate::deployment::start(state, application_id, None).await {
+        tracing::warn!(%application_id, %error, "could not start the application again after a volume backup");
+    }
+    let uploaded = match exported {
+        Ok(()) => match tokio::fs::File::open(&spool).await {
+            Ok(mut file) => put_reader(&bucket, &s3_key, &mut file).await,
+            Err(error) => Err(spool_error(error)),
+        },
+        Err(error) => Err(error),
+    };
+    let _ = tokio::fs::remove_file(&spool).await;
+    if uploaded.is_err() {
+        let _ = bucket.delete_object(&s3_key).await;
+    }
+    Ok((uploaded?, s3_key))
+}
+
+fn spool_error(error: std::io::Error) -> AppError {
+    AppError::InternalError(format!(
+        "Could not stage the volume archive on local disk: {error}"
+    ))
 }
 
 /// The Compose volume without its `<project>-compose_` prefix, which only
@@ -655,7 +675,7 @@ async fn download(
     state: &SharedState,
     application_id: &str,
     row: &BackupRow,
-) -> Result<Vec<u8>, AppError> {
+) -> Result<impl AsyncRead + Unpin + Send + use<>, AppError> {
     let key = row.s3_key.as_deref().ok_or_else(|| {
         AppError::ValidationError("Only a successful backup can be restored".into())
     })?;
@@ -666,37 +686,46 @@ async fn download(
         row.s3_target_id.as_deref(),
     )
     .await?;
-    Ok(crate::backup::s3::client(&config)?
-        .get_object(key)
-        .await
-        .map_err(|error| AppError::InternalError(format!("S3 download failed: {error}")))?
-        .bytes()
-        .to_vec())
+    object_reader(&*crate::backup::s3::client(&config)?, key).await
 }
 
-async fn import(
+/// Downloads a backup to local disk, so a restore starts replacing files only
+/// once the whole archive is safely here, without holding it in memory.
+async fn spool_download(
+    state: &SharedState,
+    application_id: &str,
+    row: &BackupRow,
+    path: &std::path::Path,
+) -> Result<(), AppError> {
+    let mut file = tokio::fs::File::create(path).await.map_err(spool_error)?;
+    tokio::io::copy(&mut download(state, application_id, row).await?, &mut file)
+        .await
+        .map_err(|error| AppError::InternalError(format!("S3 download failed: {error}")))?;
+    file.flush().await.map_err(spool_error)
+}
+
+fn spool_path() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("litepod-restore-{}.tar", uuid::Uuid::now_v7()))
+}
+
+/// `podman volume import <name> -` fed from `tar`, so the archive never sits
+/// in memory or in a staging file on the server.
+async fn import<R: AsyncRead + Unpin + ?Sized>(
     state: &SharedState,
     application_id: &str,
     volume_name: &str,
-    tar: Vec<u8>,
+    tar: &mut R,
 ) -> Result<(), AppError> {
-    crate::servers::runtime::ServerRuntime::for_application(state, application_id)
+    let command = crate::servers::runtime::ServerRuntime::for_application(state, application_id)
         .await?
-        .podman_with_tar(
-            application_id,
-            |source| {
-                vec![
-                    OsString::from("volume"),
-                    OsString::from("import"),
-                    OsString::from(volume_name),
-                    source,
-                ]
-            },
-            tar,
-            TRANSFER_BUDGET,
-        )
-        .await
-        .map_err(|error| AppError::InternalError(format!("Volume import failed: {error}")))
+        .podman_stream_with_stdin(&[
+            OsString::from("volume"),
+            OsString::from("import"),
+            OsString::from(volume_name),
+            OsString::from("-"),
+        ])
+        .await?;
+    feed_stdin(command, tar, TRANSFER_BUDGET, "Volume import").await
 }
 
 /// Every successful backup of the application, all volumes, newest first:
@@ -788,14 +817,14 @@ async fn restore_to_new_volume(
         None => default_restore_name(&display, Utc::now()),
     };
     ensure_name_free(state, application_id, &name).await?;
-    let tar = download(state, application_id, row).await?;
+    let mut tar = download(state, application_id, row).await?;
     volume_from_tar(
         state,
         application_id,
         name,
         mount.path.unwrap_or_else(|| "/data".into()),
         mount.service,
-        tar,
+        &mut tar,
     )
     .await
 }
@@ -818,13 +847,13 @@ async fn ensure_name_free(
 }
 
 /// Creates a detached managed volume and imports `tar` into it.
-async fn volume_from_tar(
+async fn volume_from_tar<R: AsyncRead + Unpin + ?Sized>(
     state: &SharedState,
     application_id: &str,
     name: String,
     mount_path: String,
     compose_service: Option<String>,
-    tar: Vec<u8>,
+    tar: &mut R,
 ) -> Result<crate::dtos::deployment::ManagedVolumeDto, AppError> {
     let restored = managed_volumes::provision(
         state,
@@ -925,13 +954,8 @@ pub async fn restore_from_s3(
     let config =
         crate::backup::target::resolve(state, &organization_id, req.s3_target_id.as_deref())
             .await?;
-    let tar = crate::backup::s3::client(&config)?
-        .get_object(&req.key)
-        .await
-        .map_err(|error| AppError::InternalError(format!("S3 download failed: {error}")))?
-        .bytes()
-        .to_vec();
-    volume_from_tar(state, application_id, name, mount_path, service, tar).await
+    let mut tar = object_reader(&*crate::backup::s3::client(&config)?, &req.key).await?;
+    volume_from_tar(state, application_id, name, mount_path, service, &mut tar).await
 }
 
 /// Creates a detached volume from an uploaded `.tar` (`podman volume export`
@@ -949,13 +973,21 @@ pub async fn restore_from_upload(
         ));
     }
     let (name, mount_path, service) = new_volume_placement(state, application_id, req).await?;
-    volume_from_tar(state, application_id, name, mount_path, service, tar).await
+    volume_from_tar(
+        state,
+        application_id,
+        name,
+        mount_path,
+        service,
+        &mut tar.as_slice(),
+    )
+    .await
 }
 
 /// Replaces the original volume's contents. Order matters for data safety:
-/// download first (nothing changed if S3 fails), stop the app, save the
-/// current contents as a `pre-restore` backup (abort if that fails), empty
-/// the volume, import, and always start the app again.
+/// download first to local disk (nothing changed if S3 fails), stop the app,
+/// save the current contents as a `pre-restore` backup (abort if that fails),
+/// empty the volume, import, and always start the app again.
 async fn restore_in_place(
     state: &SharedState,
     application_id: &str,
@@ -963,7 +995,24 @@ async fn restore_in_place(
     row: &BackupRow,
 ) -> Result<(), AppError> {
     let mount = app_volume(state, application_id, volume_name).await?;
-    let tar = download(state, application_id, row).await?;
+    let spool = spool_path();
+    let result = async {
+        spool_download(state, application_id, row, &spool).await?;
+        replace_contents(state, application_id, volume_name, mount, &spool).await
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&spool).await;
+    result
+}
+
+/// The part of [`restore_in_place`] that runs once the archive is on disk.
+async fn replace_contents(
+    state: &SharedState,
+    application_id: &str,
+    volume_name: &str,
+    mount: Mount,
+    spool: &std::path::Path,
+) -> Result<(), AppError> {
     let policy = read_policy(state, application_id, volume_name).await?;
     let (organization_id, _) = app_org_context(state, application_id).await?;
     crate::backup::target::resolve(state, &organization_id, policy.s3_target_id.as_deref()).await?;
@@ -1012,7 +1061,8 @@ async fn restore_in_place(
             ))
         })?;
         empty_volume(state, application_id, volume_name).await?;
-        import(state, application_id, volume_name, tar).await
+        let mut tar = tokio::fs::File::open(spool).await.map_err(spool_error)?;
+        import(state, application_id, volume_name, &mut tar).await
     }
     .await;
     // Started even after a failure: the app must not stay down because of us.
@@ -1251,7 +1301,8 @@ pub async fn request_app_run(
 }
 
 /// Restores every volume of a whole-application run in place. Data safety
-/// order: download every tar first (nothing changes if one is missing), stop
+/// order: download every tar to local disk first (nothing changes if one is
+/// missing), stop
 /// the app once, save every volume's current files as a `pre-restore` run
 /// (abort before replacing anything if one fails), then empty + import each,
 /// and start the app again if it was running.
@@ -1292,12 +1343,10 @@ pub async fn restore_app_run(
         members.push((volume_name, mount, backup));
     }
 
+    let spools: Vec<_> = members.iter().map(|_| spool_path()).collect();
     let result = async {
-        // shortcut: every tar of the run is held in memory at once so nothing is
-        // replaced unless all of them downloaded; stage them on disk for large apps.
-        let mut tars = Vec::new();
-        for (_, _, backup) in &members {
-            tars.push(download(state, application_id, backup).await?);
+        for ((_, _, backup), spool) in members.iter().zip(&spools) {
+            spool_download(state, application_id, backup, spool).await?;
         }
         let safety_group = uuid::Uuid::now_v7().to_string();
         let safety_set: Vec<_> = members
@@ -1343,10 +1392,11 @@ pub async fn restore_app_run(
                 }
             }
             let mut done = Vec::new();
-            for ((volume_name, _, _), tar) in members.iter().zip(tars) {
+            for ((volume_name, _, _), spool) in members.iter().zip(&spools) {
                 let replaced = async {
                     empty_volume(state, application_id, volume_name).await?;
-                    import(state, application_id, volume_name, tar).await
+                    let mut tar = tokio::fs::File::open(spool).await.map_err(spool_error)?;
+                    import(state, application_id, volume_name, &mut tar).await
                 }
                 .await;
                 if let Err(error) = replaced {
@@ -1371,6 +1421,9 @@ pub async fn restore_app_run(
         started
     }
     .await;
+    for spool in &spools {
+        let _ = tokio::fs::remove_file(spool).await;
+    }
     let outcome = match &result {
         Ok(_) => Ok(0),
         Err(error) => Err(AppError::InternalError(error.to_string())),
