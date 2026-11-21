@@ -317,111 +317,6 @@ async fn finish_run(
     query.bind(backup_id).execute(&conn).await.ok();
 }
 
-/// Validates the volume and destination, records a `running` row and runs the
-/// export in the background. One run per volume at a time.
-/// A manual run goes to `s3_target_id`, the destination picked in the form
-/// (`None`: the default storage), even when the policy is not saved yet.
-pub async fn request_run(
-    state: &SharedState,
-    application_id: &str,
-    volume_name: &str,
-    s3_target_id: Option<&str>,
-    stop_app: bool,
-    triggered_by: &str,
-) -> Result<VolumeBackupDto, AppError> {
-    let mount = app_volume(state, application_id, volume_name).await?;
-    let target = s3_target_id.map(str::trim).filter(|id| !id.is_empty());
-    run_with_mount(
-        state,
-        application_id,
-        volume_name,
-        mount,
-        target,
-        stop_app,
-        triggered_by,
-    )
-    .await
-}
-
-/// The scheduler's entry: the policy was authorized when it was saved, and a
-/// stopped app has no live mounts, so the volume is not re-checked against them.
-pub async fn request_scheduled_run(
-    state: &SharedState,
-    application_id: &str,
-    volume_name: &str,
-) -> Result<VolumeBackupDto, AppError> {
-    let mount = app_volume(state, application_id, volume_name)
-        .await
-        .unwrap_or_default();
-    let policy = read_policy(state, application_id, volume_name).await?;
-    run_with_mount(
-        state,
-        application_id,
-        volume_name,
-        mount,
-        policy.s3_target_id.as_deref(),
-        policy.stop_app,
-        "scheduled",
-    )
-    .await
-}
-
-async fn run_with_mount(
-    state: &SharedState,
-    application_id: &str,
-    volume_name: &str,
-    mount: Mount,
-    s3_target_id: Option<&str>,
-    stop_app: bool,
-    triggered_by: &str,
-) -> Result<VolumeBackupDto, AppError> {
-    // `resolve` also refuses another organization's target.
-    let (organization_id, _) = app_org_context(state, application_id).await?;
-    crate::backup::target::resolve(state, &organization_id, s3_target_id).await?;
-    let dto = claim_run(
-        state,
-        application_id,
-        volume_name,
-        &mount,
-        triggered_by,
-        s3_target_id,
-        None,
-    )
-    .await?;
-    let s3_target_id = s3_target_id.map(str::to_string);
-
-    let state = state.clone();
-    let backup_id = dto.id.clone();
-    let application_id = application_id.to_string();
-    let volume_name = volume_name.to_string();
-    let triggered_by = triggered_by.to_string();
-    tokio::spawn(async move {
-        let outcome = export_and_upload(
-            &state,
-            &application_id,
-            &volume_name,
-            &backup_id,
-            s3_target_id.as_deref(),
-            stop_app,
-        )
-        .await;
-        finish_run(&state, &backup_id, &outcome).await;
-        if outcome.is_ok() {
-            let _ = enforce_retention(&state, &application_id, &volume_name).await;
-        }
-        notify(
-            &state,
-            &application_id,
-            &volume_name,
-            "backup",
-            &triggered_by,
-            &outcome.map(|(size, _)| size),
-        )
-        .await;
-    });
-    Ok(dto)
-}
-
 /// Exports the volume on its own server and uploads the tar. Returns `(size, key)`.
 async fn export_and_upload(
     state: &SharedState,
@@ -643,24 +538,6 @@ pub async fn remove_backup(
     Ok(())
 }
 
-pub async fn list_backups(
-    state: &SharedState,
-    application_id: &str,
-    volume_name: &str,
-) -> Result<Vec<VolumeBackupDto>, AppError> {
-    let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "SELECT {BACKUP_COLUMNS} FROM volume_backups \
-         WHERE application_id = ?1 AND volume_name = ?2 ORDER BY started_at DESC LIMIT 100"
-    )))
-    .bind(application_id)
-    .bind(volume_name)
-    .fetch_all(&conn)
-    .await
-    .map_err(db_err)?;
-    rows.iter().map(read_backup_row).collect()
-}
-
 // ---------------------------------------------------------------------------
 // Restore
 // ---------------------------------------------------------------------------
@@ -726,24 +603,6 @@ async fn import<R: AsyncRead + Unpin + ?Sized>(
         ])
         .await?;
     feed_stdin(command, tar, TRANSFER_BUDGET, "Volume import").await
-}
-
-/// Every successful backup of the application, all volumes, newest first:
-/// the picker of "Add volume → from a backup".
-pub async fn list_app_backups(
-    state: &SharedState,
-    application_id: &str,
-) -> Result<Vec<VolumeBackupDto>, AppError> {
-    let conn = crate::git::repositories::db::get_conn(state).await;
-    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "SELECT {BACKUP_COLUMNS} FROM volume_backups \
-         WHERE application_id = ?1 AND status = 'succeeded' ORDER BY started_at DESC LIMIT 200"
-    )))
-    .bind(application_id)
-    .fetch_all(&conn)
-    .await
-    .map_err(db_err)?;
-    rows.iter().map(read_backup_row).collect()
 }
 
 /// Restores a succeeded backup. Synchronous like database restore: the
@@ -1198,7 +1057,8 @@ async fn claim_group(
     Ok(claimed)
 }
 
-/// Whole-application runs, newest first (rows of a run share `group_id`).
+/// Every backup of the application, newest first. Rows of one run share
+/// `group_id`; rows without one (pre-restore copies, older runs) stand alone.
 pub async fn list_app_runs(
     state: &SharedState,
     application_id: &str,
@@ -1206,7 +1066,7 @@ pub async fn list_app_runs(
     let conn = crate::git::repositories::db::get_conn(state).await;
     let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT {BACKUP_COLUMNS} FROM volume_backups \
-         WHERE application_id = ?1 AND group_id IS NOT NULL ORDER BY started_at DESC LIMIT 300"
+         WHERE application_id = ?1 ORDER BY started_at DESC LIMIT 300"
     )))
     .bind(application_id)
     .fetch_all(&conn)
@@ -1218,7 +1078,7 @@ pub async fn list_app_runs(
     })
 }
 
-/// Backs up every named volume of the application in one run, stopping the
+/// Backs up every named volume the application mounts in one run, stopping the
 /// app once around all the exports when `stop_app`. Returns the `group_id`.
 /// Volumes are exported and uploaded one at a time, so memory holds one tar.
 pub async fn request_app_run(
@@ -1229,7 +1089,48 @@ pub async fn request_app_run(
     triggered_by: &str,
 ) -> Result<String, AppError> {
     let volumes = live_named_volumes(state, application_id).await?;
+    run_group(state, application_id, volumes, s3_target_id, stop_app, triggered_by).await
+}
+
+/// The scheduler's entry: every due volume of the application in one run, with
+/// the first policy's destination and stop switch (the UI saves the same
+/// settings on every volume). A stopped app has no live mounts, so the volumes
+/// are not re-checked against them; the policies were authorized when saved.
+pub async fn request_scheduled_run(
+    state: &SharedState,
+    application_id: &str,
+    volume_names: &[String],
+) -> Result<String, AppError> {
+    let first = volume_names.first().ok_or(AppError::ResourceNotFound)?;
+    let policy = read_policy(state, application_id, first).await?;
+    let mut volumes = Vec::new();
+    for name in volume_names {
+        let mount = app_volume(state, application_id, name)
+            .await
+            .unwrap_or_default();
+        volumes.push((name.clone(), mount));
+    }
+    run_group(
+        state,
+        application_id,
+        volumes,
+        policy.s3_target_id.as_deref(),
+        policy.stop_app,
+        "scheduled",
+    )
+    .await
+}
+
+async fn run_group(
+    state: &SharedState,
+    application_id: &str,
+    volumes: Vec<(String, Mount)>,
+    s3_target_id: Option<&str>,
+    stop_app: bool,
+    triggered_by: &str,
+) -> Result<String, AppError> {
     let target = s3_target_id.map(str::trim).filter(|id| !id.is_empty());
+    // `resolve` also refuses another organization's target.
     let (organization_id, _) = app_org_context(state, application_id).await?;
     crate::backup::target::resolve(state, &organization_id, target).await?;
     let group_id = uuid::Uuid::now_v7().to_string();

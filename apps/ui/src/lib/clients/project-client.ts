@@ -3047,27 +3047,11 @@ export type VolumeBackupDto = Omit<DatabaseBackupDto, 'application_id' | 'engine
 export type VolumeRestoreTarget = 'new_volume' | 'in_place';
 export type VolumeBackupClient = ReturnType<typeof volumeBackups>;
 
-/** Successful backups of every volume of the application, newest first. */
-export async function listAppVolumeBackups(
-	organizationId: string,
-	projectId: string,
-	environmentId: string,
-	applicationId: string,
-): Promise<VolumeBackupDto[]> {
-	return (
-		(
-			await api<VolumeBackupDto[]>(
-				deploymentPath(organizationId, projectId, environmentId, applicationId, 'volume-backups'),
-			)
-		).data ?? []
-	);
-}
-
 export type S3TarDto = { key: string; size_bytes: number; last_modified: string };
 export type VolumeRestores = ReturnType<typeof volumeRestores>;
 
-/** Ways to create a managed volume with content: a recorded backup, any `.tar`
- *  in an S3 destination, or an uploaded `.tar`. Each returns the new detached volume. */
+/** Ways to create a managed volume from a `.tar`: one in an S3 destination, or an
+ *  uploaded one. Each returns the new detached volume. */
 export function volumeRestores(
 	organizationId: string,
 	projectId: string,
@@ -3082,22 +3066,6 @@ export function volumeRestores(
 		'volume-restores',
 	);
 	return {
-		listBackups: () => listAppVolumeBackups(organizationId, projectId, environmentId, applicationId),
-		fromBackup: async (backup: VolumeBackupDto, input: CreateManagedVolumeInput) =>
-			(await volumeBackups(
-				organizationId,
-				projectId,
-				environmentId,
-				applicationId,
-				backup.volume_name,
-			).restore(
-				backup.id,
-				'new_volume',
-				input.name,
-				input.mount_path
-					? { mount_path: input.mount_path, compose_service: input.compose_service }
-					: null,
-			))!,
 		listS3Files: async (s3TargetId: string | null) =>
 			(
 				await api<S3TarDto[]>(
@@ -3124,7 +3092,8 @@ export function volumeRestores(
 export type AppVolumeBackupsDto = { default_available: boolean; runs: VolumeBackupDto[] };
 export type AppVolumeBackups = ReturnType<typeof appVolumeBackups>;
 
-/** Whole-application runs: every named volume copied (and restored) together. */
+/** Every volume backup of the application; a run copies (and restores) all its
+ *  named volumes together. */
 export function appVolumeBackups(
 	organizationId: string,
 	projectId: string,
@@ -3162,7 +3131,7 @@ export function volumeLabel(volumeName: string): string {
 	return volumeName.split('-compose_').slice(1).join('-compose_') || volumeName;
 }
 
-/** Backup policy, runs and restore of one named volume the application mounts. */
+/** Backup policy, restore and delete of one named volume the application mounts. */
 export function volumeBackups(
 	organizationId: string,
 	projectId: string,
@@ -3184,15 +3153,6 @@ export function volumeBackups(
 				await api<VolumeBackupPolicyDto>(`${base}/policy`, {
 					method: 'PUT',
 					body: JSON.stringify(input),
-				})
-			).data!,
-		list: async () => (await api<VolumeBackupDto[]>(base)).data ?? [],
-		/** Runs now to the picked destination (`null`: default storage), saved or not. */
-		run: async (s3TargetId: string | null, stopApp: boolean) =>
-			(
-				await api<VolumeBackupDto>(base, {
-					method: 'POST',
-					body: JSON.stringify({ s3_target_id: s3TargetId, stop_app: stopApp }),
 				})
 			).data!,
 		/** Returns the new volume for `new_volume`, `null` for `in_place`. `placement`

@@ -1084,7 +1084,6 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}/attach", post(deployments::attach_managed_volume_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}/detach", post(deployments::detach_managed_volume_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}", delete(deployments::delete_managed_volume_handler))
-        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backups", get(volume_backup::list_app_backups_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backup-groups", get(volume_backup::list_app_runs_handler).post(volume_backup::run_app_backup_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backup-groups/{group_id}/restore", post(volume_backup::restore_app_run_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-restores/s3-files", get(volume_backup::list_s3_tars_handler))
@@ -1097,7 +1096,6 @@ pub fn create_router(state: SharedState) -> Router {
                 .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 1024)),
         )
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backups/{volume_name}/policy", get(volume_backup::get_policy_handler).put(volume_backup::update_policy_handler))
-        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backups/{volume_name}", get(volume_backup::list_backups_handler).post(volume_backup::run_backup_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backups/{volume_name}/{backup_id}", delete(volume_backup::delete_backup_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backups/{volume_name}/{backup_id}/restore", post(volume_backup::restore_backup_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/containers/{container_id}/files", get(crate::handler::container_files::list_handler))
