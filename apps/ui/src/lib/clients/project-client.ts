@@ -3482,7 +3482,13 @@ export async function catalogUpdateApply(
 	projectId: string,
 	environmentId: string,
 	applicationId: string,
-	input: { version: string; compose: 'replace' | 'keep'; add_env: boolean },
+	input: {
+		version: string;
+		compose: 'replace' | 'keep';
+		add_env: boolean;
+		/** Indexes into `compose.diff` of the changes to leave out. */
+		skip?: number[];
+	},
 ): Promise<CatalogUpdate> {
 	const response = await api<CatalogUpdate>(
 		deploymentPath(organizationId, projectId, environmentId, applicationId, 'catalog-update/apply'),

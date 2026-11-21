@@ -119,6 +119,10 @@ pub struct ApplyCatalogUpdateRequest {
     /// Add the variables the new template requires. On by default.
     #[serde(default = "default_true")]
     pub add_env: bool,
+    /// Indexes into `compose.diff` of the changes the user turned down: a
+    /// skipped `insert` is left out, a skipped `delete` stays.
+    #[serde(default)]
+    pub skip: BTreeSet<usize>,
 }
 
 fn default_true() -> bool {
@@ -177,6 +181,26 @@ pub(crate) fn line_diff(current: &str, latest: &str) -> Vec<DiffLine> {
             text: change.value().trim_end_matches('\n').to_owned(),
         })
         .collect()
+}
+
+/// The running compose with only the chosen changes of `line_diff` applied.
+/// With nothing skipped it equals `latest`.
+pub(crate) fn merge_lines(current: &str, latest: &str, skip: &BTreeSet<usize>) -> String {
+    let lines: Vec<&str> = TextDiff::from_lines(current, latest)
+        .iter_all_changes()
+        .enumerate()
+        .filter(|(index, change)| match change.tag() {
+            ChangeTag::Equal => true,
+            ChangeTag::Insert => !skip.contains(index),
+            ChangeTag::Delete => skip.contains(index),
+        })
+        .map(|(_, change)| change.value().trim_end_matches('\n'))
+        .collect();
+    let mut merged = lines.join("\n");
+    if latest.ends_with('\n') && !merged.is_empty() {
+        merged.push('\n');
+    }
+    merged
 }
 
 pub(crate) fn compose_status(base: Option<&str>, current: &str, latest: &str) -> ComposeStatus {
@@ -405,8 +429,11 @@ pub async fn apply(
     validate_compose(&latest.compose)?;
     let (compose, env) = current_state(state, application_id).await?;
     if request.compose == ComposeChoice::Replace && compose != latest.compose {
+        // shortcut: indexes are not tied to the reviewed compose; an edit between review and apply shifts them. Send a hash of the reviewed diff if that bites.
+        let merged = merge_lines(&compose, &latest.compose, &request.skip);
+        validate_compose(&merged)?;
         ComposeFileStore::new(&state.data_dir, application_id)
-            .write_content(&latest.compose)
+            .write_content(&merged)
             .await
             .map_err(AppError::InternalError)?;
     }
@@ -527,6 +554,26 @@ mod tests {
         let diff = line_diff("a\nb\n", "a\nc\n");
         let tags: Vec<_> = diff.iter().map(|line| line.tag).collect();
         assert_eq!(tags, ["equal", "delete", "insert"]);
+    }
+
+    #[test]
+    fn merge_applies_only_the_chosen_lines() {
+        let current = "a\n# mine\nport: 80\n";
+        let latest = "a\nport: 8080\nnew: 1\n";
+        let diff = line_diff(current, latest);
+        assert_eq!(merge_lines(current, latest, &BTreeSet::new()), latest);
+        // Keep the comment (delete at 1) and the old port (delete at 2), skip the new port (insert at 3).
+        let tags: Vec<_> = diff.iter().map(|line| line.tag).collect();
+        assert_eq!(tags, ["equal", "delete", "delete", "insert", "insert"]);
+        assert_eq!(
+            merge_lines(current, latest, &BTreeSet::from([1, 2, 3])),
+            "a\n# mine\nport: 80\nnew: 1\n"
+        );
+        // A last line without a newline does not glue onto the next one.
+        assert_eq!(
+            merge_lines("a\nb", "a\nc\n", &BTreeSet::from([1])),
+            "a\nb\nc\n"
+        );
     }
 
     #[test]
