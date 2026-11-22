@@ -92,6 +92,7 @@ fn row_to_record(row: &sqlx::sqlite::SqliteRow) -> Result<ManagedVolumeRecord, A
         dto: ManagedVolumeDto {
             id: row.try_get(0)?,
             name: row.try_get(1)?,
+            podman_name: row.try_get(7)?,
             mount_path: row.try_get(2)?,
             compose_service: row.try_get(3)?,
             attached: row.try_get::<i64, _>(4)? != 0,
@@ -321,6 +322,7 @@ pub async fn provision(
     Ok(ManagedVolumeDto {
         id,
         name,
+        podman_name,
         mount_path,
         compose_service,
         attached,

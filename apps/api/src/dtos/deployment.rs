@@ -593,6 +593,8 @@ pub struct VolumeDto {
 pub struct ManagedVolumeDto {
     pub id: String,
     pub name: String,
+    /// The Podman volume behind it; what backups are keyed by.
+    pub podman_name: String,
     pub mount_path: String,
     pub compose_service: Option<String>,
     pub attached: bool,

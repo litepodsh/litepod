@@ -1085,8 +1085,8 @@ pub async fn list_app_runs(
     })
 }
 
-/// Backs up the picked named volumes the application mounts (all of them when
-/// `only` is empty) in one run, stopping the app once around all the exports
+/// Backs up the picked volumes (live named or managed; every live named volume
+/// when `only` is empty) in one run, stopping the app once around all the exports
 /// when `stop_app`. Returns the `group_id`.
 /// Volumes are exported and uploaded one at a time, so memory holds one tar.
 pub async fn request_app_run(
@@ -1097,20 +1097,28 @@ pub async fn request_app_run(
     only: &[String],
     triggered_by: &str,
 ) -> Result<String, AppError> {
-    let mut volumes = live_named_volumes(state, application_id).await?;
-    // Trust boundary: names come from the request; only the app's live volumes count.
-    if let Some(unknown) = only
-        .iter()
-        .find(|name| !volumes.iter().any(|(live, _)| live == *name))
-    {
-        return Err(AppError::ValidationError(format!(
-            "{} is not a named volume this application mounts",
-            volume_label(unknown)
-        )));
-    }
-    if !only.is_empty() {
-        volumes.retain(|(name, _)| only.contains(name));
-    }
+    let volumes = if only.is_empty() {
+        live_named_volumes(state, application_id).await?
+    } else {
+        // Trust boundary: names come from the request. `app_volume` accepts only
+        // the app's live named volumes and its managed ones (detached included).
+        let mut picked = Vec::new();
+        for name in only {
+            let mount = app_volume(state, application_id, name)
+                .await
+                .map_err(|error| match error {
+                    AppError::ResourceNotFound => AppError::ValidationError(format!(
+                        "{} is not a volume of this application",
+                        volume_label(name)
+                    )),
+                    other => other,
+                })?;
+            if !picked.iter().any(|(picked_name, _)| picked_name == name) {
+                picked.push((name.clone(), mount));
+            }
+        }
+        picked
+    };
     run_group(state, application_id, volumes, s3_target_id, stop_app, triggered_by).await
 }
 

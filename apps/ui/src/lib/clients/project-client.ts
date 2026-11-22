@@ -127,6 +127,8 @@ export type VolumeDto = {
 export type ManagedVolumeDto = {
 	id: string;
 	name: string;
+	/** The Podman volume behind it; what backups are keyed by. */
+	podman_name: string;
 	mount_path: string;
 	compose_service: string | null;
 	attached: boolean;
