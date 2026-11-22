@@ -146,3 +146,41 @@ it('allows both physical maxima and suggests turning off limits', () => {
 	expect(thumbs[0].getAttribute('aria-valuenow')).toBe('8');
 	expect(thumbs[1].getAttribute('aria-valuenow')).toBe('8192');
 });
+
+it('updates the CPU limit while the slider is still being dragged', async () => {
+	const source = {
+		build_method: 'docker',
+		build_cpu_cores: 8,
+		build_memory_mib: 8192,
+	} as SourceConfigDto;
+	render(ApplicationAdvancedTab, {
+		server: {
+			name: 'Linux',
+			capacity: { cpu_cores: 8, memory_bytes: 16 * 1024 ** 3, disk_free_bytes: null },
+		} as ServerSummaryDto,
+		source,
+		domains: [],
+		basicAuth: {
+			enabled: false,
+			realm: 'Restricted',
+			users: [],
+			protected_domain_ids: [],
+		} as BasicAuthConfigDto,
+		onSaveSource: vi.fn(),
+		onLoadResourceBaseline: vi.fn().mockResolvedValue(null),
+		onSaveBasicAuth: vi.fn(),
+		onAddBasicAuthUser: vi.fn(),
+		onDeleteBasicAuthUser: vi.fn(),
+		onSaveHealthCheck: vi.fn(),
+	});
+	const cpu = screen.getByRole('spinbutton', { name: 'CPU cores' }) as HTMLInputElement;
+	const cpuSlider = screen.getAllByRole('slider')[0].closest('[data-slot="slider"]') as HTMLElement;
+	cpuSlider.getBoundingClientRect = () =>
+		({ left: 0, right: 200, top: 0, bottom: 10, width: 200, height: 10, x: 0, y: 0 }) as DOMRect;
+
+	await fireEvent.pointerDown(cpuSlider, { clientX: 200, clientY: 5, button: 0 });
+	await fireEvent.pointerMove(cpuSlider, { clientX: 100.25, clientY: 5 });
+	// Still dragging: the value must already be reflected before pointerup commits it.
+	expect(cpu.value).toBe('4.1');
+	await fireEvent.pointerUp(cpuSlider, { clientX: 100.25, clientY: 5 });
+});

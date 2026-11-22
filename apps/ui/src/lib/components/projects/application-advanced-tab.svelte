@@ -290,6 +290,20 @@
 		healthRestart = healthCheck?.restart_on_unhealthy ?? false;
 	});
 
+	/**
+	 * Clamp + snap the value handed to bits-ui's slider. The component snaps an
+	 * out-of-step `value` prop internally and reports that correction through
+	 * `onValueChange`, so the prop must already be a valid step to keep typed
+	 * numbers (e.g. 204 MiB with a 64 MiB step) untouched.
+	 */
+	function snapCapValue(value: number, min: number, step: number, max: number) {
+		const clamped = Math.min(Math.max(value, min), max);
+		const maxIndex = Math.floor((max - min) / step + 1e-9);
+		const index = Math.min(Math.max(Math.round((clamped - min) / step), 0), maxIndex);
+		const decimals = (step.toString().split('.')[1] ?? '').length;
+		return Number((min + index * step).toFixed(decimals));
+	}
+
 	async function submitHealthCheck() {
 		healthSaving = true;
 		try {
@@ -328,12 +342,15 @@
 			{min}
 			max={total}
 			{step}
-			value={Math.min(Math.max(value || recommended || min, min), total)}
+			value={snapCapValue(value || recommended || min, min, step, total)}
 			disabled={!resourceEnabled || busy}
+			onValueChange={(next) => {
+				// Live update while dragging/using the keyboard. The slider only
+				// ever receives an in-step value, so bits-ui's snap-back write
+				// never fires on its own and cannot rewrite a typed number.
+				if (next !== undefined) onChange(next);
+			}}
 			onValueCommit={(next) => {
-				// Commit, not change: bits-ui snaps an out-of-step `value` prop
-				// (e.g. 204 with step 64) and reports it through `onValueChange`,
-				// which would rewrite the number the user is typing.
 				if (next !== undefined) onChange(next);
 			}} />
 		{#if recommended !== null}
