@@ -289,6 +289,10 @@ export type SourceConfigDto = {
 	build_cpu_cores: number | null;
 	build_memory_mib: number | null;
 	build_swap_mib: number | null;
+	/** Limits for the running app only; `null` uses the build limits for both. Set with
+	 *  `setRuntimeLimits`, since they matter once a build server builds elsewhere. */
+	runtime_cpu_cores: number | null;
+	runtime_memory_mib: number | null;
 	/** Credentials embedded in the pasted git URL (no saved provider) are on file
 	 * for this application. The secret itself never round-trips to the client. */
 	has_git_credentials: boolean;
@@ -2834,6 +2838,27 @@ export async function rollbackDeploymentRun(
 	return response.data!;
 }
 
+/** Both `null` drops the override, so the running app uses the build limits again. */
+export async function setRuntimeLimits(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	limits: { runtime_cpu_cores: number | null; runtime_memory_mib: number | null },
+): Promise<SourceConfigDto> {
+	const response = await api<SourceConfigDto>(
+		deploymentPath(
+			organizationId,
+			projectId,
+			environmentId,
+			applicationId,
+			'source/runtime-limits',
+		),
+		{ method: 'PATCH', body: JSON.stringify(limits) },
+	);
+	return response.data!;
+}
+
 export async function setCleanBuild(
 	organizationId: string,
 	projectId: string,
@@ -2847,6 +2872,44 @@ export async function setCleanBuild(
 			method: 'PATCH',
 			body: JSON.stringify({ clean_build: cleanBuild }),
 		},
+	);
+	return response.data!;
+}
+
+export type BuildDelivery = 'transfer' | 'registry';
+
+export type BuildServerDto = {
+	build_server_id: string | null;
+	/** `transfer` copies the image straight to the server that runs the app; `registry`
+	 *  pushes it to `image_repository` and pulls it from there by digest. */
+	delivery: BuildDelivery;
+	/** Registry delivery only. Its login comes from the organization's registry credentials. */
+	image_repository: string | null;
+};
+
+export async function getBuildServer(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+): Promise<BuildServerDto> {
+	const response = await api<BuildServerDto>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'source/build-server'),
+	);
+	return response.data!;
+}
+
+/** `build_server_id: null` builds on the server that runs the application again. */
+export async function saveBuildServer(
+	organizationId: string,
+	projectId: string,
+	environmentId: string,
+	applicationId: string,
+	input: { build_server_id: string | null; delivery: BuildDelivery; image_repository: string },
+): Promise<BuildServerDto> {
+	const response = await api<BuildServerDto>(
+		deploymentPath(organizationId, projectId, environmentId, applicationId, 'source/build-server'),
+		{ method: 'PUT', body: JSON.stringify(input) },
 	);
 	return response.data!;
 }

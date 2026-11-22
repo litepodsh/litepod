@@ -222,6 +222,12 @@ pub async fn replace_members(
                 "The local server cannot belong to a server group"
             )));
         }
+        if server.role == "build" {
+            return Err(AppError::ValidationError(format!(
+                "{} is a build server and cannot belong to a server group",
+                server.name
+            )));
+        }
     }
 
     let new_ids: std::collections::HashSet<&String> = server_ids.iter().collect();

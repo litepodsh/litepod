@@ -203,6 +203,8 @@ pub struct ServerDto {
     /// every organization on the instance can deploy to. Remote servers always
     /// name their owner, so the UI can tell "ours" from "the instance's".
     pub organization_id: Option<String>,
+    /// `deploy` runs applications; `build` only builds images for build servers.
+    pub role: String,
     /// Latest package scan. Filled by the server list only.
     pub vulnerabilities: Option<crate::servers::vulnerabilities::VulnerabilitySummary>,
 }
@@ -242,6 +244,10 @@ pub struct CreateServerRequest {
     pub podman_mode: PodmanMode,
     pub public_address: Option<String>,
     pub credential: ServerCredentialInput,
+    /// `deploy` (default) or `build`. A build server only builds images, so it
+    /// skips ingress and must use `private_only`.
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -300,4 +306,21 @@ pub struct RemoteServerCapacityDto {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ConfirmHostKeyRequest {
     pub fingerprint: String,
+}
+
+/// A registry login saved for the organization. The password never leaves the backend.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RegistryCredentialDto {
+    pub id: String,
+    /// Registry host, e.g. `ghcr.io` or `registry.example.com:5000`.
+    pub registry: String,
+    pub username: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SaveRegistryCredentialRequest {
+    pub registry: String,
+    pub username: String,
+    pub password: String,
 }

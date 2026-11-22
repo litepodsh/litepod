@@ -192,10 +192,16 @@ async fn ensure_builder_image(podman: &Podman, run_id: &str) -> Result<(), Strin
 /// because cancellation drops the in-flight deployment future before its local
 /// cleanup code can run.
 pub(crate) async fn cleanup_run(state: &SharedState, application_id: &str, run_id: &str) {
-    // The build ran wherever the application is deployed (local or remote over
-    // SSH) — cleanup must target the same host, or a canceled remote build
-    // leaves its planner/builder containers orphaned on the remote server.
-    match crate::servers::runtime::ServerRuntime::for_application(state, application_id).await {
+    // Cleanup must target the host the build ran on — the build server when the
+    // application has one, else where it is deployed — or a canceled remote build
+    // leaves its planner/builder containers and image archive orphaned there.
+    let runtime = match super::build_server::builder_runtime(state, application_id).await {
+        Some(builder) => Ok(builder),
+        None => {
+            crate::servers::runtime::ServerRuntime::for_application(state, application_id).await
+        }
+    };
+    match runtime {
         Ok(runtime) => {
             // Dropping the local `ssh` does not stop the command it started on
             // the server, so a canceled `podman build` of the worker image

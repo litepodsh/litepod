@@ -133,6 +133,7 @@ fn dto_with_count(
         ssh_user: server.ssh_user,
         host_key_fingerprint: server.host_key_fingerprint,
         organization_id: server.organization_id,
+        role: server.role,
         vulnerabilities: None,
     }
 }
@@ -281,6 +282,66 @@ pub async fn delete_handler(
     .await
     .ok();
     Ok(ok(()))
+}
+
+/// Registry logins build servers push with and deploy servers pull with.
+pub async fn list_registry_credentials_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerRead>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(crate::servers::registries::list(
+        &state,
+        &org.organization_id,
+    )
+    .await?))
+}
+
+pub async fn save_registry_credential_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    Json(request): Json<crate::dtos::server::SaveRegistryCredentialRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let saved = crate::servers::registries::save(&state, &org.organization_id, request).await?;
+    crate::git::repositories::audit_log::record(
+        &state,
+        &org.organization_id,
+        &org.user,
+        "registry_credential.saved",
+        Some("registry_credential"),
+        Some(&saved.id),
+        Some(&saved.registry),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .ok();
+    Ok(ok(saved))
+}
+
+pub async fn delete_registry_credential_handler(
+    State(state): State<SharedState>,
+    RequireOrg(org, _): RequireOrg<perm::ServerManage>,
+    Path((_, credential_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    crate::servers::registries::delete(&state, &org.organization_id, &credential_id).await?;
+    crate::git::repositories::audit_log::record(
+        &state,
+        &org.organization_id,
+        &org.user,
+        "registry_credential.deleted",
+        Some("registry_credential"),
+        Some(&credential_id),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .ok();
+    Ok(ok(serde_json::json!({ "deleted": true })))
 }
 
 pub async fn rename_handler(
@@ -661,11 +722,31 @@ pub async fn create_handler(
         ));
     }
     let target = SshTarget::parse(&request.host, request.port.unwrap_or(22), &request.user)?;
-    validate_registration_ingress(
-        state.is_cloud,
-        request.ingress_mode,
-        request.public_address.as_deref(),
-    )?;
+    let role = request.role.as_deref().unwrap_or("deploy");
+    match role {
+        // A build server serves no traffic, so it needs no Caddy or public address.
+        "build" if request.ingress_mode != IngressMode::PrivateOnly => {
+            return Err(AppError::ValidationError(
+                "Build servers use private_only ingress".into(),
+            ));
+        }
+        // Cloud's public_edge rule is about serving apps, so it does not apply here.
+        "build" => validate_registration_ingress(
+            false,
+            request.ingress_mode,
+            request.public_address.as_deref(),
+        )?,
+        "deploy" => validate_registration_ingress(
+            state.is_cloud,
+            request.ingress_mode,
+            request.public_address.as_deref(),
+        )?,
+        _ => {
+            return Err(AppError::ValidationError(
+                "Server role must be 'deploy' or 'build'".into(),
+            ));
+        }
+    }
     if matches!(request.podman_mode, PodmanMode::Rootless) && target.user == "root" {
         return Err(AppError::ValidationError("Rootless Podman needs a non-root SSH user. Use an unprivileged user, or choose rootful.".into()));
     }
@@ -695,6 +776,7 @@ pub async fn create_handler(
         request.ingress_mode,
         request.podman_mode,
         request.public_address.as_deref(),
+        role,
     )
     .await?;
     crate::git::repositories::audit_log::record(

@@ -163,47 +163,82 @@ fn remote_pull_args(image: &str, creds: Option<&(String, String)>) -> Vec<OsStri
     args
 }
 
-/// Remote-server half of `run`: pulls the image over SSH, then hands the rollout
-/// to the shared `deploy_image` path (which already runs `podman run` remotely).
-async fn run_remote(
+/// Pulls `image` onto the server behind `runtime`: the Podman API locally, `podman pull`
+/// over SSH remotely. `creds` is `None` for a public image. Shared with Git builds that
+/// publish to a registry from a build server.
+pub(crate) async fn pull(
     state: &SharedState,
     application_id: &str,
     run_id: &str,
-    source_config: &SourceConfigDto,
-    image: &str,
     runtime: &crate::servers::runtime::ServerRuntime,
+    image: &str,
+    creds: Option<(String, String)>,
 ) -> Result<(), String> {
-    let creds = match registry_credentials(state, application_id).await {
-        Ok(Some((username, password))) => {
+    if creds.is_some() {
+        log_stage(
+            state,
+            application_id,
+            run_id,
+            "info",
+            "Using saved registry credentials for a private image",
+        )
+        .await;
+    }
+    if runtime.is_remote() {
+        let server = runtime.remote_server_name().unwrap_or("selected server");
+        log_stage(
+            state,
+            application_id,
+            run_id,
+            "info",
+            &format!("Pulling {image} on {server}"),
+        )
+        .await;
+        runtime
+            .podman(&remote_pull_args(image, creds.as_ref()))
+            .await
+            .map_err(|e| format!("Could not pull {image} on {server}: {e}"))?;
+        return Ok(());
+    }
+
+    let podman =
+        Podman::new(&state.podman_socket).map_err(|e| format!("Invalid Podman socket: {e}"))?;
+    if let Ok(info) = podman.images().get(image).inspect().await {
+        // Already present; skip the network pull (matches `podman run`).
+        if info.id.is_some() {
             log_stage(
                 state,
                 application_id,
                 run_id,
                 "info",
-                "Using saved registry credentials for a private image",
+                &format!("Image {image} already present locally"),
             )
             .await;
-            Some((username, password))
         }
-        Ok(None) => None,
-        Err(error) => return Err(error.to_string()),
-    };
-    let server = runtime.remote_server_name().unwrap_or("selected server");
-    log_stage(
-        state,
-        application_id,
-        run_id,
-        "info",
-        &format!("Pulling {image} on {server}"),
-    )
-    .await;
-    runtime
-        .podman(&remote_pull_args(image, creds.as_ref()))
+    }
+    let mut pull_builder = PullOptsBuilder::default();
+    // Podman on a FreeBSD server picks freebsd images unless told otherwise; litepod deploys
+    // Linux images, and on Linux this is already the default.
+    pull_builder = pull_builder.reference(image).os("linux");
+    if let Some((username, password)) = creds {
+        let mut registry_builder = RegistryAuth::builder();
+        registry_builder.username(username).password(password);
+        let _ = pull_builder.auth(registry_builder.build());
+    }
+    let images = podman.images();
+    let _ = history::append(state, run_id, "info", &format!("Pulling {image}")).await;
+    let pull_opts = pull_builder.build();
+    let mut pull = images.pull(&pull_opts);
+    while let Some(report) = pull.next().await {
+        report.map_err(|error| format!("Could not pull {image}: {error}"))?;
+    }
+    podman
+        .images()
+        .get(image)
+        .inspect()
         .await
-        .map_err(|e| format!("Could not pull {image} on {server}: {e}"))?;
-    let _ = history::set_status(state, run_id, "deploying").await;
-    crate::deployment::rollout::deploy_image(state, application_id, source_config, image, runtime)
-        .await
+        .map_err(|e| format!("Image pull finished but {image} is not available locally: {e}"))?;
+    Ok(())
 }
 
 /// Worker entry point. Pulls the configured image (with credentials when a
@@ -256,71 +291,10 @@ pub async fn run(state: &SharedState, application_id: &str, run_id: &str) -> Res
     )
     .await;
 
-    if runtime.is_remote() {
-        return run_remote(
-            state,
-            application_id,
-            run_id,
-            &source_config,
-            &image,
-            &runtime,
-        )
-        .await;
-    }
-
-    let podman =
-        Podman::new(&state.podman_socket).map_err(|e| format!("Invalid Podman socket: {e}"))?;
-    if let Ok(info) = podman.images().get(&image).inspect().await {
-        // Already present; skip the network pull (matches `podman run`).
-        if info.id.is_some() {
-            log_stage(
-                state,
-                application_id,
-                run_id,
-                "info",
-                &format!("Image {image} already present locally"),
-            )
-            .await;
-        }
-    }
-
-    let auth = match registry_credentials(state, application_id).await {
-        Ok(Some((username, password))) => {
-            let mut registry_builder = RegistryAuth::builder();
-            registry_builder.username(username).password(password);
-            log_stage(
-                state,
-                application_id,
-                run_id,
-                "info",
-                "Using saved registry credentials for a private image",
-            )
-            .await;
-            Some(registry_builder.build())
-        }
-        Ok(None) => None,
-        Err(error) => return Err(error.to_string()),
-    };
-    let mut pull_builder = PullOptsBuilder::default();
-    // Podman on a FreeBSD server picks freebsd images unless told otherwise; litepod deploys
-    // Linux images, and on Linux this is already the default.
-    pull_builder = pull_builder.reference(&image).os("linux");
-    if let Some(auth) = auth {
-        let _ = pull_builder.auth(auth);
-    }
-    let images = podman.images();
-    let _ = history::append(state, run_id, "info", &format!("Pulling {image}")).await;
-    let pull_opts = pull_builder.build();
-    let mut pull = images.pull(&pull_opts);
-    while let Some(report) = pull.next().await {
-        report.map_err(|error| format!("Could not pull {image}: {error}"))?;
-    }
-    podman
-        .images()
-        .get(&image)
-        .inspect()
+    let creds = registry_credentials(state, application_id)
         .await
-        .map_err(|e| format!("Image pull finished but {image} is not available locally: {e}"))?;
+        .map_err(|error| error.to_string())?;
+    pull(state, application_id, run_id, &runtime, &image, creds).await?;
 
     let _ = history::set_status(state, run_id, "deploying").await;
     crate::deployment::rollout::deploy_image(

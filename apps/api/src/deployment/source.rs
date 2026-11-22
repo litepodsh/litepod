@@ -70,13 +70,19 @@ fn row_to_dto(row: &sqlx::sqlite::SqliteRow) -> Result<SourceConfigDto, AppError
             .map_err(|e| AppError::DatabaseError(e.to_string()))?
             == 1,
         source_archive_bytes: None,
+        runtime_cpu_cores: row
+            .try_get(23)
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        runtime_memory_mib: row
+            .try_get(24)
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
     })
 }
 
 pub async fn get(state: &SharedState, application_id: &str) -> Result<SourceConfigDto, AppError> {
     let conn = crate::git::repositories::db::get_conn(state).await;
     let row = sqlx::query(
-        "SELECT deploy_type, build_method, git_provider_id, git_url, git_branch, dockerfile_path, compose_file_path, compose_public_service, container_port, railpack_project_path, auto_deploy, build_cpu_cores, build_memory_mib, clean_build, build_swap_mib, git_credentials_password_encrypted, watch_paths, railpack_start_command, image_url, registry_username, registry_password_encrypted, restart_policy, source_upload FROM applications WHERE id = ?1",
+        "SELECT deploy_type, build_method, git_provider_id, git_url, git_branch, dockerfile_path, compose_file_path, compose_public_service, container_port, railpack_project_path, auto_deploy, build_cpu_cores, build_memory_mib, clean_build, build_swap_mib, git_credentials_password_encrypted, watch_paths, railpack_start_command, image_url, registry_username, registry_password_encrypted, restart_policy, source_upload, runtime_cpu_cores, runtime_memory_mib FROM applications WHERE id = ?1",
     )
     .bind(application_id)
     .fetch_optional(&conn)
@@ -113,6 +119,37 @@ pub async fn set_clean_build(
         .execute(&conn)
         .await
         .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    get(state, application_id).await
+}
+
+/// Sets or clears the running app's own limits. The container picks them up on the
+/// next deploy, so the running one is marked stale.
+pub async fn set_runtime_limits(
+    state: &SharedState,
+    application_id: &str,
+    runtime_cpu_cores: Option<f64>,
+    runtime_memory_mib: Option<i64>,
+) -> Result<SourceConfigDto, AppError> {
+    validate_runtime_limits(runtime_cpu_cores, runtime_memory_mib)?;
+    let conn = crate::git::repositories::db::get_conn(state).await;
+    sqlx::query(
+        "UPDATE applications SET runtime_cpu_cores = ?1, runtime_memory_mib = ?2, updated_at = ?3 WHERE id = ?4",
+    )
+    .bind(runtime_cpu_cores)
+    .bind(runtime_memory_mib)
+    .bind(now_ms())
+    .bind(application_id)
+    .execute(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?;
+    sqlx::query(
+        "UPDATE application_deployments SET config_stale = 1, updated_at = ?1 WHERE application_id = ?2 AND status = 'running'",
+    )
+    .bind(now_ms())
+    .bind(application_id)
+    .execute(&conn)
+    .await
+    .map_err(|error| AppError::DatabaseError(error.to_string()))?;
     get(state, application_id).await
 }
 

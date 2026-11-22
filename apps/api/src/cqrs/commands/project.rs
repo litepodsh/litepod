@@ -34,6 +34,12 @@ async fn ready_deployment_server(
     if server.state != crate::servers::model::ServerState::Ready {
         return Err(AppError::ValidationError("Choose a ready server".into()));
     }
+    if server.role == "build" {
+        return Err(AppError::ValidationError(format!(
+            "{} is a build server; it only builds images. Choose another server",
+            server.name
+        )));
+    }
     if !state.local_runs_applications() && server.kind != "ssh" {
         return Err(AppError::ValidationError(
             "This install requires a ready remote server. Connect and set up a remote server first."
@@ -1136,6 +1142,7 @@ mod tests {
             crate::servers::model::IngressMode::PrivateRelay,
             crate::servers::model::PodmanMode::Rootless,
             None,
+            "deploy",
         )
         .await
         .unwrap_err();

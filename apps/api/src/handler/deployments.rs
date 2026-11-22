@@ -1134,6 +1134,45 @@ pub async fn set_clean_build_handler(
     .await?))
 }
 
+pub async fn set_runtime_limits_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    Json(request): Json<SetRuntimeLimitsRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(deployment::source::set_runtime_limits(
+        &state,
+        &app.application_id,
+        request.runtime_cpu_cores,
+        request.runtime_memory_mib,
+    )
+    .await?))
+}
+
+pub async fn get_build_server_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppRead>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(deployment::git::build_server::get(
+        &state,
+        &app.application_id,
+    )
+    .await?))
+}
+
+pub async fn save_build_server_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    Json(request): Json<UpdateBuildServerRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(deployment::git::build_server::save(
+        &state,
+        &app.organization_id,
+        &app.application_id,
+        request,
+    )
+    .await?))
+}
+
 pub async fn stop_handler(
     State(state): State<SharedState>,
     RequireApp(app, _): RequireApp<perm::AppDeploy>,

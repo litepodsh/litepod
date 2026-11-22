@@ -854,7 +854,7 @@ pub async fn deploy_image(
                 "--publish".into(),
                 format!("127.0.0.1::{port}").into(),
             ];
-            if let Some(limits) = super::resource_limits(source)? {
+            if let Some(limits) = super::runtime_resource_limits(source)? {
                 args.extend([
                     "--cpu-period".into(),
                     super::BUILD_CPU_PERIOD_US.to_string().into(),

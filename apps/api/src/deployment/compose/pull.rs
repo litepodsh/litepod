@@ -227,6 +227,13 @@ pub async fn pull_compose_images(
         let Some(image) = service.image else {
             continue;
         };
+        // Built by litepod (a build server delivered it) or pinned to a digest it already
+        // pulled with the registry login: already here, and no registry has a newer one.
+        if image.starts_with("litepod-app-")
+            || (image.contains("@sha256:") && podman_image_digest(runtime, &image).await?.is_some())
+        {
+            continue;
+        }
         if runtime.is_freebsd() {
             let runs_as_user = service
                 .user

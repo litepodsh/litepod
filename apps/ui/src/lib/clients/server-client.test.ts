@@ -13,6 +13,7 @@ describe('server registration presentation', () => {
 				ingress_mode: 'public_edge',
 				podman_mode: 'rootless',
 				credential: { kind: 'generate' },
+				role: 'deploy',
 			}),
 		).toMatchObject({ ingress_mode: 'public_edge', credential: { kind: 'generate' } });
 	});

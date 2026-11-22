@@ -9,6 +9,7 @@ pub mod ingress;
 pub mod model;
 pub mod monitor;
 pub mod ports;
+pub mod registries;
 pub mod replica;
 pub mod repository;
 pub mod runtime;

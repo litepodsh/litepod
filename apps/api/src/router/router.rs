@@ -382,6 +382,8 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/server-groups/{group_id}", get(server_groups::get_handler).patch(server_groups::update_handler).delete(server_groups::delete_handler))
         .route("/api/v1/organizations/{organization_id}/server-groups/{group_id}/servers", get(server_groups::list_members_handler).put(server_groups::replace_members_handler))
         .route("/api/v1/organizations/{organization_id}/servers", get(servers::list_handler).post(servers::create_handler))
+        .route("/api/v1/organizations/{organization_id}/registry-credentials", get(servers::list_registry_credentials_handler).post(servers::save_registry_credential_handler))
+        .route("/api/v1/organizations/{organization_id}/registry-credentials/{credential_id}", axum::routing::delete(servers::delete_registry_credential_handler))
         .route("/api/v1/organizations/{organization_id}/servers/remote-capacity", get(servers::remote_capacity_handler))
         .route("/api/v1/organizations/{organization_id}/servers/available", get(servers::available_handler))
         .route("/api/v1/organizations/{organization_id}/servers/geo", get(servers::geo_handler))
@@ -884,6 +886,14 @@ pub fn create_router(state: SharedState) -> Router {
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/source/clean-build",
             axum::routing::patch(deployments::set_clean_build_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/source/runtime-limits",
+            axum::routing::patch(deployments::set_runtime_limits_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/source/build-server",
+            get(deployments::get_build_server_handler).put(deployments::save_build_server_handler),
         )
         .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/deployment-runs",

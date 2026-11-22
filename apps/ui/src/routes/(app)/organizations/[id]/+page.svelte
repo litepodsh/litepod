@@ -25,6 +25,7 @@
 	import MetricsRetentionSetting from '#lib/components/settings/metrics-retention-setting.svelte';
 	import TwoFactorSettingsPanel from '#lib/components/organizations/two-factor-settings-panel.svelte';
 	import BackupTargetsPanel from '#lib/components/organizations/backup-targets-panel.svelte';
+	import RegistriesPanel from '#lib/components/organizations/registries-panel.svelte';
 	import InvitationsPanel from '#lib/components/users/invitations-panel.svelte';
 	import RolesPanel from '#lib/components/access/roles-panel.svelte';
 	import GroupsPanel from '#lib/components/access/groups-panel.svelte';
@@ -48,7 +49,14 @@
 	const organizationId = page.params.id!;
 	/** Every tab `?tab=` may name. A value missing here silently reloads onto
 	 *  People, which is what used to happen to `assistant`. */
-	const TABS = ['members', 'access', 'authentication', 'backup-storage', 'audit-logs'];
+	const TABS = [
+		'members',
+		'access',
+		'authentication',
+		'backup-storage',
+		'registries',
+		'audit-logs',
+	];
 
 	function tabFromUrl() {
 		const t = page.url.searchParams.get('tab');
@@ -111,6 +119,9 @@
 						group: 'data',
 					},
 				]
+			: []),
+		...(allowed('server.manage')
+			? [{ value: 'registries', label: t('organizations.detail.registries'), group: 'data' }]
 			: []),
 		...(canManage
 			? [{ value: 'audit-logs', label: t('organizations.detail.audit_logs'), group: 'data' }]
@@ -305,6 +316,8 @@
 				</div>
 			{:else if visibleTab === 'backup-storage'}
 				<BackupTargetsPanel {organizationId} />
+			{:else if visibleTab === 'registries'}
+				<RegistriesPanel {organizationId} />
 			{:else if visibleTab === 'audit-logs' && canManage}
 				<MetricsRetentionSetting {organizationId} />
 				<AuditLogsPanel {organizationId} bind:organization />

@@ -482,11 +482,13 @@
 			registry_password: deployType === 'image' ? registryPassword || null : null,
 			restart_policy: deployType === 'image' ? restartPolicy : null,
 			clean_build: cleanBuild,
-			// Resource limits apply to every deploy type (build and runtime share
-			// one limit now), so they survive a source change.
+			// Resource limits apply to every deploy type, so they survive a source change.
 			build_cpu_cores: source.build_cpu_cores,
 			build_memory_mib: source.build_memory_mib,
 			build_swap_mib: source.build_swap_mib,
+			// Saved through their own endpoint; the source save ignores them.
+			runtime_cpu_cores: source.runtime_cpu_cores,
+			runtime_memory_mib: source.runtime_memory_mib,
 			// Read-only, derived by the backend from what's actually stored — sent back
 			// unchanged since the type is shared between the source response and this save.
 			has_git_credentials: source.has_git_credentials,
