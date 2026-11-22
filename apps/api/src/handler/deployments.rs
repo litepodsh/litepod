@@ -858,10 +858,14 @@ pub async fn upload_source_archive_handler(
             "Upload field must be named archive".into(),
         ));
     }
-    let bytes = field
-        .bytes()
-        .await
-        .map_err(|e| AppError::ValidationError(format!("Could not read upload: {e}")))?;
+    let bytes = field.bytes().await.map_err(|e| {
+        // The route's body limit trips here; axum would only say the form is malformed.
+        if e.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
+            AppError::ValidationError(deployment::source_archive::TOO_LARGE.into())
+        } else {
+            AppError::ValidationError(format!("Could not read upload: {e}"))
+        }
+    })?;
     deployment::source_archive::store(&state, &app.application_id, &bytes).await?;
     Ok(created(
         deployment::source::get(&state, &app.application_id).await?,

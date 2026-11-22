@@ -392,6 +392,15 @@
 				toast.error(t('projects.application_general.invalid_source_zip'));
 				return null;
 			}
+			// Same limit as the API, checked before uploading a file it would refuse.
+			if (file.size > 100 * 1024 * 1024) {
+				toast.error(
+					t('projects.application_general.source_zip_too_large', {
+						size: Math.round(file.size / (1024 * 1024)),
+					}),
+				);
+				return null;
+			}
 			return { file, kind: 'zip' as const };
 		} catch {
 			toast.error(t('projects.application_general.unreadable_file'));
