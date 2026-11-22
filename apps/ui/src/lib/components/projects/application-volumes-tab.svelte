@@ -6,16 +6,16 @@
 	import ManagedVolumeFormDialog from '#lib/components/projects/managed-volume-form-dialog.svelte';
 	import ManagedVolumeDeleteDialog from '#lib/components/projects/managed-volume-delete-dialog.svelte';
 	import VolumeBackupsPanel from '#lib/components/projects/volume-backups-panel.svelte';
-	import { Checkbox } from '#lib/components/ui/checkbox/index.js';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import SkeletonRows from '#lib/components/custom/skeleton-rows.svelte';
-	import type {
-		CreateManagedVolumeInput,
-		ManagedVolumeDto,
-		VolumeBackupClient,
-		VolumeDto,
-		VolumeRestores,
-		AppVolumeBackups,
+	import {
+		volumeLabel,
+		type CreateManagedVolumeInput,
+		type ManagedVolumeDto,
+		type VolumeBackupClient,
+		type VolumeDto,
+		type VolumeRestores,
+		type AppVolumeBackups,
 	} from '#lib/clients/project-client.js';
 	import type { WorkspaceClient } from '#lib/clients/volume-workspace-client.js';
 	import { toast } from '#lib/utils/toast.js';
@@ -23,6 +23,7 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import LoaderIcon from '@lucide/svelte/icons/loader-circle';
+	import ArchiveIcon from '@lucide/svelte/icons/archive';
 
 	let {
 		volumes = [],
@@ -71,13 +72,24 @@
 	let importing = $state(false);
 	let deleteVolume = $state<ManagedVolumeDto | null>(null);
 	let backupPanel = $state<ReturnType<typeof VolumeBackupsPanel>>();
-	/** Named volumes ticked in Live Mounts for "Back up". */
-	let backupSelection = $state<string[]>([]);
-	let backupBusy = $state(false);
+	/** Volumes with a backup starting or running (their button spins). */
+	let backingUp = $state<string[]>([]);
 	let canBackUp = $state(false);
-	const namedVolumes = $derived([
-		...new Set(volumes.filter((volume) => volume.mount_type === 'volume').map((volume) => volume.source)),
+	let needsDestination = $state(false);
+	/** Everything that can be backed up: live named volumes and managed volumes. */
+	const backupVolumes = $derived([
+		...new Set([
+			...volumes.filter((volume) => volume.mount_type === 'volume').map((volume) => volume.source),
+			...managedVolumes.map((volume) => volume.podman_name),
+		]),
 	]);
+
+	function backupLabel(volumeName: string) {
+		return (
+			managedVolumes.find((volume) => volume.podman_name === volumeName)?.name ??
+			volumeLabel(volumeName)
+		);
+	}
 	let selectedManagedVolume = $derived(
 		managedVolumes.find((volume) => volume.id === selectedManagedVolumeId) ?? null,
 	);
@@ -90,6 +102,36 @@
 		}
 	}
 </script>
+
+{#snippet backupButton(volumeName: string)}
+	{@const busy = backingUp.includes(volumeName)}
+	{#if needsDestination}
+		<!-- No destination yet: the button explains why on hover and opens the setup on click. -->
+		<Tooltip.Root delayDuration={100}>
+			<Tooltip.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						size="sm"
+						variant="outline"
+						class="text-muted-foreground"
+						onclick={() => backupPanel?.addDestination()}
+						><ArchiveIcon />{t('projects.volume_backup.back_up')}</Button>
+				{/snippet}
+			</Tooltip.Trigger>
+			<Tooltip.Content class="max-w-64">{t('projects.volume_backup.no_destination_short')}</Tooltip.Content>
+		</Tooltip.Root>
+	{:else}
+		<Button
+			size="sm"
+			variant="outline"
+			disabled={!canBackUp || busy}
+			onclick={() => void backupPanel?.backUp(volumeName)}>
+			{#if busy}<LoaderIcon class="animate-spin" />{t('projects.volume_backup.running')}{:else}<ArchiveIcon
+				/>{t('projects.volume_backup.back_up')}{/if}
+		</Button>
+	{/if}
+{/snippet}
 
 {#snippet mountPath(path: string)}
 	<Tooltip.Root delayDuration={200}>
@@ -159,6 +201,7 @@
 							variant="outline"
 							onclick={() => (selectedManagedVolumeId = volume.id)}
 							>{t('projects.application_volumes.manage_files')}</Button>
+						{@render backupButton(volume.podman_name)}
 						{#if volume.attached}
 							<Button
 								size="sm"
@@ -235,29 +278,11 @@
 				{t('projects.application_volumes.live_mounts_hint')}
 			</p>
 		</div>
-		{#if namedVolumes.length}
-			<Button
-				disabled={!canBackUp || backupBusy}
-				onclick={() => void backupPanel?.runNow()}>
-				{#if backupBusy}<LoaderIcon class="animate-spin" />{t('projects.db_backup.running')}{:else}{t(
-						'projects.volume_backup.run',
-						{ count: backupSelection.length },
-					)}{/if}
-			</Button>
-		{/if}
 	</div>
 	{#if volumes.length}<div class="mt-4 overflow-x-auto">
 			<table class="w-full min-w-[500px] text-left text-sm">
 				<thead class="text-muted-foreground"
 					><tr
-						><th class="w-8 pb-2"
-							>{#if namedVolumes.length}<Checkbox
-									aria-label={t('projects.volume_backup.select_all')}
-									checked={backupSelection.length === namedVolumes.length}
-									indeterminate={backupSelection.length > 0 &&
-										backupSelection.length < namedVolumes.length}
-									onCheckedChange={(next) =>
-										(backupSelection = next ? [...namedVolumes] : [])} />{/if}</th
 						><th class="pb-2">{t('projects.volume.name')}</th><th class="pb-2"
 							>{t('projects.application_volumes.type')}</th
 						><th class="pb-2">{t('projects.application_volumes.source')}</th><th class="pb-2"
@@ -266,16 +291,6 @@
 					></thead
 				><tbody
 					>{#each volumes as volume}<tr class="border-t"
-							><td class="py-2"
-								>{#if volume.mount_type === 'volume'}<Checkbox
-										aria-label={t('projects.volume_backup.select', {
-											name: volume.source,
-										})}
-										checked={backupSelection.includes(volume.source)}
-										onCheckedChange={(next) =>
-											(backupSelection = next
-												? [...backupSelection, volume.source]
-												: backupSelection.filter((name) => name !== volume.source))} />{/if}</td
 							><td class="py-2 font-mono text-xs"
 								>{volume.source.replace(/\/+$/, '').split('/').pop() || volume.source}</td
 							><td class="py-2">{volume.mount_type}</td><td class="max-w-0 py-2"
@@ -284,13 +299,15 @@
 								>{volume.read_only
 									? t('projects.application_volumes.read_only')
 									: t('projects.application_volumes.read_write')}</td
-							><td class="py-2 text-right"
-								><Button
-									size="sm"
-									variant="outline"
-									onclick={() => (selectedSource = volume.source)}
-									>{t('projects.application_volumes.browse_files')}</Button
-								></td
+							><td class="py-2"
+								><div class="flex justify-end gap-2">
+									{#if volume.mount_type === 'volume'}{@render backupButton(volume.source)}{/if}<Button
+										size="sm"
+										variant="outline"
+										onclick={() => (selectedSource = volume.source)}
+										>{t('projects.application_volumes.browse_files')}</Button
+									>
+								</div></td
 							></tr
 						>{/each}</tbody>
 			</table>
@@ -327,11 +344,12 @@
 
 <VolumeBackupsPanel
 	bind:this={backupPanel}
-	bind:selected={backupSelection}
-	bind:busy={backupBusy}
+	bind:runningVolumes={backingUp}
 	bind:canRun={canBackUp}
+	bind:needsDestination
 	{organizationId}
-	volumeNames={namedVolumes}
+	volumeNames={backupVolumes}
+	labelFor={backupLabel}
 	client={appBackups}
 	{backupsFor}
 	onImport={() => {

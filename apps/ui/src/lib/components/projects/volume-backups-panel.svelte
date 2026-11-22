@@ -10,11 +10,11 @@
 	import LoaderIcon from '@lucide/svelte/icons/loader-circle';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
 	import UploadIcon from '@lucide/svelte/icons/upload';
-	import {
-		volumeLabel,
-		type AppVolumeBackups,
-		type VolumeBackupClient,
-		type VolumeBackupDto,
+	import CheckIcon from '@lucide/svelte/icons/check';
+	import type {
+		AppVolumeBackups,
+		VolumeBackupClient,
+		VolumeBackupDto,
 	} from '#lib/clients/project-client.js';
 	import { listS3TargetOptions, type S3TargetOption } from '#lib/clients/backup-client.js';
 	import { t } from '#lib/i18n/index.svelte.js';
@@ -28,26 +28,28 @@
 		backupsFor,
 		onImport,
 		onRestored,
-		selected = $bindable([]),
-		busy = $bindable(false),
+		labelFor,
+		runningVolumes = $bindable([]),
 		canRun = $bindable(false),
+		needsDestination = $bindable(false),
 	}: {
 		organizationId: string;
-		/** Named volumes the application mounts right now. */
+		/** Podman names of the volumes that can be backed up: live named and managed. */
 		volumeNames: string[];
+		/** What to call a volume: a managed volume's name, else the Compose part. */
+		labelFor: (volumeName: string) => string;
 		client: AppVolumeBackups;
 		backupsFor: (volumeName: string) => VolumeBackupClient;
 		/** Open "Add volume" in import mode (a `.tar` from S3 or uploaded). */
 		onImport: () => void;
 		/** Volumes changed: refresh the tab. */
 		onRestored: () => Promise<void>;
-		/** Volumes ticked in Live Mounts: what "Back up" and the schedule copy.
-		 *  Starts as the scheduled ones (all when none are). */
-		selected?: string[];
-		/** A backup is starting or running. */
-		busy?: boolean;
-		/** `runNow` has a destination and at least one volume. */
+		/** Volumes with a backup starting or running, for their row's button. */
+		runningVolumes?: string[];
+		/** `backUp` has somewhere to store the copy. */
 		canRun?: boolean;
+		/** Loaded, and there is no S3 destination to back up to. */
+		needsDestination?: boolean;
 	} = $props();
 
 	type Run = {
@@ -92,7 +94,12 @@
 	let savedScheduled = $state('');
 	let frequency = $state(PRESETS[0].value);
 	let saving = $state(false);
-	let starting = $state(false);
+	/** Volumes in the automatic schedule (edited here, saved with the settings). */
+	let scheduled = $state<string[]>([]);
+	/** Volumes whose "Back up" request is on its way. */
+	let starting = $state<string[]>([]);
+	/** Runs started from a row button: group id → loading toast to resolve. */
+	const watched = new Map<string, string | number>();
 	let acting = $state<string | null>(null);
 	let confirm = $state<{
 		title: string;
@@ -129,15 +136,19 @@
 	});
 	const running = $derived(runs.some((run) => run.status === 'running'));
 	const noDestination = $derived(targets.length === 0 && !defaultAvailable);
-	const selectedKey = $derived([...selected].sort().join('\n'));
+	const scheduledKey = $derived([...scheduled].sort().join('\n'));
 	const dirty = $derived(
-		JSON.stringify(settings) !== saved || (settings.enabled && selectedKey !== savedScheduled),
+		JSON.stringify(settings) !== saved || (settings.enabled && scheduledKey !== savedScheduled),
 	);
 	const volumeKey = $derived(volumeNames.join('\n'));
 
 	$effect(() => {
-		busy = starting || running;
-		canRun = !loading && !noDestination && selected.length > 0;
+		runningVolumes = [
+			...starting,
+			...rows.filter((row) => row.status === 'running').map((row) => row.volume_name),
+		];
+		canRun = !loading && !noDestination;
+		needsDestination = !loading && noDestination;
 	});
 
 	$effect(() => {
@@ -160,8 +171,7 @@
 			defaultAvailable = list.default_available;
 			targets = options;
 			const base = policies.find((policy) => policy.enabled) ?? policies[0];
-			const scheduled = policies.filter((policy) => policy.enabled).map((p) => p.volume_name);
-			selected = scheduled.length ? scheduled : [...volumeNames];
+			scheduled = policies.filter((policy) => policy.enabled).map((p) => p.volume_name);
 			savedScheduled = [...scheduled].sort().join('\n');
 			settings = {
 				target: base?.s3_target_id ?? '',
@@ -183,6 +193,21 @@
 
 	async function refreshHistory() {
 		rows = (await client.list()).runs;
+		for (const [groupId, toastId] of watched) {
+			const run = runs.find((candidate) => candidate.key === groupId);
+			if (!run || run.status === 'running') continue;
+			watched.delete(groupId);
+			const name = run.volumes.map((volume) => labelFor(volume.volume_name)).join(', ');
+			const failure = run.volumes.find((volume) => volume.error_message)?.error_message;
+			if (run.status === 'succeeded')
+				toast.success(t('projects.volume_backup.done', { name, size: formatSize(run.size) }), {
+					id: toastId,
+				});
+			else
+				toast.error(t('projects.volume_backup.failed', { name, error: failure ?? '' }), {
+					id: toastId,
+				});
+		}
 	}
 
 	function watch() {
@@ -190,7 +215,7 @@
 		stopPoll = pollWhileVisible(async () => {
 			await refreshHistory();
 			if (!running) stopPoll?.();
-		}, 4000);
+		}, 3000);
 	}
 
 	/** "Add destination" opens the organization's storage in a new tab; the
@@ -201,10 +226,20 @@
 			return;
 		}
 		event.currentTarget.value = settings.target;
+		addDestination();
+	}
+
+	/** Opens the organization's backup storage in a new tab; the destinations
+	 *  reload when the user comes back, so the buttons turn on without a refresh. */
+	export function addDestination() {
 		window.open(addTargetUrl, '_blank', 'noopener');
 		window.addEventListener(
 			'focus',
-			async () => (targets = await listS3TargetOptions(organizationId).catch(() => targets)),
+			async () => {
+				targets = await listS3TargetOptions(organizationId).catch(() => targets);
+				if (!settings.target && !defaultAvailable && targets.length)
+					settings.target = targets[0].id;
+			},
 			{ once: true },
 		);
 	}
@@ -215,7 +250,7 @@
 			await Promise.all(
 				volumeNames.map((name) =>
 					backupsFor(name).updatePolicy({
-						enabled: settings.enabled && selected.includes(name),
+						enabled: settings.enabled && scheduled.includes(name),
 						cron_expression: settings.cron.trim(),
 						retention_count: Number(settings.retention),
 						s3_target_id: settings.target || null,
@@ -224,7 +259,7 @@
 				),
 			);
 			saved = JSON.stringify(settings);
-			savedScheduled = settings.enabled ? selectedKey : '';
+			savedScheduled = settings.enabled ? scheduledKey : '';
 			toast.success(t('projects.db_backup.saved'));
 		} catch (err) {
 			toastError(err, t('projects.db_backup.save_failed'));
@@ -233,18 +268,23 @@
 		}
 	}
 
-	/** Called from the Live Mounts toolbar, where the volumes are ticked. */
-	export async function runNow() {
-		starting = true;
+	/** Backs up one volume; called from its row in Live mounts or Managed volumes.
+	 *  A loading toast follows the run until it succeeds or fails. */
+	export async function backUp(volumeName: string) {
+		const name = labelFor(volumeName);
+		starting = [...starting, volumeName];
+		const toastId = toast.loading(t('projects.volume_backup.started', { name }));
 		try {
-			await client.run(settings.target || null, settings.stopApp, selected);
-			toast.success(t('projects.db_backup.run_started'));
+			const groupId = await client.run(settings.target || null, settings.stopApp, [volumeName]);
+			watched.set(groupId, toastId);
 			await refreshHistory();
 			watch();
 		} catch (err) {
-			toastError(err, t('projects.db_backup.run_failed'));
+			toast.error(err instanceof Error ? err.message : t('projects.db_backup.run_failed'), {
+				id: toastId,
+			});
 		} finally {
-			starting = false;
+			starting = starting.filter((candidate) => candidate !== volumeName);
 		}
 	}
 
@@ -357,7 +397,11 @@
 					class="font-medium text-foreground underline"
 					href={addTargetUrl}
 					target="_blank"
-					rel="noopener">{t('projects.volume_backup.add_target')}</a>
+					rel="noopener"
+					onclick={(event) => {
+						event.preventDefault();
+						addDestination();
+					}}>{t('projects.volume_backup.add_target')}</a>
 			</p>
 		{:else if volumeNames.length}
 			<div class="mt-4 grid gap-4 rounded-lg bg-muted/40 p-4">
@@ -445,19 +489,33 @@
 								bind:value={settings.retention} />
 						</div>
 					</div>
-					<p class="text-xs {selected.length ? 'text-muted-foreground' : 'text-destructive'}">
-						{selected.length
-							? t('projects.volume_backup.scheduled_volumes', {
-									volumes: selected.map(volumeLabel).join(', '),
-								})
-							: t('projects.volume_backup.pick_volumes')}
-					</p>
+					<div class="grid gap-1.5">
+						<p class="text-sm font-medium">{t('projects.volume_backup.scheduled_volumes')}</p>
+						<div class="flex flex-wrap gap-1.5">
+							{#each volumeNames as name (name)}
+								{@const on = scheduled.includes(name)}
+								<Button
+									size="sm"
+									variant={on ? 'secondary' : 'outline'}
+									aria-pressed={on}
+									onclick={() =>
+										(scheduled = on
+											? scheduled.filter((candidate) => candidate !== name)
+											: [...scheduled, name])}>
+									{#if on}<CheckIcon />{/if}{labelFor(name)}
+								</Button>
+							{/each}
+						</div>
+						{#if !scheduled.length}
+							<p class="text-xs text-destructive">{t('projects.volume_backup.pick_volumes')}</p>
+						{/if}
+					</div>
 				{/if}
 				{#if dirty}
 					<div class="flex justify-end">
 						<Button
 							size="sm"
-							disabled={saving || (settings.enabled && !selected.length)}
+							disabled={saving || (settings.enabled && !scheduled.length)}
 							onclick={() => void save()}>
 							{#if saving}<LoaderIcon class="animate-spin" />{/if}{t('projects.volume_backup.save')}
 						</Button>
@@ -486,12 +544,12 @@
 								{/if}
 							</p>
 							<p class="mt-0.5 text-xs text-muted-foreground">
-								{run.volumes.map((volume) => volumeLabel(volume.volume_name)).join(', ')}
+								{run.volumes.map((volume) => labelFor(volume.volume_name)).join(', ')}
 								{#if run.size}· {formatSize(run.size)}{/if} · {origin(run.triggeredBy)}
 							</p>
 							{#each run.volumes.filter((volume) => volume.error_message) as volume (volume.id)}
 								<p class="mt-1 text-xs break-words text-destructive">
-									{volumeLabel(volume.volume_name)}: {volume.error_message}
+									{labelFor(volume.volume_name)}: {volume.error_message}
 								</p>
 							{/each}
 						</div>
@@ -524,7 +582,7 @@
 												disabled={running}
 												onSelect={() => restoreAsNew(run, volume)}
 												>{t('projects.volume_backup.restore_new', {
-													name: volumeLabel(volume.volume_name),
+													name: labelFor(volume.volume_name),
 												})}</DropdownMenu.Item>
 										{/each}
 										{#if succeeded.length}<DropdownMenu.Separator />{/if}
