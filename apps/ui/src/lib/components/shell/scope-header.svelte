@@ -131,7 +131,7 @@
 	{/if}
 {/snippet}
 
-<header class="lp-groove-b sticky top-0 z-30 h-(--app-header-height) bg-background">
+<header class="@container/header lp-groove-b sticky top-0 z-30 h-(--app-header-height) bg-background">
 	<div class="flex h-full min-w-0 items-center gap-1.5 px-3 sm:px-4">
 		<!-- On the right the toggle moves to the far end, next to the sidebar, with its icon mirrored. -->
 		<Sidebar.Trigger
@@ -183,7 +183,7 @@
 								size="sm"
 								triggerClass={crumb.href
 									? 'size-6 min-w-0 justify-center rounded-md p-0 shadow-none [&>*:not(:last-child)]:hidden'
-									: 'group/crumb h-8 w-fit min-w-0 max-w-48 justify-start gap-1.5 rounded-lg px-2 font-medium shadow-none'}>
+									: 'group/crumb h-8 w-fit min-w-0 max-w-48 shrink justify-start gap-1.5 rounded-lg px-2 font-medium shadow-none'}>
 								{#snippet leading()}
 									<!-- An itemIcon already draws on the trigger; a link's icon sits in the link. -->
 									{#if !crumb.href && !crumb.switcher?.itemIcon}{@render crumbIcon(crumb)}{/if}

@@ -79,7 +79,7 @@
 	{@const local = now.toZonedDateTimeISO(Temporal.Now.timeZoneId())}
 	<Popover.Root>
 		<Popover.Trigger
-			class="flex h-8 items-center gap-2 rounded-lg border border-foreground/8 bg-background/60 ps-2 pe-2.5 text-xs text-muted-foreground tabular-nums transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring max-lg:hidden">
+			class="flex h-8 items-center gap-2 rounded-lg border border-foreground/8 bg-background/60 ps-2 pe-2.5 text-xs text-muted-foreground tabular-nums transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring @max-6xl/header:hidden">
 			<span class="relative grid size-4 place-items-center">
 				<OsIcon os={runtime.host_os} distribution={runtime.host_distribution} class="size-4" />
 				<span
