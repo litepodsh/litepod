@@ -769,7 +769,7 @@ pub async fn deploy_image(
     {
         super::history::note(state, "warn", &format!("{image}: {issue}")).await;
     }
-    let rollout = Rollout::prepare(state, app, runtime, false).await?;
+    let mut rollout = Rollout::prepare(state, app, runtime, false).await?;
     let mounts = super::managed_volumes::runtime_mounts(state, app)
         .await
         .map_err(|e| e.to_string())?;
@@ -779,13 +779,42 @@ pub async fn deploy_image(
     let mappings = domains::port_mappings(state, app)
         .await
         .map_err(|e| e.to_string())?;
-    rollout
+    if rollout
         .check_replaceable(
             runtime,
             !mounts.is_empty(),
             !runtime.is_remote() && !mappings.is_empty(),
         )
-        .await?;
+        .await
+        .is_err()
+    {
+        // Two releases cannot share a volume or a host port, so stop the current
+        // one first (named volumes survive `rm`), as Compose apps already do.
+        super::history::note(
+            state,
+            "info",
+            "Persistent storage or fixed host ports detected; recreating the current runtime in place",
+        )
+        .await;
+        let previous = rollout.previous_name.clone();
+        runtime
+            .podman(&[
+                "stop".into(),
+                "--time".into(),
+                "30".into(),
+                previous.clone().into(),
+            ])
+            .await
+            .map_err(|e| e.to_string())?;
+        runtime
+            .podman(&["rm".into(), "--ignore".into(), previous.into()])
+            .await
+            .map_err(|e| e.to_string())?;
+        rollout = Rollout::prepare(state, app, runtime, false).await?;
+        if rollout.previous_exists {
+            return Err("Current runtime could not be stopped before recreation".into());
+        }
+    }
     let _cleanup = rollout.cleanup_on_drop(runtime);
     let port = u16::try_from(
         source
