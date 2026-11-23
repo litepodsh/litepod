@@ -39,6 +39,7 @@ La mayoría de los PaaS autoalojados son una capa fina sobre Docker o una plataf
 - **Bases de datos** — crea bases de datos junto a tus apps, con volúmenes persistentes.
 - **HTTPS automático** — dominios propios con certificados TLS emitidos y renovados por Caddy.
 - **Flota de servidores** — conecta servidores Debian, Ubuntu, Fedora o Arch por SSH solo con llave. Usa un edge público, un relay privado o mantén los servicios privados.
+- **Servidores de compilación** — construye las apps Git en un servidor más grande dedicado solo a compilar y ejecútalas en uno pequeño. La imagen llega al servidor de la app con una copia directa o a través de un registro (se sube como `repositorio:commit` y se despliega por digest). Si un build falla, la versión actual sigue funcionando. Los límites del build y de la app en ejecución pueden ser distintos.
 - **Observabilidad** — analíticas de peticiones, errores y latencia a través del proxy, más CPU y memoria por aplicación. Las analíticas y métricas se guardan en una base [DuckDB](https://duckdb.org) embebida _(beta)_.
 - **Terminal web** — abre una shell dentro de cualquier contenedor desde el navegador.
 - **Volúmenes** — inspecciona y edita almacenamiento persistente y montajes en vivo.
