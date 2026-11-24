@@ -1048,6 +1048,15 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
+    // git2 0.21 dropped https/ssh from its default features; without them every
+    // clone and branch listing fails with "there is no TLS stream available".
+    #[test]
+    fn libgit2_is_built_with_https_and_ssh() {
+        let version = git2::Version::get();
+        assert!(version.https(), "git2 needs the `https` feature");
+        assert!(version.ssh(), "git2 needs the `ssh` feature");
+    }
+
     async fn test_state() -> (SharedState, std::path::PathBuf) {
         let path =
             std::env::temp_dir().join(format!("litepod-git-providers-crud-{}.db", Uuid::now_v7()));
