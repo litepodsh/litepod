@@ -188,6 +188,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libxmlsec1-dev libclang-dev
 
+      # A restored cache can hold a half-published duckdb-sources/<key> (no
+      # .complete marker); libduckdb-sys then fails to rename over it with
+      # ENOTEMPTY. Unpacking again costs seconds. Cross builds keep it per target.
+      - name: Drop stale duckdb sources
+        run: rm -rf api/target/duckdb-sources api/target/*/duckdb-sources
+
       - name: cargo build amd64 binary
         if: matrix.arch == 'amd64'
         run: cargo build --release --features saml --manifest-path api/Cargo.toml
