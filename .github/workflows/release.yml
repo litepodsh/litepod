@@ -453,6 +453,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
+      issues: read
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       CHANNEL: ${{ needs.prepare.outputs.channel }}
@@ -532,17 +533,29 @@ jobs:
             # Count from the previous stable tag: with the next.N tags in between,
             # a stable release would only list the commits after the last next.N.
             prev="$(git describe --tags --abbrev=0 --exclude '*-next.*' "${VERSION}^")"
+            range="${prev}..${VERSION}"
             git cliff "${prev}..${VERSION}" --ignore-tags '.*-next\..*' -o "${RUNNER_TEMP}/notes.md"
             flags+=(--verify-tag)
           elif [[ "${GITHUB_REF_TYPE}" == tag ]]; then
             git cliff --latest -o "${RUNNER_TEMP}/notes.md"
+            range="$(git describe --tags --abbrev=0 "${VERSION}^")..${VERSION}"
             flags+=(--verify-tag)
           else
             # Dispatched from the next branch: the tag does not exist yet, so
             # the release creates it at this commit and the notes cover the
             # commits since the previous tag.
             git cliff --unreleased --tag "${VERSION}" -o "${RUNNER_TEMP}/notes.md"
+            range="$(git describe --tags --abbrev=0)..HEAD"
             flags+=(--target "${GITHUB_SHA}")
+          fi
+          # Credit whoever opened the issues (or PRs) the commits mention, with
+          # the issue title so the notes say what it was about.
+          thanks="$({ git log "${range}" --format=%B | grep -oE '#[0-9]+' || true; } | tr -d '#' | sort -un |
+            while read -r n; do
+              gh issue view "${n}" --json author,title -q '"- @\(.author.login): \(.title) (#'"${n}"')"' </dev/null 2>/dev/null || true
+            done)"
+          if [[ -n "${thanks}" ]]; then
+            printf '\n### Thanks\n%s\n' "${thanks}" >> "${RUNNER_TEMP}/notes.md"
           fi
           gh release create "${VERSION}" --notes-file "${RUNNER_TEMP}/notes.md" --title "${VERSION}" "${flags[@]}"
 
