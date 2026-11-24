@@ -7,6 +7,8 @@ vi.mock('#lib/clients/auth-client.js', () => ({ getMe: async () => ({ is_sysadmi
 afterEach(cleanup);
 // jsdom has no layout; bits-ui's command list scrolls the active item into view.
 Element.prototype.scrollIntoView ??= () => {};
+// jsdom has no matchMedia; the www-twin SoftSwitch checks reduced motion before animating.
+vi.stubGlobal('matchMedia', () => ({ matches: true }));
 
 it('keeps a saved custom certificate without resending secrets when editing a domain', async () => {
 	const onSubmit = vi.fn().mockResolvedValue(undefined);

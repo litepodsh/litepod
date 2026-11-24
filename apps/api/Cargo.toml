@@ -30,7 +30,7 @@ cookie = "0.18.1"
 croner = "3.0.1"
 dotenvy = "0.15.7"
 futures-util = "0.3.32"
-git2 = "0.21"
+git2 = { version = "0.21", features = ["https", "ssh"] }
 governor = "0.7"
 hmac = "0.13.0"
 hex = "0.4"

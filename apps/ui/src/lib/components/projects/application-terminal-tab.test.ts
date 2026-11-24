@@ -56,7 +56,10 @@ it('lists running containers and connects with the picked shell', async () => {
 	});
 	await screen.findByText('web-1 · running');
 	expect(screen.queryByText(/worker-1/)).toBeNull();
-	await fireEvent.click(screen.getByRole('button', { name: 'zsh' }));
+	// bits-ui's Select trigger opens on pointerdown or the keyboard, not on click.
+	await fireEvent.keyDown(screen.getByRole('button', { name: /bash/ }), { key: 'Enter' });
+	// Items select on pointerup, not click.
+	await fireEvent.pointerUp(await screen.findByRole('option', { name: /zsh/ }));
 	await fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
 	await waitFor(() =>
 		expect(createExec).toHaveBeenCalledWith(
