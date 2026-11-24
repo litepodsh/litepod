@@ -154,7 +154,7 @@ fn update_submodules(
     for mut submodule in submodules {
         submodule.init(true).map_err(|e| e.to_string())?;
         let name = submodule.name().unwrap_or("?").to_string();
-        let submodule_url = submodule.url().unwrap_or_default().to_string();
+        let submodule_url = submodule.url().ok().flatten().unwrap_or_default().to_string();
         let send_credentials = vet_submodule_url(&submodule_url, parent_host, allow_private)
             .map_err(|e| format!("Submodule '{name}': {e}"))?;
         let mut callbacks = git2::RemoteCallbacks::new();
@@ -435,9 +435,9 @@ fn clone_repo(
                 let author = commit.author();
                 return Ok((
                     commit.id().to_string(),
-                    commit.summary().unwrap_or("").to_string(),
-                    author.name().map(str::to_string),
-                    author.email().map(str::to_string),
+                    commit.summary().ok().flatten().unwrap_or("").to_string(),
+                    author.name().ok().map(str::to_string),
+                    author.email().ok().map(str::to_string),
                 ));
             }
             Err(e) => {
