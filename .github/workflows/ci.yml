@@ -1,8 +1,8 @@
 name: ci
 
-# Compile gate for main and next: API (with the `saml` feature the release binary
-# ships) and UI type-check + build, plus dependency advisories (`cargo audit`,
-# `bun audit` at high and above). The Dockerfile is exercised by the release
+# Gate for main and next: API build + tests (with the `saml` feature the release
+# binary ships), UI type-check + tests + build, the installer's shell tests, plus
+# dependency advisories (`cargo audit`, `bun audit` at high and above). The Dockerfile is exercised by the release
 # workflow (manual dispatch defaults to a dry run).
 
 on:
@@ -55,6 +55,9 @@ jobs:
         run: |
           rm -rf target/duckdb-sources
           cargo build --locked --features saml
+
+      - name: cargo test
+        run: cargo test --locked --features saml
 
       - uses: taiki-e/install-action@v2
         with:
@@ -109,4 +112,17 @@ jobs:
       # ships as static files, so no user input reaches it. Review 2027-02-01.
       - run: bun audit --audit-level=high --ignore=GHSA-fc5q-39xc-vjpf
       - run: bun run check
+      - run: bun run test
       - run: bun run build
+
+  # Pure bash with stubbed commands: no Podman, no root, no network.
+  scripts:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test-distro.sh
+      - run: bash scripts/test-install-channel.sh
+      - run: bash scripts/test-uninstall.sh
