@@ -39,6 +39,7 @@ Most self-hosted PaaS tools are either a thin wrapper around Docker or a heavy p
 - **Databases** — provision databases alongside your apps, with persistent volumes.
 - **Automatic HTTPS** — custom domains with TLS certificates issued and renewed by Caddy.
 - **Multi-server fleet** — connect remote Debian, Ubuntu, Fedora or Arch servers over key-only SSH. Use a public edge, a private relay, or keep services private.
+- **Build servers** — build Git apps on a bigger, build-only server and run them on a small one. The image reaches the app's server by direct copy or through a registry (pushed as `repository:commit`, deployed by digest). If a build fails, the running version keeps serving. Build and running limits can differ.
 - **Observability** — request analytics, errors and latency through the proxy, plus CPU and memory per application. Analytics and metrics are stored in an embedded [DuckDB](https://duckdb.org) database _(beta)_.
 - **Web terminal** — open a shell inside any container from the browser.
 - **Volumes** — inspect and edit persistent storage and live mounts.

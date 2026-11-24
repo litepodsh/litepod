@@ -14,6 +14,8 @@ use crate::{dtos::response::AppError, state::state::SharedState};
 
 /// The upload limit for a source archive; sites keep their own, smaller one.
 pub const MAX_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
+
+pub const TOO_LARGE: &str = "The ZIP is larger than 100 MB, the upload limit. Leave out node_modules, .git and build output such as dist or build (the build recreates them) and upload it again.";
 const MAX_ENTRIES: usize = 20_000;
 /// Declared sizes are checked before anything is written, so a small ZIP that
 /// expands to gigabytes (a zip bomb) is refused.
@@ -73,9 +75,7 @@ pub async fn store(
         return Err(AppError::ValidationError("The archive is empty".into()));
     }
     if bytes.len() > MAX_ARCHIVE_BYTES {
-        return Err(AppError::ValidationError(
-            "The archive is larger than 100 MB, the upload limit. Leave out node_modules, build output and other generated folders.".into(),
-        ));
+        return Err(AppError::ValidationError(TOO_LARGE.into()));
     }
     // The magic bytes only say "some ZIP container" (a .docx or .jar passes), so
     // the directory is read too: a broken, unsafe or empty archive fails here

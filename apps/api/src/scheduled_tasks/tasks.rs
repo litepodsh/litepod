@@ -19,7 +19,7 @@ use crate::{
 };
 
 const MAX_TIMEOUT_SECONDS: i64 = 86_400;
-const TASK_COLUMNS: &str = "id, organization_id, name, description, cron_expression, runner, image, shell, timeout_seconds, network_access, enabled, server_id, next_run_at, active_execution_id, created_at, updated_at, application_id, compose_service";
+const TASK_COLUMNS: &str = "id, organization_id, name, description, cron_expression, runner, image, shell, timeout_seconds, network_access, enabled, server_id, next_run_at, active_execution_id, created_at, updated_at, application_id, compose_service, folder";
 const EXECUTION_COLUMNS: &str = "id, task_id, trigger, status, runner, image, network_access, server_id, queued_at, started_at, finished_at, exit_code, error, logs_truncated";
 pub const LOCAL_SERVER_ID: &str = "local";
 
@@ -186,6 +186,15 @@ pub fn validate_request(
     if req.name.trim().is_empty() || req.name.len() > 120 {
         return Err(AppError::ValidationError(
             "Name must be between 1 and 120 characters".into(),
+        ));
+    }
+    if req
+        .folder
+        .as_deref()
+        .is_some_and(|folder| folder.trim().chars().count() > 64)
+    {
+        return Err(AppError::ValidationError(
+            "Folder must be at most 64 characters".into(),
         ));
     }
     if req.script.trim().is_empty() {
@@ -359,6 +368,9 @@ fn read_task(row: &sqlx::sqlite::SqliteRow) -> Result<ScheduledTaskDto, AppError
         compose_service: row
             .try_get(17)
             .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        folder: row
+            .try_get(18)
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
     })
 }
 
@@ -438,7 +450,7 @@ pub async fn create(
         .flatten()
         .filter(|value| !value.trim().is_empty());
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query("INSERT INTO scheduled_tasks (id, organization_id, name, description, cron_expression, runner, image, shell, script, timeout_seconds, network_access, server_id, next_run_at, created_by, created_at, updated_at, application_id, compose_service) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)")
+    sqlx::query("INSERT INTO scheduled_tasks (id, organization_id, name, description, cron_expression, runner, image, shell, script, timeout_seconds, network_access, server_id, next_run_at, created_by, created_at, updated_at, application_id, compose_service, folder) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)")
         .bind(id.clone())
         .bind(organization_id)
         .bind(req.name.trim())
@@ -457,6 +469,7 @@ pub async fn create(
         .bind(now)
         .bind(application_id)
         .bind(compose_service)
+        .bind(req.folder.as_deref().unwrap_or_default().trim())
         .execute(&conn)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
@@ -558,6 +571,7 @@ pub async fn update(
             server_id: req.server_id.clone(),
             application_id: req.application_id.clone(),
             compose_service: req.compose_service.clone(),
+            folder: req.folder.clone(),
         },
         is_sysadmin,
     )?;
@@ -602,7 +616,7 @@ pub async fn update(
         .transpose()?;
     let now = now_ms();
     let conn = crate::git::repositories::db::get_conn(state).await;
-    sqlx::query("UPDATE scheduled_tasks SET name = ?1, description = ?2, cron_expression = ?3, runner = ?4, image = ?5, shell = ?6, script = ?7, timeout_seconds = ?8, network_access = ?9, server_id = ?10, enabled = ?11, next_run_at = ?12, updated_at = ?13, application_id = ?14, compose_service = ?15 WHERE id = ?16 AND organization_id = ?17")
+    sqlx::query("UPDATE scheduled_tasks SET name = ?1, description = ?2, cron_expression = ?3, runner = ?4, image = ?5, shell = ?6, script = ?7, timeout_seconds = ?8, network_access = ?9, server_id = ?10, enabled = ?11, next_run_at = ?12, updated_at = ?13, application_id = ?14, compose_service = ?15, folder = ?16 WHERE id = ?17 AND organization_id = ?18")
         .bind(req.name.trim())
         .bind(req.description.trim())
         .bind(req.cron_expression.trim())
@@ -618,6 +632,7 @@ pub async fn update(
         .bind(now)
         .bind(application_id)
         .bind(compose_service)
+        .bind(req.folder.as_deref().map_or(existing.folder.as_str(), str::trim))
         .bind(task_id)
         .bind(organization_id)
         .execute(&conn)
@@ -999,6 +1014,7 @@ mod tests {
             server_id: None,
             application_id: None,
             compose_service: None,
+            folder: None,
         }
     }
 

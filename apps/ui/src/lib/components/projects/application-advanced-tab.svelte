@@ -42,6 +42,7 @@
 		onDeleteBasicAuthUser,
 		healthCheck = null,
 		onSaveHealthCheck,
+		onSaveRuntimeLimits,
 	}: {
 		server: ServerSummaryDto | null;
 		onLoadResourceBaseline: () => Promise<{ cpu_cores: number; memory_bytes: number } | null>;
@@ -62,6 +63,11 @@
 		onDeleteBasicAuthUser: (userId: string) => Promise<void>;
 		healthCheck?: HealthCheckDto | null;
 		onSaveHealthCheck: (input: UpdateHealthCheckInput) => Promise<void>;
+		/** Both `null` drops the override, so the running app uses the build limits again. */
+		onSaveRuntimeLimits?: (limits: {
+			runtime_cpu_cores: number | null;
+			runtime_memory_mib: number | null;
+		}) => Promise<void>;
 	} = $props();
 
 	let resourceEnabled = $state(false);
@@ -128,6 +134,54 @@
 				return;
 			}
 			await onSaveSource({ ...source, build_cpu_cores: cpu, build_memory_mib: memory });
+		} catch {
+			// The page-level save handler already presents the server error.
+		}
+	}
+
+	// ── Running-app limits ──────────────────────────────────────────────────
+	// Only a Git build has a build step apart from the running app; a build server
+	// makes the two differ the most.
+	const hasSeparateBuild = $derived(
+		source.deploy_type === 'git' && source.build_method !== 'compose',
+	);
+	let runtimeEnabled = $state(false);
+	let runtimeCpu = $state('');
+	let runtimeMemory = $state('');
+
+	$effect(() => {
+		runtimeEnabled = source.runtime_cpu_cores !== null && source.runtime_memory_mib !== null;
+		runtimeCpu = source.runtime_cpu_cores?.toString() ?? '';
+		runtimeMemory = source.runtime_memory_mib?.toString() ?? '';
+	});
+
+	async function saveRuntimeLimits() {
+		if (!onSaveRuntimeLimits) return;
+		try {
+			if (!runtimeEnabled) {
+				await onSaveRuntimeLimits({ runtime_cpu_cores: null, runtime_memory_mib: null });
+				return;
+			}
+			const cpu = Number(runtimeCpu);
+			const memory = Number(runtimeMemory);
+			if (!Number.isFinite(cpu) || cpu < 0.1) {
+				toast.error(t('projects.application_advanced.cpu_limit_invalid'));
+				return;
+			}
+			if (!Number.isInteger(memory) || memory <= 0) {
+				toast.error(t('projects.application_advanced.memory_limit_invalid'));
+				return;
+			}
+			// The running app lives on the deploy server, so its capacity is the ceiling.
+			if (guidance.maxCpu !== null && cpu > guidance.maxCpu) {
+				toast.error(t('projects.application_advanced.cpu_over_capacity'));
+				return;
+			}
+			if (guidance.maxMemoryMib !== null && memory > guidance.maxMemoryMib) {
+				toast.error(t('projects.application_advanced.memory_over_capacity'));
+				return;
+			}
+			await onSaveRuntimeLimits({ runtime_cpu_cores: cpu, runtime_memory_mib: memory });
 		} catch {
 			// The page-level save handler already presents the server error.
 		}
@@ -290,6 +344,20 @@
 		healthRestart = healthCheck?.restart_on_unhealthy ?? false;
 	});
 
+	/**
+	 * Clamp + snap the value handed to bits-ui's slider. The component snaps an
+	 * out-of-step `value` prop internally and reports that correction through
+	 * `onValueChange`, so the prop must already be a valid step to keep typed
+	 * numbers (e.g. 204 MiB with a 64 MiB step) untouched.
+	 */
+	function snapCapValue(value: number, min: number, step: number, max: number) {
+		const clamped = Math.min(Math.max(value, min), max);
+		const maxIndex = Math.floor((max - min) / step + 1e-9);
+		const index = Math.min(Math.max(Math.round((clamped - min) / step), 0), maxIndex);
+		const decimals = (step.toString().split('.')[1] ?? '').length;
+		return Number((min + index * step).toFixed(decimals));
+	}
+
 	async function submitHealthCheck() {
 		healthSaving = true;
 		try {
@@ -328,12 +396,15 @@
 			{min}
 			max={total}
 			{step}
-			value={Math.min(Math.max(value || recommended || min, min), total)}
+			value={snapCapValue(value || recommended || min, min, step, total)}
 			disabled={!resourceEnabled || busy}
+			onValueChange={(next) => {
+				// Live update while dragging/using the keyboard. The slider only
+				// ever receives an in-step value, so bits-ui's snap-back write
+				// never fires on its own and cannot rewrite a typed number.
+				if (next !== undefined) onChange(next);
+			}}
 			onValueCommit={(next) => {
-				// Commit, not change: bits-ui snaps an out-of-step `value` prop
-				// (e.g. 204 with step 64) and reports it through `onValueChange`,
-				// which would rewrite the number the user is typing.
 				if (next !== undefined) onChange(next);
 			}} />
 		{#if recommended !== null}
@@ -495,6 +566,72 @@
 			</div>
 		</form>
 	</SettingsSection>
+
+	{#if hasSeparateBuild && onSaveRuntimeLimits}
+		<SettingsSection
+			title={t('projects.application_advanced.runtime_title')}
+			description={t('projects.application_advanced.runtime_description')}>
+			<form
+				class="flex flex-col gap-4"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void saveRuntimeLimits();
+				}}>
+				<div class="flex items-center justify-between gap-4">
+					<div class="min-w-0">
+						<Label for="runtime-limits"
+							>{t('projects.application_advanced.runtime_separate')}</Label>
+						<p class="mt-1 text-xs text-muted-foreground">
+							{t('projects.application_advanced.runtime_separate_hint')}
+						</p>
+					</div>
+					<SoftSwitch
+						id="runtime-limits"
+						checked={runtimeEnabled}
+						onCheckedChange={(next) => (runtimeEnabled = next === true)}
+						disabled={busy} />
+				</div>
+				{#if runtimeEnabled}
+					<div class="grid gap-4 sm:grid-cols-2">
+						<div class="grid content-start gap-1.5">
+							<Label for="runtime-cpu-cores">{t('projects.application_advanced.cpu_cores')}</Label>
+							<Input
+								id="runtime-cpu-cores"
+								type="number"
+								min="0.1"
+								max={guidance.maxCpu ?? undefined}
+								step="0.1"
+								placeholder="0.5"
+								bind:value={runtimeCpu}
+								disabled={busy}
+								class="font-mono tabular-nums" />
+						</div>
+						<div class="grid content-start gap-1.5">
+							<Label for="runtime-memory-mib"
+								>{t('projects.application_advanced.memory_mib')}</Label>
+							<Input
+								id="runtime-memory-mib"
+								type="number"
+								min="1"
+								max={guidance.maxMemoryMib ?? undefined}
+								step="1"
+								placeholder="512"
+								bind:value={runtimeMemory}
+								disabled={busy}
+								class="font-mono tabular-nums" />
+						</div>
+					</div>
+				{/if}
+				<div class="flex justify-end">
+					<Button type="submit" disabled={busy}>
+						{busy
+							? t('projects.projects.saving')
+							: t('projects.application_advanced.save_runtime_limits')}
+					</Button>
+				</div>
+			</form>
+		</SettingsSection>
+	{/if}
 
 	<SettingsSection
 		title={t('projects.application_advanced.basicauth_title')}
@@ -701,7 +838,8 @@
 								: t('projects.health_check.unknown')}
 					</span>
 				{:else}
-					<span class="rounded-full corner-soft bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+					<span
+						class="rounded-full corner-soft bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
 						{t('projects.health_check.disabled')}
 					</span>
 				{/if}

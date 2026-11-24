@@ -40,3 +40,7 @@ skills-lock.json
 /.taste-skill
 /apps/api/icons
 /apps/ui/src/lib/i18n/.svelte-kit/generated
+
+# impeccable: local consent and session cache
+.impeccable/config.local.json
+.impeccable/hook.cache.json

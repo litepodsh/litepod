@@ -72,7 +72,7 @@ fn safe_repo_path(repo_root: &str, configured_path: &str) -> Result<String, Stri
     Ok(format!("{repo_root}/{configured_path}"))
 }
 
-fn remote_generated_path(
+pub(super) fn remote_generated_path(
     workspace: &str,
     compose_path: &str,
     filename: &str,
@@ -103,7 +103,7 @@ fn remote_generated_path(
     }
 }
 
-fn env_file_contents(environment: &[(String, String)]) -> Result<String, String> {
+pub(super) fn env_file_contents(environment: &[(String, String)]) -> Result<String, String> {
     environment
         .iter()
         .map(|(name, value)| {

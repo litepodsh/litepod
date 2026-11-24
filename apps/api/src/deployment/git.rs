@@ -17,6 +17,7 @@ use super::{
     default_build_memory_log_line, resource_limits, resource_log_line,
 };
 
+pub mod build_server;
 pub mod compose;
 pub mod railpack;
 
@@ -153,7 +154,7 @@ fn update_submodules(
     for mut submodule in submodules {
         submodule.init(true).map_err(|e| e.to_string())?;
         let name = submodule.name().unwrap_or("?").to_string();
-        let submodule_url = submodule.url().unwrap_or_default().to_string();
+        let submodule_url = submodule.url().ok().flatten().unwrap_or_default().to_string();
         let send_credentials = vet_submodule_url(&submodule_url, parent_host, allow_private)
             .map_err(|e| format!("Submodule '{name}': {e}"))?;
         let mut callbacks = git2::RemoteCallbacks::new();
@@ -434,9 +435,9 @@ fn clone_repo(
                 let author = commit.author();
                 return Ok((
                     commit.id().to_string(),
-                    commit.summary().unwrap_or("").to_string(),
-                    author.name().map(str::to_string),
-                    author.email().map(str::to_string),
+                    commit.summary().ok().flatten().unwrap_or("").to_string(),
+                    author.name().ok().map(str::to_string),
+                    author.email().ok().map(str::to_string),
                 ));
             }
             Err(e) => {
@@ -653,11 +654,11 @@ pub(crate) async fn run(
     Ok(())
 }
 
-/// Builds and runs a Git Docker application on its assigned SSH server. The
+/// Builds a Git Docker application's image (tagged `image_tag`) on an SSH server. The
 /// repository is cloned centrally only because its provider credentials live
 /// here; the remote host receives a credential-free source archive and all
 /// Podman operations below go through `ServerRuntime`.
-async fn remote_docker_pipeline(
+async fn remote_docker_build(
     state: &SharedState,
     application_id: &str,
     run_id: &str,
@@ -751,15 +752,6 @@ async fn remote_docker_pipeline(
         std::time::Duration::from_secs(30 * 60),
         "Could not build Docker image on selected server",
     )
-    .await?;
-
-    super::rollout::deploy_image(
-        state,
-        application_id,
-        source,
-        &image_tag(application_id),
-        runtime,
-    )
     .await
 }
 
@@ -773,11 +765,12 @@ async fn warn_freebsd_base_images(state: &SharedState, run_id: &str, dockerfile:
     }
 }
 
-/// Runs the same two-stage Railpack build on the selected server. The source
+/// Runs the same two-stage Railpack build on an SSH server, leaving the image
+/// loaded there as `image_tag`. The source
 /// clone and generated builder context are transferred through the existing
 /// app-scoped SSH workspace; the remote builder never sees litepod's data volume
 /// or another application's files.
-async fn remote_railpack_pipeline(
+async fn remote_railpack_build(
     state: &SharedState,
     application_id: &str,
     run_id: &str,
@@ -787,13 +780,6 @@ async fn remote_railpack_pipeline(
 ) -> Result<(), String> {
     if runtime.is_freebsd() {
         return Err(crate::servers::freebsd::RAILPACK_UNSUPPORTED.into());
-    }
-    if !super::managed_volumes::runtime_mounts(state, application_id)
-        .await
-        .map_err(|error| error.to_string())?
-        .is_empty()
-    {
-        return Err("Managed-volume mounts for remote Railpack deployments are not ready yet; detach them before deploying this application".into());
     }
     let workspace = runtime
         .ensure_workspace(application_id)
@@ -990,15 +976,7 @@ async fn remote_railpack_pipeline(
         ])
         .await
         .map_err(|error| format!("Could not load the remote Railpack image: {error}"))?;
-
-    super::rollout::deploy_image(
-        state,
-        application_id,
-        source,
-        &image_tag(application_id),
-        runtime,
-    )
-    .await
+    Ok(())
 }
 
 /// `(memory_bytes, memswap_bytes)` for a build whose application sets no limit, read from the
@@ -1179,6 +1157,8 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
     let target_sha = super::history::commit_sha(state, run_id)
         .await
         .map_err(|e| e.to_string())?;
+    // Checked before the clone so a build that cannot work fails in seconds.
+    let build_server = build_server::prepare(state, application_id, &source).await?;
     let repo = repo_dir(state, application_id);
     if source.source_upload {
         let _ = super::history::append(state, run_id, "info", "Preparing source workspace").await;
@@ -1311,14 +1291,34 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
         },
     )
     .await;
+    if let Some((target, builder)) = build_server {
+        return build_server::run(
+            state,
+            application_id,
+            run_id,
+            &source,
+            &repo,
+            target,
+            builder,
+        )
+        .await;
+    }
     let runtime = crate::servers::runtime::ServerRuntime::for_application(state, application_id)
         .await
         .map_err(|error| error.to_string())?;
     if runtime.is_remote() {
         return match source.build_method.as_str() {
             "docker" => {
-                remote_docker_pipeline(state, application_id, run_id, &source, &repo, &runtime)
-                    .await
+                remote_docker_build(state, application_id, run_id, &source, &repo, &runtime)
+                    .await?;
+                super::rollout::deploy_image(
+                    state,
+                    application_id,
+                    &source,
+                    &image_tag(application_id),
+                    &runtime,
+                )
+                .await
             }
             "compose" => {
                 let _ = super::history::append(
@@ -1332,8 +1332,23 @@ async fn pipeline(state: &SharedState, application_id: &str, run_id: &str) -> Re
                 compose::run(state, application_id, &source, &repo).await
             }
             "railpack" => {
-                remote_railpack_pipeline(state, application_id, run_id, &source, &repo, &runtime)
+                if !super::managed_volumes::runtime_mounts(state, application_id)
                     .await
+                    .map_err(|error| error.to_string())?
+                    .is_empty()
+                {
+                    return Err("Managed-volume mounts for remote Railpack deployments are not ready yet; detach them before deploying this application".into());
+                }
+                remote_railpack_build(state, application_id, run_id, &source, &repo, &runtime)
+                    .await?;
+                super::rollout::deploy_image(
+                    state,
+                    application_id,
+                    &source,
+                    &image_tag(application_id),
+                    &runtime,
+                )
+                .await
             }
             _ => Err("Unsupported build method".into()),
         };

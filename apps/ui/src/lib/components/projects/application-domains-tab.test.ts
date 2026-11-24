@@ -39,6 +39,7 @@ const publicEdgeServer: Server = {
 	host_key_fingerprint: null,
 	assigned_application_count: 1,
 	organization_id: 'organization-1',
+	role: 'deploy',
 	facts: {
 		os: 'linux',
 		version: '24.04',

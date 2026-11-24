@@ -42,6 +42,7 @@
 	import ApplicationTasksTab from '#lib/components/projects/application-tasks-tab.svelte';
 	import ApplicationAdvancedTab from '#lib/components/projects/application-advanced-tab.svelte';
 	import ApplicationBootPolicyCard from '#lib/components/projects/application-boot-policy-card.svelte';
+	import ApplicationBuildServerCard from '#lib/components/projects/application-build-server-card.svelte';
 	import ApplicationMaintenanceCard from '#lib/components/projects/application-maintenance-card.svelte';
 	import ApplicationErrorPageCard from '#lib/components/projects/application-error-page-card.svelte';
 	import DatabaseBackupTab from '#lib/components/projects/database-backup-tab.svelte';
@@ -63,6 +64,9 @@
 	import {
 		applicationVolumeWorkspace,
 		managedVolumeWorkspace,
+		volumeBackups,
+		volumeRestores,
+		appVolumeBackups,
 		composeContentGet,
 		composeContentPut,
 		composeDeploy,
@@ -100,6 +104,7 @@
 		saveApplicationSource,
 		saveEnvironmentVariables,
 		setCleanBuild,
+		setRuntimeLimits,
 		stopApplication,
 		startApplication,
 		removeApplicationRuntime,
@@ -1808,6 +1813,34 @@
 		}
 	}
 
+	async function saveRuntimeLimits(limits: {
+		runtime_cpu_cores: number | null;
+		runtime_memory_mib: number | null;
+	}) {
+		if (!environment) return;
+		busy = true;
+		try {
+			source = await setRuntimeLimits(
+				organizationId,
+				projectId,
+				environment.id,
+				applicationId,
+				limits,
+			);
+			await refreshDeployment();
+			toast.success(t('projects.application_advanced.runtime_saved'));
+		} catch (caught) {
+			toast.error(
+				caught instanceof Error
+					? caught.message
+					: t('projects.application_advanced.runtime_save_failed'),
+			);
+			throw caught;
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function saveHealthCheck(input: UpdateHealthCheckInput) {
 		if (!environment) return;
 		busy = true;
@@ -2542,6 +2575,23 @@
 						onComposeContentChange={(content) => (composeContent = content)}
 						onCreateRuntimeVariables={handleCreateRuntimeVariables}
 						{templateDocsUrl} />
+					<!-- Next to the source and build method: where it builds is part of how. -->
+					{#if environment && organizationId}
+						<div class="mt-6">
+							<ApplicationBuildServerCard
+								{organizationId}
+								{projectId}
+								environmentId={environment.id}
+								{applicationId}
+								deployType={source.deploy_type}
+								buildMethod={source.build_method}
+								runsOn={application.server?.name ?? application.server_group?.name ?? null}
+								canWrite={allowed('app.update', {
+									projectId,
+									environmentId: environment.id,
+								})} />
+						</div>
+					{/if}
 				{:else if activeTab === 'advanced' && application.template_kind === 'postgres'}
 					<PostgresResourceDetail
 						{organizationId}
@@ -2703,7 +2753,8 @@
 							onAddBasicAuthUser={addBasicAuthUserHandler}
 							onDeleteBasicAuthUser={deleteBasicAuthUserHandler}
 							{healthCheck}
-							onSaveHealthCheck={saveHealthCheck} />
+							onSaveHealthCheck={saveHealthCheck}
+							onSaveRuntimeLimits={saveRuntimeLimits} />
 						{#if environment && organizationId}
 							<ApplicationBootPolicyCard
 								{organizationId}
@@ -2835,7 +2886,18 @@
 							onDetachManagedVolume={handleDetachManagedVolume}
 							onDeleteManagedVolume={handleDeleteManagedVolume}
 							{workspaceFor}
-							{managedWorkspaceFor} />
+							{managedWorkspaceFor}
+							{organizationId}
+							restores={volumeRestores(organizationId, projectId, environment!.id, applicationId)}
+							appBackups={appVolumeBackups(organizationId, projectId, environment!.id, applicationId)}
+							backupsFor={(volumeName) =>
+								volumeBackups(
+									organizationId,
+									projectId,
+									environment!.id,
+									applicationId,
+									volumeName,
+								)} />
 						<ApplicationMetricsTab
 							organizationId={organizationId ?? ''}
 							{projectId}

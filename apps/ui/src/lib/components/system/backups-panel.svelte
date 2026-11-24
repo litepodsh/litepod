@@ -23,6 +23,7 @@
 	import {
 		getS3Config,
 		updateS3Config,
+		testS3Config,
 		listBackupHistory,
 		triggerBackup,
 		triggerRestore,
@@ -157,6 +158,20 @@
 			toast.error(t('account.backups.save_failed', { message: (e as Error).message }));
 		} finally {
 			saving = false;
+		}
+	}
+
+	let testing = $state(false);
+
+	async function testConfig() {
+		testing = true;
+		try {
+			await testS3Config();
+			toast.success(t('account.backups.test_success'));
+		} catch (e) {
+			toast.error(t('account.backups.test_failed', { message: (e as Error).message }));
+		} finally {
+			testing = false;
 		}
 	}
 
@@ -339,7 +354,13 @@
 							</div>
 						</div>
 					</div>
-					<div class="flex justify-end">
+					<div class="flex justify-end gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							disabled={testing || saving || !hasSecretKey}
+							onclick={() => void testConfig()}
+							>{testing ? t('account.backups.testing') : t('account.backups.test')}</Button>
 						<Button type="submit" disabled={saving}
 							>{saving ? t('account.common.saving') : t('account.common.save')}</Button>
 					</div>

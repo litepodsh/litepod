@@ -289,7 +289,8 @@
 		<!-- Wide enough for a name; the actions wrap under it on a phone. -->
 		<div class="min-w-48 flex-1">
 			<div class="flex flex-wrap items-center gap-2">
-				{#if onSelectedChange}
+				<!-- A build server never joins a group: no application runs on it. -->
+				{#if onSelectedChange && server.role !== 'build'}
 					<Checkbox
 						checked={selected}
 						onCheckedChange={(next) => onSelectedChange(server, next)}
@@ -307,6 +308,10 @@
 				<h3 class="truncate text-[15px] font-semibold">{server.name}</h3>
 				<Badge variant="outline" class={STATE_CLASSES[server.state]}
 					>{STATE_LABELS[server.state]}</Badge>
+				{#if server.role === 'build'}
+					<Badge variant="secondary" title={t('servers.card.role_build_hint')}
+						>{t('servers.card.role_build')}</Badge>
+				{/if}
 				{#if server.vulnerabilities?.urgent}
 					<Badge variant="destructive">
 						{t('servers.security.vuln_card_badge', { count: server.vulnerabilities.urgent })}
@@ -393,7 +398,7 @@
 							<PencilIcon class="size-4" />
 							{t('organizations.servers.rename_action')}
 						</DropdownMenu.Item>
-						{#if groups && onToggleGroup}
+						{#if groups && onToggleGroup && server.role !== 'build'}
 							<!-- A server may sit in several groups, so each group toggles on its own. -->
 							<DropdownMenu.Sub>
 								<DropdownMenu.SubTrigger>

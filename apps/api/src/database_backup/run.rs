@@ -1,16 +1,14 @@
-//! Executes per-database backups: dump inside the running container, extract
-//! the bytes via `podman cp`, upload to the policy's S3 destination (a named
-//! target or the global config) under `databases/{application_id}/`, enforce
-//! retention, and emit the `database_backup` notification. Restore downloads
-//! the S3 object from the exact target it was uploaded to, writes it into the
-//! container and runs the engine's restore tool.
+//! Executes per-database backups: dump inside the running container, stream
+//! its stdout straight to the policy's S3 destination (a named target or the
+//! global config) under `databases/{application_id}/`, enforce
+//! retention, and emit the `database_backup` notification. Restore streams
+//! the S3 object from the exact target it was uploaded to into the stdin of
+//! the engine's restore tool.
 
-use std::io::Read;
 use std::time::Duration;
 
 use chrono::Utc;
 use sqlx::Row;
-use tar::Archive;
 
 use crate::database_backup::engine::Engine;
 use crate::dtos::database_backup::{
@@ -19,13 +17,17 @@ use crate::dtos::database_backup::{
 use crate::dtos::response::AppError;
 use crate::state::state::SharedState;
 
-const CONTAINER_DUMP_PATH: &str = "/tmp/litepod-db-backup";
-const CONTAINER_DUMP_DIR: &str = "/tmp";
-const CONTAINER_RESTORE_NAME: &str = "litepod-db-restore";
 const DUMP_BUDGET: Duration = Duration::from_secs(1800);
 
 const POLICY_COLUMNS: &str = "application_id, enabled, cron_expression, retention_count, next_run_at, updated_at, updated_by, s3_target_id";
 const BACKUP_COLUMNS: &str = "id, application_id, status, engine, started_at, finished_at, size_bytes, s3_key, error_message, s3_target_id";
+
+/// `podman exec -i`: the restore script reads the dump from stdin.
+fn exec_stdin_argv(container: &str, script: &str) -> Vec<std::ffi::OsString> {
+    let mut argv = exec_argv(container, script);
+    argv.insert(1, "-i".into());
+    argv
+}
 
 fn exec_argv(container: &str, script: &str) -> Vec<std::ffi::OsString> {
     vec![
@@ -69,7 +71,7 @@ fn read_backup_row(row: &sqlx::sqlite::SqliteRow) -> Result<DatabaseBackupDto, A
 
 /// Resolves the organization and name for a database application so scheduled
 /// runs (which have no request scope) can still emit org-scoped notifications.
-async fn app_org_context(
+pub(crate) async fn app_org_context(
     state: &SharedState,
     application_id: &str,
 ) -> Result<(String, String), AppError> {
@@ -370,26 +372,6 @@ async fn perform_backup(
             ))
         })?;
 
-    runtime
-        .podman_with_timeout(&exec_argv(&container, engine.dump_script()), DUMP_BUDGET)
-        .await
-        .map_err(|error| {
-            AppError::InternalError(format!(
-                "Database dump failed inside the container: {error}"
-            ))
-        })?;
-
-    let tar_bytes = runtime
-        .podman_cp_from(&container, CONTAINER_DUMP_PATH, Duration::from_secs(300))
-        .await
-        .map_err(|error| AppError::InternalError(format!("Could not extract the dump: {error}")))?;
-    let dump_bytes = extract_single_entry(&tar_bytes)?;
-
-    let cleanup = exec_argv(&container, &format!("rm -f {}", CONTAINER_DUMP_PATH));
-    let _ = runtime
-        .podman_with_timeout(&cleanup, Duration::from_secs(30))
-        .await;
-
     // Resolve the destination from the policy: the named target when picked,
     // the global S3 config otherwise.
     let target_id = get_policy(state, application_id).await?.s3_target_id;
@@ -399,52 +381,16 @@ async fn perform_backup(
     let bucket = crate::backup::s3::client(&s3_config)?;
     let stamp = Utc::now().format("%Y-%m-%dT%H-%M-%SZ");
     let s3_key = format!("databases/{application_id}/{stamp}.{}", engine.extension());
-    let size = dump_bytes.len() as i64;
-    let mut reader = std::io::Cursor::new(dump_bytes);
-    bucket
-        .put_object_stream(&mut reader, &s3_key)
-        .await
-        .map_err(|error| AppError::InternalError(format!("S3 upload failed: {error}")))?;
+
+    // The dump's stdout goes straight into the S3 upload, so neither the API
+    // nor the container's /tmp ever holds the whole dump.
+    let dump = runtime
+        .podman_stream(&exec_argv(&container, engine.dump_script()))
+        .await?;
+    let size =
+        crate::backup::stream::upload_stdout(&bucket, &s3_key, dump, DUMP_BUDGET, "Database dump")
+            .await?;
     Ok((size, s3_key))
-}
-
-/// `podman cp <container>:<path> -` streams a tar; unwrap its single member.
-fn extract_single_entry(tar_bytes: &[u8]) -> Result<Vec<u8>, AppError> {
-    let mut archive = Archive::new(tar_bytes);
-    for entry in archive
-        .entries()
-        .map_err(|e| AppError::InternalError(format!("Backup tar read failed: {e}")))?
-    {
-        let mut entry =
-            entry.map_err(|e| AppError::InternalError(format!("Backup tar entry failed: {e}")))?;
-        if entry.header().entry_type().is_file() {
-            let mut bytes = Vec::new();
-            entry
-                .read_to_end(&mut bytes)
-                .map_err(|e| AppError::InternalError(format!("Backup tar extract failed: {e}")))?;
-            return Ok(bytes);
-        }
-    }
-    Err(AppError::InternalError(
-        "The extracted dump archive contained no file".into(),
-    ))
-}
-
-/// Builds a single-member tar for `podman cp - container:/tmp` so the restore
-/// lands at the fixed `/tmp/litepod-db-restore` path inside the container.
-fn build_restore_tar(dump_bytes: &[u8]) -> Result<Vec<u8>, AppError> {
-    let mut builder = tar::Builder::new(Vec::new());
-    let mut header = tar::Header::new_gnu();
-    header.set_size(dump_bytes.len() as u64);
-    header.set_mode(0o600);
-    header.set_cksum();
-    builder
-        .append_data(&mut header, CONTAINER_RESTORE_NAME, dump_bytes)
-        .map_err(|e| AppError::InternalError(format!("Restore tar failed: {e}")))?;
-    let bytes = builder
-        .into_inner()
-        .map_err(|e| AppError::InternalError(format!("Restore tar finalize failed: {e}")))?;
-    Ok(bytes)
 }
 
 /// Deletes S3 objects + rows beyond the policy's retention window.
@@ -591,7 +537,7 @@ pub async fn restore_backup(
     }
     let conn = crate::git::repositories::db::get_conn(state).await;
     let row = sqlx::query(
-        "SELECT s3_key, s3_target_id FROM database_backups \
+        "SELECT s3_key, s3_target_id, size_bytes FROM database_backups \
          WHERE id = ?1 AND application_id = ?2 AND status = 'succeeded'",
     )
     .bind(backup_id)
@@ -602,12 +548,10 @@ pub async fn restore_backup(
     let Some(row) = row else {
         return Err(AppError::ResourceNotFound);
     };
-    let s3_key: String = row
-        .try_get(0)
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let s3_target_id: Option<String> = row
-        .try_get(1)
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let err = |e: sqlx::Error| AppError::DatabaseError(e.to_string());
+    let s3_key: String = row.try_get(0).map_err(err)?;
+    let s3_target_id: Option<String> = row.try_get(1).map_err(err)?;
+    let size_bytes: Option<i64> = row.try_get(2).map_err(err)?;
 
     // Restore from the exact destination the archive was uploaded to.
     let (organization_id, _) = app_org_context(state, application_id).await?;
@@ -615,54 +559,19 @@ pub async fn restore_backup(
         crate::backup::target::resolve_recorded(state, &organization_id, s3_target_id.as_deref())
             .await?;
     let bucket = crate::backup::s3::client(&s3_config)?;
-    let object = bucket
-        .get_object(&s3_key)
-        .await
-        .map_err(|error| AppError::InternalError(format!("S3 download failed: {error}")))?;
-    let dump_bytes = object.bytes().to_vec();
-    let tar_bytes = build_restore_tar(&dump_bytes)?;
+    let mut dump = crate::backup::stream::object_reader(&bucket, &s3_key).await?;
 
     let runtime =
         crate::servers::runtime::ServerRuntime::for_application(state, application_id).await?;
     let (container, _) = crate::deployment::identity(state, application_id).await?;
+    // S3 feeds the restore tool's stdin directly: nothing is staged in memory
+    // or in the container.
+    let restore = runtime
+        .podman_stream_with_stdin(&exec_stdin_argv(&container, engine.restore_script()))
+        .await?;
+    crate::backup::stream::feed_stdin(restore, &mut dump, DUMP_BUDGET, "Database restore").await?;
 
-    runtime
-        .podman_cp_to(
-            application_id,
-            &container,
-            CONTAINER_DUMP_DIR,
-            tar_bytes,
-            Duration::from_secs(300),
-        )
-        .await
-        .map_err(|error| {
-            AppError::InternalError(format!("Could not stage the restore file: {error}"))
-        })?;
-
-    runtime
-        .podman_with_timeout(&exec_argv(&container, engine.restore_script()), DUMP_BUDGET)
-        .await
-        .map_err(|error| {
-            AppError::InternalError(format!("Restore failed inside the container: {error}"))
-        })?;
-
-    let cleanup = exec_argv(
-        &container,
-        &format!("rm -f /tmp/{}", CONTAINER_RESTORE_NAME),
-    );
-    let _ = runtime
-        .podman_with_timeout(&cleanup, Duration::from_secs(30))
-        .await;
-
-    notify(
-        state,
-        application_id,
-        true,
-        triggered_by,
-        Some(dump_bytes.len() as i64),
-        None,
-    )
-    .await;
+    notify(state, application_id, true, triggered_by, size_bytes, None).await;
     Ok(())
 }
 
@@ -704,34 +613,6 @@ async fn notify(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn extract_single_entry_returns_the_only_file() {
-        let mut builder = tar::Builder::new(Vec::new());
-        let mut header = tar::Header::new_gnu();
-        header.set_size(4);
-        header.set_mode(0o644);
-        header.set_cksum();
-        builder
-            .append_data(&mut header, "litepod-db-backup", b"data".as_slice())
-            .unwrap();
-        let tar = builder.into_inner().unwrap();
-        assert_eq!(extract_single_entry(&tar).unwrap(), b"data");
-    }
-
-    #[test]
-    fn extract_single_entry_rejects_an_empty_tar() {
-        let mut builder = tar::Builder::new(Vec::new());
-        let tar = builder.into_inner().unwrap();
-        assert!(extract_single_entry(&tar).is_err());
-    }
-
-    #[test]
-    fn restore_tar_round_trips_through_extract() {
-        let dump: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
-        let tar = build_restore_tar(&dump).unwrap();
-        assert_eq!(extract_single_entry(&tar).unwrap(), dump);
-    }
 
     #[test]
     fn restore_is_gated_per_engine() {

@@ -367,6 +367,33 @@ pub fn database_backup(
     }
 }
 
+/// Fired when a managed volume backup run finishes or a restore completes.
+/// Shares the `database_backup` subscription: both are application backups.
+pub fn volume_backup(
+    organization_id: &str,
+    application_name: &str,
+    volume_name: &str,
+    operation: &str,
+    succeeded: bool,
+    triggered_by: &str,
+    size_bytes: Option<i64>,
+    error: Option<&str>,
+) -> Event {
+    let mut event = database_backup(
+        organization_id,
+        application_name,
+        "volume",
+        succeeded,
+        triggered_by,
+        size_bytes,
+        error,
+    );
+    event.payload.fields[0] = Field::new("Volume", format!("{volume_name} ({application_name})"));
+    let outcome = if succeeded { "completed" } else { "failed" };
+    event.payload.title = format!("Volume {operation} of {volume_name} {outcome}");
+    event
+}
+
 pub struct CleanupSummary {
     pub containers_freed: i64,
     pub containers_space: i64,

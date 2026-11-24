@@ -11,49 +11,40 @@ pub const MAX_LOG_LINE_BYTES: usize = 8 * 1024;
 /// text log viewer. This includes CSI colors/styles and OSC terminal metadata,
 /// without altering ordinary UTF-8 application output.
 pub fn strip_ansi_sequences(input: &str) -> String {
-    let bytes = input.as_bytes();
+    const ESCAPE: char = '\x1b';
     let mut output = String::with_capacity(input.len());
-    let mut index = 0;
+    // Walk whole characters, never byte positions, so any UTF-8 input is safe.
+    let mut chars = input.chars().peekable();
 
-    while index < bytes.len() {
-        if bytes[index] != 0x1b {
-            let character = input[index..]
-                .chars()
-                .next()
-                .expect("index is a UTF-8 boundary");
+    while let Some(character) = chars.next() {
+        if character != ESCAPE {
             output.push(character);
-            index += character.len_utf8();
             continue;
         }
 
-        index += 1;
-        match bytes.get(index) {
-            Some(b'[') => {
-                index += 1;
-                while index < bytes.len() {
-                    let byte = bytes[index];
-                    index += 1;
-                    if (0x40..=0x7e).contains(&byte) {
+        match chars.next() {
+            // CSI, e.g. `ESC[4m`: skip up to and including the final letter.
+            Some('[') => {
+                for character in chars.by_ref() {
+                    if ('\x40'..='\x7e').contains(&character) {
                         break;
                     }
                 }
             }
-            Some(b']') => {
-                index += 1;
-                while index < bytes.len() {
-                    if bytes[index] == 0x07 {
-                        index += 1;
+            // OSC, e.g. a window title: skip until BEL or `ESC\`.
+            Some(']') => {
+                while let Some(character) = chars.next() {
+                    if character == '\x07' {
                         break;
                     }
-                    if bytes[index] == 0x1b && bytes.get(index + 1) == Some(&b'\\') {
-                        index += 2;
+                    if character == ESCAPE && chars.peek() == Some(&'\\') {
+                        chars.next();
                         break;
                     }
-                    index += 1;
                 }
             }
-            Some(_) => index += 1,
-            None => {}
+            // Any other escape is two characters long; both are dropped.
+            _ => {}
         }
     }
 
@@ -122,19 +113,23 @@ impl LogFilter {
 /// messages such as `[worker] ...` are never reclassified.
 fn without_timestamp_prefix(line: &str) -> (&str, bool) {
     let trimmed = line.trim_start();
-    let Some(end) = trimmed.find(']') else {
-        return (trimmed, false);
+    let not_timestamped = (trimmed, false);
+
+    let Some(rest) = trimmed.strip_prefix('[') else {
+        return not_timestamped;
     };
-    let stamp = &trimmed[1..end];
-    if !trimmed.starts_with('[')
-        || stamp.is_empty()
-        || !stamp
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b':' | b'.'))
-    {
-        return (trimmed, false);
+    let Some((stamp, message)) = rest.split_once(']') else {
+        return not_timestamped;
+    };
+    let looks_like_clock = !stamp.is_empty()
+        && stamp
+            .chars()
+            .all(|character| character.is_ascii_digit() || character == ':' || character == '.');
+    if !looks_like_clock {
+        return not_timestamped;
     }
-    (trimmed[end + 1..].trim_start(), true)
+
+    (message.trim_start(), true)
 }
 
 fn is_package_manifest_download(line: &str) -> bool {
@@ -306,6 +301,14 @@ mod tests {
     }
 
     #[test]
+    fn keeps_lines_that_do_not_start_with_a_timestamp_bracket() {
+        let mut filter = LogFilter::default();
+        for line in ["◇ message]", "] message", "[]", "[worker] message"] {
+            assert_eq!(filter.filter(line), Some(line));
+        }
+    }
+
+    #[test]
     fn truncates_long_utf8_lines_at_a_character_boundary() {
         let line = format!("{}é", "x".repeat(super::MAX_LOG_LINE_BYTES));
         let output = super::truncate_line(&line);
@@ -319,5 +322,11 @@ mod tests {
             super::strip_ansi_sequences("\x1b[4m>>>> Executing compose <<<<\x1b[0m"),
             ">>>> Executing compose <<<<",
         );
+    }
+
+    #[test]
+    fn does_not_panic_on_multi_byte_characters_after_an_escape() {
+        assert_eq!(super::strip_ansi_sequences("\x1bé ◇ ok"), " ◇ ok");
+        assert_eq!(super::strip_ansi_sequences("\x1b[1m◇\x1b[0m done"), "◇ done");
     }
 }

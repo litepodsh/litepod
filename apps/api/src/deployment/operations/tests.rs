@@ -27,6 +27,8 @@ fn build_resource_limits_convert_cores_and_mib_to_podman_units() {
         has_git_credentials: false,
         source_upload: false,
         source_archive_bytes: None,
+        runtime_cpu_cores: None,
+        runtime_memory_mib: None,
         image_url: None,
         has_registry_credentials: false,
         restart_policy: "unless-stopped".into(),
@@ -65,6 +67,8 @@ fn resource_limits_add_extra_swap_to_memswap() {
         has_git_credentials: false,
         source_upload: false,
         source_archive_bytes: None,
+        runtime_cpu_cores: None,
+        runtime_memory_mib: None,
         image_url: None,
         has_registry_credentials: false,
         restart_policy: "unless-stopped".into(),
@@ -85,6 +89,58 @@ fn resource_limits_add_extra_swap_to_memswap() {
         resource_limits(&source).unwrap().unwrap().memswap_bytes,
         2048 * mib
     );
+}
+
+#[test]
+fn the_running_app_uses_its_own_limits_only_when_set() {
+    let mut source = SourceConfigDto {
+        deploy_type: "git".into(),
+        build_method: "docker".into(),
+        git_provider_id: None,
+        git_url: None,
+        git_branch: None,
+        dockerfile_path: None,
+        compose_file_path: None,
+        compose_public_service: None,
+        railpack_project_path: ".".into(),
+        railpack_start_command: None,
+        container_port: None,
+        auto_deploy: false,
+        watch_paths: None,
+        clean_build: false,
+        build_cpu_cores: Some(4.0),
+        build_memory_mib: Some(8192),
+        build_swap_mib: Some(1024),
+        has_git_credentials: false,
+        source_upload: false,
+        source_archive_bytes: None,
+        runtime_cpu_cores: None,
+        runtime_memory_mib: None,
+        image_url: None,
+        has_registry_credentials: false,
+        restart_policy: "unless-stopped".into(),
+    };
+    let mib = 1024 * 1024;
+    // No override: the build limits cover the running app too, as before.
+    assert_eq!(
+        runtime_resource_limits(&source).unwrap(),
+        resource_limits(&source).unwrap()
+    );
+
+    source.runtime_cpu_cores = Some(0.5);
+    source.runtime_memory_mib = Some(512);
+    let runtime = runtime_resource_limits(&source).unwrap().unwrap();
+    assert_eq!(runtime.cpu_quota_us, 50_000);
+    assert_eq!(runtime.memory_bytes, 512 * mib);
+    // The build's extra swap does not leak into the running app.
+    assert_eq!(runtime.memswap_bytes, 512 * mib);
+    assert_eq!(
+        resource_limits(&source).unwrap().unwrap().memory_bytes,
+        8192 * mib
+    );
+
+    source.runtime_memory_mib = None;
+    assert!(runtime_resource_limits(&source).is_err());
 }
 
 #[test]
@@ -110,6 +166,8 @@ fn resource_log_line_describes_limited_and_unlimited_deploys() {
         has_git_credentials: false,
         source_upload: false,
         source_archive_bytes: None,
+        runtime_cpu_cores: None,
+        runtime_memory_mib: None,
         image_url: None,
         has_registry_credentials: false,
         restart_policy: "unless-stopped".into(),

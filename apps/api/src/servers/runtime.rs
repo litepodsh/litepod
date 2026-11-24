@@ -275,10 +275,7 @@ impl ServerRuntime {
     }
 
     /// Reads a file out of a container as the tar stream produced by
-    /// `podman cp <container>:<path> -`. Byte-preserving on both placements —
-    /// local captures raw stdout, ssh routes through [`Self::remote_podman_bytes`]
-    /// — so binary database dumps survive intact. The caller unwraps the
-    /// single member.
+    /// `podman cp <container>:<path> -`. The caller unwraps the single member.
     pub async fn podman_cp_from(
         &self,
         container: &str,
@@ -286,7 +283,18 @@ impl ServerRuntime {
         budget: Duration,
     ) -> Result<Vec<u8>, AppError> {
         let source = format!("{container}:{path}");
-        let args = [OsString::from("cp"), source.into(), OsString::from("-")];
+        self.podman_bytes(&[OsString::from("cp"), source.into(), OsString::from("-")], budget)
+            .await
+    }
+
+    /// Raw Podman stdout. Byte-preserving on both placements — local captures
+    /// raw stdout, ssh routes through [`Self::remote_podman_bytes`] — so binary
+    /// archives (database dumps, `volume export` tars) survive intact.
+    pub async fn podman_bytes(
+        &self,
+        args: &[OsString],
+        budget: Duration,
+    ) -> Result<Vec<u8>, AppError> {
         match self {
             Self::Local { podman_socket } => {
                 let output = tokio::time::timeout(
@@ -294,34 +302,28 @@ impl ServerRuntime {
                     Command::new("podman")
                         .arg("--url")
                         .arg(podman_socket)
-                        .args(&args)
+                        .args(args)
                         .output(),
                 )
                 .await
-                .map_err(|_| AppError::ValidationError("Podman cp timed out".into()))?
+                .map_err(|_| AppError::ValidationError("Podman command timed out".into()))?
                 .map_err(|error| {
                     AppError::InternalError(format!("Could not start Podman: {error}"))
                 })?;
                 if !output.status.success() {
                     return Err(AppError::ValidationError(format!(
-                        "Podman cp failed: {}",
+                        "Podman command failed: {}",
                         clamp_tail(&String::from_utf8_lossy(&output.stderr), 500)
                     )));
                 }
                 Ok(output.stdout)
             }
-            Self::Ssh { .. } => {
-                let bytes = self.remote_podman_bytes(&args, budget).await?.stdout;
-                Ok(bytes)
-            }
+            Self::Ssh { .. } => Ok(self.remote_podman_bytes(args, budget).await?.stdout),
         }
     }
 
     /// Writes a tar stream *into* a container path (`podman cp - <container>:<path>`).
-    /// Local pipes the tar through stdin; ssh stages the tar on the remote host
-    /// (the application workspace) and `podman cp`s it in, then removes the
-    /// staging file. Used by database restore only.
-    #[allow(clippy::too_many_arguments)]
+    /// Used by database restore and the container file editor.
     pub async fn podman_cp_to(
         &self,
         application_id: &str,
@@ -331,14 +333,35 @@ impl ServerRuntime {
         budget: Duration,
     ) -> Result<(), AppError> {
         let destination = format!("{container}:{path}");
+        self.podman_with_tar(
+            application_id,
+            |source| vec![OsString::from("cp"), source, destination.clone().into()],
+            tar_bytes,
+            budget,
+        )
+        .await
+    }
+
+    /// Runs a Podman command that reads a tar from `source`, the argument
+    /// `args_for` places in its argv. Local passes `-` and pipes the tar through
+    /// stdin; ssh stages the tar in the application workspace on the remote host,
+    /// passes that path, then removes the staging file.
+    pub async fn podman_with_tar(
+        &self,
+        application_id: &str,
+        args_for: impl Fn(OsString) -> Vec<OsString>,
+        tar_bytes: Vec<u8>,
+        budget: Duration,
+    ) -> Result<(), AppError> {
         match self {
             Self::Local { podman_socket } => {
                 let mut child = Command::new("podman")
                     .arg("--url")
                     .arg(podman_socket)
-                    .args(["cp", "-"])
-                    .arg(&destination)
+                    .args(args_for(OsString::from("-")))
                     .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
                     .kill_on_drop(true)
                     .spawn()
                     .map_err(|error| {
@@ -347,18 +370,18 @@ impl ServerRuntime {
                 if let Some(mut stdin) = child.stdin.take() {
                     use tokio::io::AsyncWriteExt;
                     stdin.write_all(&tar_bytes).await.map_err(|error| {
-                        AppError::InternalError(format!("Could not pipe restore tar: {error}"))
+                        AppError::InternalError(format!("Could not pipe the tar to Podman: {error}"))
                     })?;
                 }
                 let output = tokio::time::timeout(budget, child.wait_with_output())
                     .await
-                    .map_err(|_| AppError::ValidationError("Podman cp timed out".into()))?
+                    .map_err(|_| AppError::ValidationError("Podman command timed out".into()))?
                     .map_err(|error| {
                         AppError::InternalError(format!("Could not start Podman: {error}"))
                     })?;
                 if !output.status.success() {
                     return Err(AppError::ValidationError(format!(
-                        "Podman cp failed: {}",
+                        "Podman command failed: {}",
                         clamp_tail(&String::from_utf8_lossy(&output.stderr), 500)
                     )));
                 }
@@ -371,10 +394,10 @@ impl ServerRuntime {
                 host_key_known_hosts,
                 ..
             } => {
-                let temp =
-                    std::env::temp_dir().join(format!("litepod-cp-{}.tar", uuid::Uuid::now_v7()));
+                let id = uuid::Uuid::now_v7();
+                let temp = std::env::temp_dir().join(format!("litepod-tar-{id}.tar"));
                 std::fs::write(&temp, tar_bytes).map_err(|error| {
-                    AppError::InternalError(format!("Could not stage restore tar: {error}"))
+                    AppError::InternalError(format!("Could not stage the tar: {error}"))
                 })?;
                 let result = async {
                     let workspace =
@@ -382,10 +405,10 @@ impl ServerRuntime {
                             .await?
                             .ok_or_else(|| {
                                 AppError::InternalError(
-                                    "Remote restore needs an application workspace".into(),
+                                    "Remote tar upload needs an application workspace".into(),
                                 )
                             })?;
-                    let staged = format!("{workspace}/litepod-db-restore.tar");
+                    let staged = format!("{workspace}/litepod-tar-{id}.tar");
                     SshExecutor::copy_file(
                         target,
                         private_key_encrypted,
@@ -395,15 +418,9 @@ impl ServerRuntime {
                         &staged,
                     )
                     .await?;
-                    self.podman_with_timeout(
-                        &[
-                            OsString::from("cp"),
-                            staged.clone().into(),
-                            destination.into(),
-                        ],
-                        budget,
-                    )
-                    .await?;
+                    let outcome = self
+                        .podman_with_timeout(&args_for(staged.clone().into()), budget)
+                        .await;
                     let cleanup = [OsString::from("rm"), OsString::from("-f"), staged.into()];
                     let _ = SshExecutor::run(
                         target,
@@ -413,7 +430,7 @@ impl ServerRuntime {
                         &cleanup,
                     )
                     .await;
-                    Ok::<(), AppError>(())
+                    outcome.map(|_| ())
                 }
                 .await;
                 let _ = std::fs::remove_file(&temp);
@@ -426,13 +443,26 @@ impl ServerRuntime {
     /// reads. Both placements return a child with a piped stdout so callers keep a
     /// single code path; dropping the returned value stops the command.
     pub async fn podman_stream(&self, args: &[OsString]) -> Result<SshStream, AppError> {
+        self.spawn_podman_stream(args, false).await
+    }
+
+    /// [`Self::podman_stream`] with a piped stdin: take it, write, drop it for EOF.
+    pub async fn podman_stream_with_stdin(&self, args: &[OsString]) -> Result<SshStream, AppError> {
+        self.spawn_podman_stream(args, true).await
+    }
+
+    async fn spawn_podman_stream(
+        &self,
+        args: &[OsString],
+        with_stdin: bool,
+    ) -> Result<SshStream, AppError> {
         match self {
             Self::Local { podman_socket } => {
                 let child = Command::new("podman")
                     .arg("--url")
                     .arg(podman_socket)
                     .args(args)
-                    .stdin(std::process::Stdio::null())
+                    .stdin(crate::servers::ssh::stdin_mode(with_stdin))
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
                     .kill_on_drop(true)
@@ -451,12 +481,13 @@ impl ServerRuntime {
                 ..
             } => {
                 let command = Self::remote_podman_argv(*podman_mode, target, args);
-                SshExecutor::stream_command(
+                SshExecutor::spawn_stream(
                     target,
                     private_key_encrypted,
                     host_key_fingerprint,
                     Some(host_key_known_hosts),
                     &command,
+                    with_stdin,
                 )
                 .await
             }

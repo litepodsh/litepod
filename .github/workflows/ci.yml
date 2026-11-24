@@ -49,7 +49,12 @@ jobs:
           workspaces: apps/api
 
       - name: cargo build
-        run: cargo build --locked --features saml
+        # A restored cache can hold a half-published target/duckdb-sources/<key>
+        # (no .complete marker); libduckdb-sys then fails to rename over it with
+        # ENOTEMPTY. Unpacking again costs seconds.
+        run: |
+          rm -rf target/duckdb-sources
+          cargo build --locked --features saml
 
       - uses: taiki-e/install-action@v2
         with:

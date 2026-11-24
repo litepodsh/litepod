@@ -523,6 +523,10 @@ pub struct SourceConfigDto {
     /// Extra swap, expressed in MiB, allowed on top of `build_memory_mib`.
     /// `None` or `0` means no extra swap.
     pub build_swap_mib: Option<i64>,
+    /// Limits for the running container/service only. `None` uses the build limits
+    /// for both, so they only need setting when the two must differ.
+    pub runtime_cpu_cores: Option<f64>,
+    pub runtime_memory_mib: Option<i64>,
     /// Whether credentials embedded in a pasted git URL (no saved provider) are on
     /// file for this application. The secret itself never leaves the backend.
     pub has_git_credentials: bool,
@@ -574,9 +578,40 @@ pub struct DeployRequest {
     pub clean_build: Option<bool>,
 }
 
+/// Both `None` drops the override, so the running app uses the build limits again.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetRuntimeLimitsRequest {
+    pub runtime_cpu_cores: Option<f64>,
+    pub runtime_memory_mib: Option<i64>,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetCleanBuildRequest {
     pub clean_build: bool,
+}
+
+/// Where a Git application builds when it is not the server that runs it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct BuildServerDto {
+    /// `None` builds on the server that runs the application.
+    pub build_server_id: Option<String>,
+    /// Registry repository the build server pushes to, e.g. `registry.example.com/team/app`.
+    /// Its login comes from the organization's registry credentials for that host.
+    pub image_repository: Option<String>,
+    /// `transfer` copies the image straight to the server that runs the application;
+    /// `registry` pushes it to `image_repository` and pulls it from there by digest.
+    pub delivery: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateBuildServerRequest {
+    /// `None` or empty clears the build server, so the application builds where it runs.
+    pub build_server_id: Option<String>,
+    /// `transfer` (default) or `registry`.
+    #[serde(default)]
+    pub delivery: Option<String>,
+    /// Required for `registry` delivery only.
+    pub image_repository: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -593,6 +628,8 @@ pub struct VolumeDto {
 pub struct ManagedVolumeDto {
     pub id: String,
     pub name: String,
+    /// The Podman volume behind it; what backups are keyed by.
+    pub podman_name: String,
     pub mount_path: String,
     pub compose_service: Option<String>,
     pub attached: bool,

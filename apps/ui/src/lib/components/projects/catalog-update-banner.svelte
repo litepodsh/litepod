@@ -36,6 +36,8 @@
 	let busy = $state(false);
 	let replaceCompose = $state(true);
 	let addEnv = $state(true);
+	/** Diff lines the user turned down; applied lines are the rest. */
+	let skipped = $state<number[]>([]);
 
 	const composeChanged = $derived(update?.compose.status !== 'unchanged');
 	const customized = $derived(update?.compose.status === 'customized');
@@ -51,6 +53,7 @@
 				update = result;
 				replaceCompose = result?.compose.status === 'clean';
 				addEnv = true;
+				skipped = [];
 			})
 			.catch(() => {
 				if (active) update = null;
@@ -68,6 +71,7 @@
 				version: update.latest_version,
 				compose: replaceCompose && composeChanged ? 'replace' : 'keep',
 				add_env: addEnv,
+				skip: skipped,
 			});
 			open = false;
 			toast.success(t('projects.catalog_update.applied'));
@@ -77,6 +81,10 @@
 		} finally {
 			busy = false;
 		}
+	}
+
+	function toggleLine(index: number, apply: boolean) {
+		skipped = apply ? skipped.filter((value) => value !== index) : [...skipped, index];
 	}
 
 	async function ignore() {
@@ -206,19 +214,39 @@
 							</Alert.Description>
 						</Alert.Root>
 					{/if}
-					<pre
-						class="bg-muted max-h-80 overflow-auto rounded-lg p-3 font-mono text-xs leading-relaxed">{#each update.compose.diff as line, index (index)}<span
-								class={line.tag === 'insert'
-									? 'bg-success/15 text-success block'
-									: line.tag === 'delete'
-										? 'bg-destructive/15 text-destructive block'
-										: 'text-muted-foreground block'}
-								>{line.tag === 'insert'
-									? '+ '
-									: line.tag === 'delete'
-										? '- '
-										: '  '}{line.text}</span
-							>{/each}</pre>
+					{#if replaceCompose && canUpdate}
+						<p class="text-muted-foreground text-xs">{t('projects.catalog_update.pick_lines')}</p>
+					{/if}
+					<div class="bg-muted max-h-80 overflow-auto rounded-lg p-3 font-mono text-xs leading-relaxed">
+						{#each update.compose.diff as line, index (index)}
+							{@const changed = line.tag !== 'equal'}
+							{@const applied = !skipped.includes(index)}
+							<label
+								class={[
+									'flex items-start gap-2',
+									line.tag === 'insert' && 'bg-success/15 text-success',
+									line.tag === 'delete' && 'bg-destructive/15 text-destructive',
+									!changed && 'text-muted-foreground',
+									changed && replaceCompose && !applied && 'line-through opacity-50',
+								]}
+							>
+								{#if changed && replaceCompose && canUpdate}
+									<input
+										type="checkbox"
+										class="mt-0.5"
+										checked={applied}
+										aria-label={t('projects.catalog_update.apply_line')}
+										onchange={(event) => toggleLine(index, event.currentTarget.checked)}
+									/>
+								{:else if replaceCompose && canUpdate}
+									<span class="w-3.25 shrink-0"></span>
+								{/if}
+								<span class="whitespace-pre"
+									>{line.tag === 'insert' ? '+ ' : line.tag === 'delete' ? '- ' : '  '}{line.text}</span
+								>
+							</label>
+						{/each}
+					</div>
 					<Label class="flex items-center gap-2">
 						<input type="checkbox" bind:checked={replaceCompose} disabled={!canUpdate} />
 						{customized

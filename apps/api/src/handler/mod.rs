@@ -16,6 +16,7 @@ pub mod container_files;
 pub mod containers;
 pub mod dashboard;
 pub mod database_backup;
+pub mod volume_backup;
 pub mod debug;
 pub mod deployments;
 pub mod git_providers;
@@ -46,5 +47,6 @@ pub mod templates;
 pub mod terminal_sessions;
 pub mod users;
 pub mod webhooks;
+pub mod workspace_download;
 
 pub mod certificates;

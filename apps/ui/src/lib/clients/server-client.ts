@@ -2,6 +2,8 @@ import { api } from './base-client';
 
 export type IngressMode = 'central' | 'public_edge' | 'private_relay' | 'private_only';
 export type PodmanMode = 'rootless' | 'rootful';
+/** `build` servers only build images for build servers; no application runs on them. */
+export type ServerRole = 'deploy' | 'build';
 export type ServerState =
 	| 'needs_verification'
 	| 'needs_setup'
@@ -58,6 +60,7 @@ export type Server = {
 	assigned_application_count: number;
 	/** `null` is the instance-wide local server; anything else is owned by that organization. */
 	organization_id: string | null;
+	role: ServerRole;
 	facts: {
 		os: string | null;
 		version: string | null;
@@ -169,6 +172,7 @@ export type CreateServerInput = {
 	podman_mode: PodmanMode;
 	public_address?: string;
 	credential: { kind: 'generate' } | { kind: 'import'; private_key: string };
+	role: ServerRole;
 };
 
 /** Keeps registration payload construction testable and avoids UI-specific defaults. */
@@ -403,4 +407,36 @@ export async function testDeployServer(
 }
 export async function listServerJobs(organizationId: string, id: string): Promise<ServerJob[]> {
 	return (await api<ServerJob[]>(path(organizationId, id, '/jobs'))).data ?? [];
+}
+
+/** A registry login saved once for the organization; the password never comes back. */
+export type RegistryCredential = {
+	id: string;
+	registry: string;
+	username: string;
+	updated_at: number;
+};
+
+const registries = (organizationId: string) =>
+	`/api/v1/organizations/${encodeURIComponent(organizationId)}/registry-credentials`;
+
+export async function listRegistryCredentials(
+	organizationId: string,
+): Promise<RegistryCredential[]> {
+	return (await api<RegistryCredential[]>(registries(organizationId))).data ?? [];
+}
+/** Saving a registry that already has a login replaces it. */
+export async function saveRegistryCredential(
+	organizationId: string,
+	input: { registry: string; username: string; password: string },
+): Promise<RegistryCredential> {
+	return (
+		await api<RegistryCredential>(registries(organizationId), {
+			method: 'POST',
+			body: JSON.stringify(input),
+		})
+	).data!;
+}
+export async function deleteRegistryCredential(organizationId: string, id: string): Promise<void> {
+	await api(`${registries(organizationId)}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

@@ -43,6 +43,8 @@ pub struct ServerRecord {
     pub geo_timezone: Option<String>,
     /// Epoch millis of the last lookup attempt, successful or not.
     pub geo_resolved_at: Option<i64>,
+    /// `deploy` runs applications; `build` only builds images for build servers.
+    pub role: String,
 }
 
 #[derive(Debug, Clone)]
@@ -139,12 +141,15 @@ fn row(record: &sqlx::sqlite::SqliteRow) -> Result<ServerRecord, AppError> {
         geo_resolved_at: record
             .try_get(23)
             .map_err(|error| AppError::DatabaseError(error.to_string()))?,
+        role: record
+            .try_get(24)
+            .map_err(|error| AppError::DatabaseError(error.to_string()))?,
     })
 }
 
 /// Column order is the contract with `row`, which reads by index. New columns
 /// go at the end so every existing index keeps pointing at the same column.
-const SELECT: &str = "id, kind, name, ssh_host, ssh_port, ssh_user, host_key_fingerprint, host_key_known_hosts, private_key_encrypted, ingress_mode, state, public_address, facts_json, last_error_code, last_error_message, podman_mode, organization_id, latitude, longitude, geo_city, geo_country, geo_asn, geo_timezone, geo_resolved_at";
+const SELECT: &str = "id, kind, name, ssh_host, ssh_port, ssh_user, host_key_fingerprint, host_key_known_hosts, private_key_encrypted, ingress_mode, state, public_address, facts_json, last_error_code, last_error_message, podman_mode, organization_id, latitude, longitude, geo_city, geo_country, geo_asn, geo_timezone, geo_resolved_at, role";
 
 /// Every server an organization may use: the ones it owns, plus the shared
 /// `local` server of a self-hosted install (`organization_id IS NULL`).
@@ -246,6 +251,7 @@ pub async fn mark_checked(state: &SharedState, id: &str) -> Result<(), AppError>
     Ok(())
 }
 
+/// Where an application can be placed: ready servers, never a build-only one.
 pub async fn list_ready_for_organization(
     state: &SharedState,
     organization_id: &str,
@@ -257,7 +263,7 @@ pub async fn list_ready_for_organization(
         " AND kind = 'ssh'"
     };
     let sql = format!(
-        "SELECT {SELECT} FROM servers WHERE state = 'ready' AND {OWNED_BY}{filter} ORDER BY kind, name"
+        "SELECT {SELECT} FROM servers WHERE state = 'ready' AND role = 'deploy' AND {OWNED_BY}{filter} ORDER BY kind, name"
     );
     let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(organization_id)
@@ -318,6 +324,7 @@ pub async fn insert_pending(
     ingress_mode: IngressMode,
     podman_mode: PodmanMode,
     public_address: Option<&str>,
+    role: &str,
 ) -> Result<ServerRecord, AppError> {
     // SQLite cannot express "kind='ssh' implies organization_id IS NOT NULL" as
     // a CHECK added by ALTER, so the invariant is enforced at the only place
@@ -330,7 +337,7 @@ pub async fn insert_pending(
     let now = Utc::now().timestamp_millis();
     let conn = crate::git::repositories::db::get_conn(state).await;
     sqlx::query(
-        "INSERT INTO servers (id, kind, name, ssh_host, ssh_port, ssh_user, private_key_encrypted, ingress_mode, podman_mode, state, public_address, organization_id, created_at, updated_at) VALUES (?1, 'ssh', ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'needs_verification', ?9, ?10, ?11, ?11)",
+        "INSERT INTO servers (id, kind, name, ssh_host, ssh_port, ssh_user, private_key_encrypted, ingress_mode, podman_mode, state, public_address, organization_id, created_at, updated_at, role) VALUES (?1, 'ssh', ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'needs_verification', ?9, ?10, ?11, ?11, ?12)",
     )
     .bind(id)
     .bind(name)
@@ -343,6 +350,7 @@ pub async fn insert_pending(
     .bind(public_address)
     .bind(organization_id)
     .bind(now)
+    .bind(role)
     .execute(&conn)
     .await
     .map_err(|error| {

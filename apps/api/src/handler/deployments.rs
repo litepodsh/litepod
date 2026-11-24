@@ -66,6 +66,9 @@ type WorkspacePath = (String, String, String, String, String);
 #[derive(serde::Deserialize)]
 pub struct WorkspacePathQuery {
     pub path: String,
+    /// Show a previewable file in the browser instead of downloading it.
+    #[serde(default)]
+    pub inline: bool,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -855,10 +858,14 @@ pub async fn upload_source_archive_handler(
             "Upload field must be named archive".into(),
         ));
     }
-    let bytes = field
-        .bytes()
-        .await
-        .map_err(|e| AppError::ValidationError(format!("Could not read upload: {e}")))?;
+    let bytes = field.bytes().await.map_err(|e| {
+        // The route's body limit trips here; axum would only say the form is malformed.
+        if e.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
+            AppError::ValidationError(deployment::source_archive::TOO_LARGE.into())
+        } else {
+            AppError::ValidationError(format!("Could not read upload: {e}"))
+        }
+    })?;
     deployment::source_archive::store(&state, &app.application_id, &bytes).await?;
     Ok(created(
         deployment::source::get(&state, &app.application_id).await?,
@@ -1127,6 +1134,45 @@ pub async fn set_clean_build_handler(
         &state,
         &application_id,
         request.clean_build,
+    )
+    .await?))
+}
+
+pub async fn set_runtime_limits_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    Json(request): Json<SetRuntimeLimitsRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(deployment::source::set_runtime_limits(
+        &state,
+        &app.application_id,
+        request.runtime_cpu_cores,
+        request.runtime_memory_mib,
+    )
+    .await?))
+}
+
+pub async fn get_build_server_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppRead>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(deployment::git::build_server::get(
+        &state,
+        &app.application_id,
+    )
+    .await?))
+}
+
+pub async fn save_build_server_handler(
+    State(state): State<SharedState>,
+    RequireApp(app, _): RequireApp<perm::AppUpdate>,
+    Json(request): Json<UpdateBuildServerRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ok(deployment::git::build_server::save(
+        &state,
+        &app.organization_id,
+        &app.application_id,
+        request,
     )
     .await?))
 }
@@ -1405,24 +1451,7 @@ pub async fn managed_workspace_download_handler(
         &query.path,
     )
     .await?;
-    let filename = std::path::Path::new(&query.path)
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
-    let mut response = Response::new(axum::body::Body::from(bytes));
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_str(
-            &mime.unwrap_or_else(|| "application/octet-stream".into()),
-        )
-        .map_err(|error| AppError::InternalError(error.to_string()))?,
-    );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        axum::http::HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
-            .map_err(|error| AppError::InternalError(error.to_string()))?,
-    );
-    Ok(response)
+    crate::handler::workspace_download::file_response(bytes, mime, &query.path, query.inline)
 }
 
 pub async fn workspace_list_handler(
@@ -1531,24 +1560,7 @@ pub async fn workspace_download_handler(
         &query.path,
     )
     .await?;
-    let filename = std::path::Path::new(&query.path)
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
-    let mut response = Response::new(axum::body::Body::from(bytes));
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_str(
-            &mime.unwrap_or_else(|| "application/octet-stream".into()),
-        )
-        .map_err(|error| AppError::InternalError(error.to_string()))?,
-    );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        axum::http::HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
-            .map_err(|error| AppError::InternalError(error.to_string()))?,
-    );
-    Ok(response)
+    crate::handler::workspace_download::file_response(bytes, mime, &query.path, query.inline)
 }
 
 /// Podman with .timestamps(true) prepends each line with RFC3339Nano + space.

@@ -70,7 +70,7 @@ pub struct WorkspaceListing {
     pub logs: Vec<String>,
 }
 
-const HELPER_IMAGE: &str = "docker.io/library/alpine:3.21";
+pub(crate) const HELPER_IMAGE: &str = "docker.io/library/alpine:3.21";
 
 struct HelperLifecycleTiming {
     image_preparation_ms: u64,
@@ -192,8 +192,20 @@ pub fn mime(path: &Path) -> Option<String> {
         "png" => Some("image/png"),
         "jpg" | "jpeg" => Some("image/jpeg"),
         "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "avif" => Some("image/avif"),
+        "bmp" => Some("image/bmp"),
+        "ico" => Some("image/x-icon"),
         "svg" => Some("image/svg+xml"),
         "pdf" => Some("application/pdf"),
+        "mp3" => Some("audio/mpeg"),
+        "wav" => Some("audio/wav"),
+        "ogg" | "oga" | "opus" => Some("audio/ogg"),
+        "m4a" => Some("audio/mp4"),
+        "flac" => Some("audio/flac"),
+        "mp4" | "m4v" => Some("video/mp4"),
+        "webm" => Some("video/webm"),
+        "ogv" => Some("video/ogg"),
         _ => None,
     }
     .map(str::to_owned)
@@ -720,7 +732,7 @@ async fn list_named_volume_entries(
     Ok(WorkspaceListing { entries, logs })
 }
 
-fn remote_volume_mount(volume: &str) -> Result<OsString, AppError> {
+pub(crate) fn remote_volume_mount(volume: &str) -> Result<OsString, AppError> {
     if volume.is_empty()
         || volume.contains(|character: char| {
             character.is_whitespace() || matches!(character, ':' | '/' | '\\' | '\0')

@@ -35,7 +35,7 @@ use crate::{
         github_app, icons, invitations, maintenance, maintenance_site, mcp, notifications, oauth,
         onboarding, organization_apps, organizations, permissions, personal_access_tokens,
         podman_console, projects, runtime, scheduled_tasks, security_events, server_groups,
-        servers, sessions, settings, system, templates, users, webhooks,
+        servers, sessions, settings, system, templates, users, volume_backup, webhooks,
     },
     podman::terminal,
 };
@@ -382,6 +382,8 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/server-groups/{group_id}", get(server_groups::get_handler).patch(server_groups::update_handler).delete(server_groups::delete_handler))
         .route("/api/v1/organizations/{organization_id}/server-groups/{group_id}/servers", get(server_groups::list_members_handler).put(server_groups::replace_members_handler))
         .route("/api/v1/organizations/{organization_id}/servers", get(servers::list_handler).post(servers::create_handler))
+        .route("/api/v1/organizations/{organization_id}/registry-credentials", get(servers::list_registry_credentials_handler).post(servers::save_registry_credential_handler))
+        .route("/api/v1/organizations/{organization_id}/registry-credentials/{credential_id}", axum::routing::delete(servers::delete_registry_credential_handler))
         .route("/api/v1/organizations/{organization_id}/servers/remote-capacity", get(servers::remote_capacity_handler))
         .route("/api/v1/organizations/{organization_id}/servers/available", get(servers::available_handler))
         .route("/api/v1/organizations/{organization_id}/servers/geo", get(servers::geo_handler))
@@ -464,9 +466,11 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/settings/telemetry", get(crate::telemetry::get_handler).patch(crate::telemetry::update_handler))
         .route("/api/v1/settings/infrastructure/{target}/restart", post(settings::restart_infrastructure_handler))
         .route("/api/v1/settings/backup/s3-config", get(backup::get_s3_config_handler).put(backup::update_s3_config_handler))
+        .route("/api/v1/settings/backup/s3-config/test", post(backup::test_s3_config_handler))
         .route("/api/v1/organizations/{organization_id}/backup-targets", get(backup::list_s3_targets_handler).post(backup::create_s3_target_handler))
         .route("/api/v1/organizations/{organization_id}/backup-targets/meta", get(backup::list_s3_target_meta_handler))
         .route("/api/v1/organizations/{organization_id}/backup-targets/{target_id}", put(backup::update_s3_target_handler).delete(backup::delete_s3_target_handler))
+        .route("/api/v1/organizations/{organization_id}/backup-targets/{target_id}/test", post(backup::test_s3_target_handler))
         .route("/api/v1/maintenance/backup/history", get(backup::list_backup_history_handler))
         .route("/api/v1/maintenance/backup/run", post(backup::trigger_backup_handler))
         .route("/api/v1/maintenance/backup/{id}/restore", post(backup::trigger_restore_handler))
@@ -884,6 +888,14 @@ pub fn create_router(state: SharedState) -> Router {
             axum::routing::patch(deployments::set_clean_build_handler),
         )
         .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/source/runtime-limits",
+            axum::routing::patch(deployments::set_runtime_limits_handler),
+        )
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/source/build-server",
+            get(deployments::get_build_server_handler).put(deployments::save_build_server_handler),
+        )
+        .route(
             "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/deployment-runs",
             get(deployments::list_deployment_runs_handler).delete(deployments::delete_deployment_runs_handler),
         )
@@ -1082,6 +1094,20 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}/attach", post(deployments::attach_managed_volume_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}/detach", post(deployments::detach_managed_volume_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/managed-volumes/{volume_id}", delete(deployments::delete_managed_volume_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backup-groups", get(volume_backup::list_app_runs_handler).post(volume_backup::run_app_backup_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backup-groups/{group_id}/restore", post(volume_backup::restore_app_run_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-restores/s3-files", get(volume_backup::list_s3_tars_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-restores/s3", post(volume_backup::restore_from_s3_handler))
+        // shortcut: the .tar is buffered in memory (as backups are); stream it to
+        // disk if volumes over this cap need restoring.
+        .route(
+            "/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-restores/upload",
+            post(volume_backup::restore_from_upload_handler)
+                .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 1024)),
+        )
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backups/{volume_name}/policy", get(volume_backup::get_policy_handler).put(volume_backup::update_policy_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backups/{volume_name}/{backup_id}", delete(volume_backup::delete_backup_handler))
+        .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/volume-backups/{volume_name}/{backup_id}/restore", post(volume_backup::restore_backup_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/containers/{container_id}/files", get(crate::handler::container_files::list_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/containers/{container_id}/files/file", get(crate::handler::container_files::read_handler).put(crate::handler::container_files::save_handler))
         .route("/api/v1/organizations/{organization_id}/projects/{project_id}/environments/{environment_id}/applications/{application_id}/containers/{container_id}/files/download", get(crate::handler::container_files::download_handler))

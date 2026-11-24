@@ -19,11 +19,10 @@ pub(crate) const BUILD_CPU_PERIOD_US: isize = 100_000;
 pub(super) const BYTES_PER_MIB: u64 = 1024 * 1024;
 
 /// Podman's build and container APIs use different option shapes, so normalize
-/// the persisted human units once before handing them to either backend. This
-/// single limit is applied to both the build step and the running
-/// container/service — there used to be a separate `runtime_*` pair, but
-/// nothing needed them to differ and it doubled every code path (and config
-/// form) that touched resource limits.
+/// the persisted human units once before handing them to either backend. The
+/// `build_*` limit applies to the build and, unless the application sets its own
+/// `runtime_*` pair, to the running container/service too. The override exists
+/// because a build server can build somewhere much bigger than where it runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ResourceLimits {
     pub cpu_quota_us: isize,
@@ -31,8 +30,31 @@ pub(crate) struct ResourceLimits {
     pub memswap_bytes: usize,
 }
 
+/// Limits for the build step.
 pub(crate) fn resource_limits(source: &SourceConfigDto) -> Result<Option<ResourceLimits>, String> {
-    let (cpu, memory_mib) = match (source.build_cpu_cores, source.build_memory_mib) {
+    limits(
+        source.build_cpu_cores,
+        source.build_memory_mib,
+        source.build_swap_mib,
+    )
+}
+
+/// Limits for the running container/service: its own pair when set, else the build ones.
+pub(crate) fn runtime_resource_limits(
+    source: &SourceConfigDto,
+) -> Result<Option<ResourceLimits>, String> {
+    if source.runtime_cpu_cores.is_none() && source.runtime_memory_mib.is_none() {
+        return resource_limits(source);
+    }
+    limits(source.runtime_cpu_cores, source.runtime_memory_mib, None)
+}
+
+fn limits(
+    cpu: Option<f64>,
+    memory_mib: Option<i64>,
+    swap_mib: Option<i64>,
+) -> Result<Option<ResourceLimits>, String> {
+    let (cpu, memory_mib) = match (cpu, memory_mib) {
         (None, None) => return Ok(None),
         (Some(cpu), Some(memory_mib)) => (cpu, memory_mib),
         _ => return Err("Resource limits must include both CPU and memory".into()),
@@ -49,7 +71,7 @@ pub(crate) fn resource_limits(source: &SourceConfigDto) -> Result<Option<Resourc
         .and_then(|mib| mib.checked_mul(BYTES_PER_MIB))
         .and_then(|bytes| usize::try_from(bytes).ok())
         .ok_or_else(|| "Memory limit is too large".to_string())?;
-    let swap_extra_bytes = u64::try_from(source.build_swap_mib.unwrap_or(0).max(0))
+    let swap_extra_bytes = u64::try_from(swap_mib.unwrap_or(0).max(0))
         .ok()
         .and_then(|mib| mib.checked_mul(BYTES_PER_MIB))
         .ok_or_else(|| "Swap limit is too large".to_string())?;
@@ -64,7 +86,7 @@ pub(crate) fn resource_limits(source: &SourceConfigDto) -> Result<Option<Resourc
 }
 
 pub(crate) fn resource_log_line(source: &SourceConfigDto) -> String {
-    match (source.build_cpu_cores, source.build_memory_mib) {
+    let line = match (source.build_cpu_cores, source.build_memory_mib) {
         (Some(cpu), Some(memory_mib)) => {
             let swap = source.build_swap_mib.unwrap_or(0).max(0);
             if swap > 0 {
@@ -76,6 +98,12 @@ pub(crate) fn resource_log_line(source: &SourceConfigDto) -> String {
             }
         }
         _ => "Resources: no CPU/RAM limit configured".into(),
+    };
+    match (source.runtime_cpu_cores, source.runtime_memory_mib) {
+        (Some(cpu), Some(memory_mib)) => {
+            format!("{line}; the running app: {cpu} CPU cores and {memory_mib} MiB RAM")
+        }
+        _ => line,
     }
 }
 
@@ -120,7 +148,7 @@ pub(crate) fn with_resource_limits(
     mut builder: ContainerCreateOptsBuilder,
     source: &SourceConfigDto,
 ) -> Result<ContainerCreateOptsBuilder, String> {
-    if let Some(limits) = resource_limits(source)? {
+    if let Some(limits) = runtime_resource_limits(source)? {
         let memory = i64::try_from(limits.memory_bytes)
             .map_err(|_| "Memory limit is too large".to_string())?;
         let memswap = i64::try_from(limits.memswap_bytes)

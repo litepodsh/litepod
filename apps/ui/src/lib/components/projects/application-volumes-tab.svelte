@@ -5,18 +5,25 @@
 	import VolumeFileWorkspace from '#lib/components/volumes/volume-file-workspace.svelte';
 	import ManagedVolumeFormDialog from '#lib/components/projects/managed-volume-form-dialog.svelte';
 	import ManagedVolumeDeleteDialog from '#lib/components/projects/managed-volume-delete-dialog.svelte';
+	import VolumeBackupsPanel from '#lib/components/projects/volume-backups-panel.svelte';
 	import CopyButton from '#lib/components/custom/copy-button.svelte';
 	import SkeletonRows from '#lib/components/custom/skeleton-rows.svelte';
-	import type {
-		CreateManagedVolumeInput,
-		ManagedVolumeDto,
-		VolumeDto,
+	import {
+		volumeLabel,
+		type CreateManagedVolumeInput,
+		type ManagedVolumeDto,
+		type VolumeBackupClient,
+		type VolumeDto,
+		type VolumeRestores,
+		type AppVolumeBackups,
 	} from '#lib/clients/project-client.js';
 	import type { WorkspaceClient } from '#lib/clients/volume-workspace-client.js';
 	import { toast } from '#lib/utils/toast.js';
 	import { t } from '#lib/i18n/index.svelte.js';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+	import LoaderIcon from '@lucide/svelte/icons/loader-circle';
+	import ArchiveIcon from '@lucide/svelte/icons/archive';
 
 	let {
 		volumes = [],
@@ -32,6 +39,10 @@
 		onDeleteManagedVolume,
 		workspaceFor,
 		managedWorkspaceFor,
+		organizationId,
+		backupsFor,
+		restores,
+		appBackups,
 	}: {
 		volumes?: VolumeDto[];
 		managedVolumes?: ManagedVolumeDto[];
@@ -47,12 +58,38 @@
 		onDeleteManagedVolume: (volumeId: string) => Promise<void>;
 		workspaceFor: (source: string) => WorkspaceClient;
 		managedWorkspaceFor: (volumeId: string) => WorkspaceClient;
+		organizationId: string;
+		/** Backups of a named volume, by its Podman name. */
+		backupsFor: (volumeName: string) => VolumeBackupClient;
+		restores: VolumeRestores;
+		appBackups: AppVolumeBackups;
 	} = $props();
 
 	let selectedSource = $state<string | null>(null);
 	let selectedManagedVolumeId = $state<string | null>(null);
 	let addDialogOpen = $state(false);
+	/** "Add volume" opened from Backups → Import: create it from a `.tar`. */
+	let importing = $state(false);
 	let deleteVolume = $state<ManagedVolumeDto | null>(null);
+	let backupPanel = $state<ReturnType<typeof VolumeBackupsPanel>>();
+	/** Volumes with a backup starting or running (their button spins). */
+	let backingUp = $state<string[]>([]);
+	let canBackUp = $state(false);
+	let needsDestination = $state(false);
+	/** Everything that can be backed up: live named volumes and managed volumes. */
+	const backupVolumes = $derived([
+		...new Set([
+			...volumes.filter((volume) => volume.mount_type === 'volume').map((volume) => volume.source),
+			...managedVolumes.map((volume) => volume.podman_name),
+		]),
+	]);
+
+	function backupLabel(volumeName: string) {
+		return (
+			managedVolumes.find((volume) => volume.podman_name === volumeName)?.name ??
+			volumeLabel(volumeName)
+		);
+	}
 	let selectedManagedVolume = $derived(
 		managedVolumes.find((volume) => volume.id === selectedManagedVolumeId) ?? null,
 	);
@@ -65,6 +102,36 @@
 		}
 	}
 </script>
+
+{#snippet backupButton(volumeName: string)}
+	{@const busy = backingUp.includes(volumeName)}
+	{#if needsDestination}
+		<!-- No destination yet: the button explains why on hover and opens the setup on click. -->
+		<Tooltip.Root delayDuration={100}>
+			<Tooltip.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						size="sm"
+						variant="outline"
+						class="text-muted-foreground"
+						onclick={() => backupPanel?.addDestination()}
+						><ArchiveIcon />{t('projects.volume_backup.back_up')}</Button>
+				{/snippet}
+			</Tooltip.Trigger>
+			<Tooltip.Content class="max-w-64">{t('projects.volume_backup.no_destination_short')}</Tooltip.Content>
+		</Tooltip.Root>
+	{:else}
+		<Button
+			size="sm"
+			variant="outline"
+			disabled={!canBackUp || busy}
+			onclick={() => void backupPanel?.backUp(volumeName)}>
+			{#if busy}<LoaderIcon class="animate-spin" />{t('projects.volume_backup.running')}{:else}<ArchiveIcon
+				/>{t('projects.volume_backup.back_up')}{/if}
+		</Button>
+	{/if}
+{/snippet}
 
 {#snippet mountPath(path: string)}
 	<Tooltip.Root delayDuration={200}>
@@ -95,7 +162,11 @@
 				><RefreshCwIcon class={busy ? 'animate-spin' : ''} />{t(
 					'projects.application_volumes.refresh',
 				)}</Button>
-			<Button onclick={() => (addDialogOpen = true)}><PlusIcon />{t('projects.volume.add')}</Button>
+			<Button
+				onclick={() => {
+					importing = false;
+					addDialogOpen = true;
+				}}><PlusIcon />{t('projects.volume.add')}</Button>
 		</div>
 	</div>
 
@@ -130,6 +201,7 @@
 							variant="outline"
 							onclick={() => (selectedManagedVolumeId = volume.id)}
 							>{t('projects.application_volumes.manage_files')}</Button>
+						{@render backupButton(volume.podman_name)}
 						{#if volume.attached}
 							<Button
 								size="sm"
@@ -199,10 +271,14 @@
 </Dialog.Root>
 
 <section class="mt-4 rounded-xl border p-5">
-	<p class="font-medium">{t('projects.application_volumes.live_mounts')}</p>
-	<p class="mt-1 text-sm text-muted-foreground">
-		{t('projects.application_volumes.live_mounts_hint')}
-	</p>
+	<div class="flex flex-wrap items-start justify-between gap-3">
+		<div>
+			<p class="font-medium">{t('projects.application_volumes.live_mounts')}</p>
+			<p class="mt-1 text-sm text-muted-foreground">
+				{t('projects.application_volumes.live_mounts_hint')}
+			</p>
+		</div>
+	</div>
 	{#if volumes.length}<div class="mt-4 overflow-x-auto">
 			<table class="w-full min-w-[500px] text-left text-sm">
 				<thead class="text-muted-foreground"
@@ -223,13 +299,15 @@
 								>{volume.read_only
 									? t('projects.application_volumes.read_only')
 									: t('projects.application_volumes.read_write')}</td
-							><td
-								><Button
-									size="sm"
-									variant="outline"
-									onclick={() => (selectedSource = volume.source)}
-									>{t('projects.application_volumes.browse_files')}</Button
-								></td
+							><td class="py-2"
+								><div class="flex justify-end gap-2">
+									{#if volume.mount_type === 'volume'}{@render backupButton(volume.source)}{/if}<Button
+										size="sm"
+										variant="outline"
+										onclick={() => (selectedSource = volume.source)}
+										>{t('projects.application_volumes.browse_files')}</Button
+									>
+								</div></td
 							></tr
 						>{/each}</tbody>
 			</table>
@@ -264,11 +342,35 @@
 	</Dialog.Content>
 </Dialog.Root>
 
+<VolumeBackupsPanel
+	bind:this={backupPanel}
+	bind:runningVolumes={backingUp}
+	bind:canRun={canBackUp}
+	bind:needsDestination
+	{organizationId}
+	volumeNames={backupVolumes}
+	labelFor={backupLabel}
+	client={appBackups}
+	{backupsFor}
+	onImport={() => {
+		importing = true;
+		addDialogOpen = true;
+	}}
+	onRestored={onRefresh} />
+
 <ManagedVolumeFormDialog
 	bind:open={addDialogOpen}
+	{importing}
 	{isCompose}
 	services={composeServices}
-	onSubmit={onCreateManagedVolume} />
+	{organizationId}
+	onSubmit={onCreateManagedVolume}
+	{restores}
+	onRestored={async (volume) => {
+		// Attach like a new volume would be; a path conflict leaves it detached with the reason.
+		await run(() => onAttachManagedVolume(volume.id), t('projects.application_volumes.attach_failed'));
+		await onRefresh();
+	}} />
 {#if deleteVolume}<ManagedVolumeDeleteDialog
 		open={true}
 		volumeName={deleteVolume.name}

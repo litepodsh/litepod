@@ -104,6 +104,11 @@ impl SshStream {
         }
     }
 
+    /// Takes the child's stdin once; `None` unless it was spawned with one.
+    pub fn take_stdin(&mut self) -> Option<tokio::process::ChildStdin> {
+        self.child.stdin.take()
+    }
+
     /// Takes the child's stdout once, for the caller to read line by line.
     pub fn take_stdout(&mut self) -> Option<tokio::process::ChildStdout> {
         self.child.stdout.take()
@@ -228,6 +233,15 @@ pub fn redact(value: &str) -> String {
         redacted.push('\n');
     }
     redacted
+}
+
+/// Piped when the caller feeds the command, else closed so nothing blocks on it.
+pub fn stdin_mode(with_stdin: bool) -> std::process::Stdio {
+    if with_stdin {
+        std::process::Stdio::piped()
+    } else {
+        std::process::Stdio::null()
+    }
 }
 
 /// Keeps the tail of a command's stderr instead of its head. Builders and
@@ -802,6 +816,27 @@ impl SshExecutor {
         known_hosts_line: Option<&str>,
         command: &[OsString],
     ) -> Result<SshStream, AppError> {
+        Self::spawn_stream(
+            target,
+            encrypted_private_key,
+            expected_fingerprint,
+            known_hosts_line,
+            command,
+            false,
+        )
+        .await
+    }
+
+    /// [`Self::stream_command`], with a piped stdin when `with_stdin` (the
+    /// caller writes it, then drops it for EOF, e.g. a restore fed from S3).
+    pub async fn spawn_stream(
+        target: &SshTarget,
+        encrypted_private_key: &str,
+        expected_fingerprint: &str,
+        known_hosts_line: Option<&str>,
+        command: &[OsString],
+        with_stdin: bool,
+    ) -> Result<SshStream, AppError> {
         validate_remote_argv(command)?;
         ensure_ssh_control_dir()?;
         let identity = Self::decrypt_key(encrypted_private_key)?;
@@ -810,7 +845,7 @@ impl SshExecutor {
         let argv = build_ssh_argv(target, identity.path(), known_hosts.path(), command);
         let child = Command::new(&argv[0])
             .args(&argv[1..])
-            .stdin(std::process::Stdio::null())
+            .stdin(stdin_mode(with_stdin))
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)

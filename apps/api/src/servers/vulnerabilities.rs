@@ -759,6 +759,7 @@ mod tests {
             geo_asn: None,
             geo_timezone: None,
             geo_resolved_at: None,
+            role: "deploy".into(),
         }
     }
 

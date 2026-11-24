@@ -212,7 +212,7 @@ pub(super) async fn compose_cmd(
         .await
         .map_err(|e| e.to_string())?;
     let runtime_override_path = generated_dir.join("litepod.runtime-resources.override.yml");
-    if let Some(limits) = super::super::resource_limits(&source)? {
+    if let Some(limits) = super::super::runtime_resource_limits(&source)? {
         let runtime_override = generate_runtime_resources_override(&services, &limits);
         tokio::fs::write(&runtime_override_path, runtime_override)
             .await

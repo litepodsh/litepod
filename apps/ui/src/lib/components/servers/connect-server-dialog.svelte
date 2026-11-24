@@ -23,6 +23,7 @@
 		setupServer,
 		type IngressMode,
 		type PodmanMode,
+		type ServerRole,
 		type Server,
 		type ServerJob,
 	} from '#lib/clients/server-client.js';
@@ -109,6 +110,8 @@
 	const needsSudo = $derived(stepError.includes('passwordless sudo'));
 	const sshUser = $derived(server?.ssh_user ?? (user.trim() || 'litepod'));
 	let ingress = $state<RemoteIngress>('private_relay');
+	// A build server only builds images, so it serves no traffic and needs no ingress.
+	let role = $state<ServerRole>('deploy');
 	let podmanMode = $state<PodmanMode>('rootless');
 	let publicAddress = $state('');
 
@@ -175,6 +178,7 @@
 		port = '22';
 		user = 'litepod';
 		ingress = cloudMode ? 'public_edge' : 'private_relay';
+		role = 'deploy';
 		podmanMode = 'rootless';
 		publicAddress = '';
 		rootfulForcedByUser = false;
@@ -217,6 +221,7 @@
 			: resume.ingress_mode === 'central'
 				? 'private_relay'
 				: resume.ingress_mode;
+		role = resume.role;
 		podmanMode = resume.podman_mode;
 		publicAddress = resume.public_address ?? '';
 		step = resumeStep ?? stepForState(resume);
@@ -238,7 +243,7 @@
 		if (!/^[A-Za-z0-9_.-]{1,32}$/.test(user.trim())) return t('servers.connect.user_invalid');
 		if (podmanMode === 'rootless' && user.trim() === 'root')
 			return t('servers.connect.rootless_user_invalid');
-		if (ingress === 'public_edge' && !publicAddress.trim())
+		if (role === 'deploy' && ingress === 'public_edge' && !publicAddress.trim())
 			return t('servers.connect.public_edge_address_required');
 		return null;
 	}
@@ -287,9 +292,11 @@
 				host: host.trim(),
 				port: Number(port),
 				user: user.trim(),
-				ingress_mode: ingress,
+				ingress_mode: role === 'build' ? 'private_only' : ingress,
 				podman_mode: podmanMode,
-				public_address: ingress === 'public_edge' ? publicAddress.trim() : undefined,
+				public_address:
+					role === 'deploy' && ingress === 'public_edge' ? publicAddress.trim() : undefined,
+				role,
 				credential:
 					keySource === 'import'
 						? { kind: 'import', private_key: privateKey }
@@ -529,7 +536,28 @@
 						</div>
 
 						<div class="grid gap-2">
-							{#if cloudMode}
+							<Label for="server-role">{t('servers.connect.label_role')}</Label>
+							<Select.Root type="single" bind:value={role}>
+								<Select.Trigger id="server-role" class="w-full"
+									>{role === 'build'
+										? t('servers.connect.role_build')
+										: t('servers.connect.role_deploy')}</Select.Trigger>
+								<Select.Content>
+									<Select.Item value="deploy">{t('servers.connect.role_deploy')}</Select.Item>
+									<Select.Item value="build">{t('servers.connect.role_build')}</Select.Item>
+								</Select.Content>
+							</Select.Root>
+							<p class="text-xs text-muted-foreground">
+								{role === 'build'
+									? t('servers.connect.role_build_hint')
+									: t('servers.connect.role_deploy_hint')}
+							</p>
+						</div>
+
+						<div class="grid gap-2">
+							{#if role === 'build'}
+								<!-- Build servers register as private_only: no Caddy, no public domains. -->
+							{:else if cloudMode}
 								<Label>{t('servers.connect.label_ingress')}</Label>
 								<p class="rounded-md border bg-muted/40 p-3 text-sm">
 									<span class="font-medium">{t('servers.connect.ingress_public_edge')}</span>{t(
@@ -585,7 +613,7 @@
 							</div>
 						</div>
 
-						{#if ingress === 'public_edge'}
+						{#if role === 'deploy' && ingress === 'public_edge'}
 							<div class="grid gap-2">
 								<Label for="server-public-address"
 									>{t('servers.connect.label_public_address')}</Label>

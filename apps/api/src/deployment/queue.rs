@@ -821,6 +821,9 @@ async fn execute_claimed(state: SharedState, job: DeploymentJobSnapshot) {
         crate::deployment::git::railpack::cleanup_run(&state, &job.application_id, &job.run_id)
             .await;
     }
+    // After every replica of the run, so none loses the build-server image it delivers.
+    crate::deployment::git::build_server::finish_run(&state, &job.application_id, &job.run_id)
+        .await;
     // Pipelines finish their own run, but one that bails out early with `?` leaves
     // it open and the UI waits on it until the next restart.
     let left_open = status == "failed"
@@ -929,6 +932,7 @@ async fn reconcile_stuck(state: &SharedState) -> Result<(), AppError> {
         if build_method == "railpack" {
             crate::deployment::git::railpack::cleanup_run(state, &application_id, &run_id).await;
         }
+        crate::deployment::git::build_server::finish_run(state, &application_id, &run_id).await;
         state.queue_runtime.cancellations.lock().await.remove(&id);
         let _ = state.queue_runtime.events.send(QueueEvent {
             job_id: id,

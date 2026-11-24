@@ -22,6 +22,8 @@ export type ScheduledTask = {
 	image: string | null;
 	application_id: string | null;
 	compose_service: string | null;
+	/** Groups the task in the list; empty means ungrouped. */
+	folder: string;
 	shell: ScheduledTaskShell;
 	timeout_seconds: number;
 	network_access: boolean;
@@ -41,6 +43,7 @@ export type ScheduledTaskInput = {
 	image?: string;
 	application_id?: string;
 	compose_service?: string;
+	folder?: string;
 	shell: ScheduledTaskShell;
 	script: string;
 	timeout_seconds: number;
