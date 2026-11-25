@@ -1,7 +1,7 @@
 name: ci
 
 # Gate for main and next: API build + tests (with the `saml` feature the release
-# binary ships), UI type-check + tests + build, the installer's shell tests, plus
+# binary ships), UI type-check + tests + build, the distro shell test, plus
 # dependency advisories (`cargo audit`, `bun audit` at high and above). The Dockerfile is exercised by the release
 # workflow (manual dispatch defaults to a dry run).
 
@@ -123,6 +123,6 @@ jobs:
         working-directory: apps
     steps:
       - uses: actions/checkout@v4
+      # test-install-channel.sh and test-uninstall.sh source install.sh/uninstall.sh,
+      # symlinks into the web repo that dangle on the runner; they run locally only.
       - run: bash scripts/test-distro.sh
-      - run: bash scripts/test-install-channel.sh
-      - run: bash scripts/test-uninstall.sh
