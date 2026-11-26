@@ -601,6 +601,43 @@ fn https_application_domain_enables_tls_before_the_catch_all() {
     );
 }
 
+#[test]
+fn https_application_domain_on_inherited_sockets_keeps_listeners_and_protocols_aligned() {
+    let mut config = serde_json::json!({
+        "apps": { "http": { "servers": { "srv0": {
+            "listen": ["fd/4", "fdgram/5"],
+            "listen_protocols": [["h1", "h2"], ["h3"]],
+            "routes": [{ "@id": "litepod-default" }]
+        } } } }
+    });
+
+    apply_app_domain_to_config(
+        &mut config,
+        "litepod-route-domain-1",
+        "test.litepod.sh",
+        None,
+        "static-app",
+        80,
+        true,
+        None,
+        None,
+    )
+    .unwrap();
+
+    let server = &config["apps"]["http"]["servers"]["srv0"];
+    assert_eq!(server["listen"], serde_json::json!(["fd/4", "fdgram/5"]));
+    assert_eq!(
+        server["listen_protocols"],
+        serde_json::json!([["h1", "h2"], ["h3"]])
+    );
+    assert!(route_present(
+        &config,
+        "litepod-route-domain-1",
+        "test.litepod.sh",
+        true
+    ));
+}
+
 fn path_config() -> serde_json::Value {
     serde_json::json!({
         "apps": { "http": { "servers": { "srv0": {
