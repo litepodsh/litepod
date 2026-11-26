@@ -347,7 +347,7 @@ pub(crate) async fn recover_missing_caddy_routes(state: &SharedState) -> Result<
     .await
 }
 
-fn route_present(config: &serde_json::Value, id: &str, host: &str, https: bool) -> bool {
+pub(super) fn route_present(config: &serde_json::Value, id: &str, host: &str, https: bool) -> bool {
     let has_route = config
         .pointer("/apps/http/servers/srv0/routes")
         .and_then(serde_json::Value::as_array)
@@ -358,7 +358,12 @@ fn route_present(config: &serde_json::Value, id: &str, host: &str, https: bool) 
     let has_listener = config
         .pointer("/apps/http/servers/srv0/listen")
         .and_then(serde_json::Value::as_array)
-        .is_some_and(|listeners| listeners.iter().any(|listener| listener == ":443"));
+        // Socket-activated installs serve HTTPS on the inherited `fd/4`, never `:443`.
+        .is_some_and(|listeners| {
+            listeners
+                .iter()
+                .any(|listener| listener == ":443" || listener == "fd/4")
+        });
     let has_sni = config
         .pointer("/apps/http/servers/srv0/tls_connection_policies")
         .and_then(serde_json::Value::as_array)
@@ -510,9 +515,11 @@ pub(super) fn apply_app_domain_to_config(
         .or_insert_with(|| serde_json::json!([":80"]))
         .as_array_mut()
         .ok_or_else(|| AppError::InternalError("Caddy listen addresses are invalid".into()))?;
-    if https && !listen.iter().any(|addr| addr == ":443") {
+    let inherited = crate::deployment::caddy_admin::inherits_sockets(listen);
+    if https && !inherited && !listen.iter().any(|addr| addr == ":443") {
         listen.push(serde_json::Value::String(":443".into()));
     }
+    crate::deployment::caddy_admin::adapt_inherited_sockets(server, https);
 
     let conn_policies = server
         .entry("tls_connection_policies")

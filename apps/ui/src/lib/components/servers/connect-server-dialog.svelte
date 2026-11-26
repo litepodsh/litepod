@@ -490,6 +490,14 @@
 									autocomplete="off" />
 							</div>
 						</div>
+						{#if !cloudMode}
+							<p class="text-xs text-muted-foreground">
+								{t('servers.connect.reverse_tunnel_before')}<code class="font-mono"
+									>host.containers.internal</code
+								>{t('servers.connect.reverse_tunnel_middle')}<code class="font-mono">127.0.0.1</code
+								>{t('servers.connect.reverse_tunnel_after')}
+							</p>
+						{/if}
 
 						<div class="grid gap-2">
 							<Label>{t('servers.connect.label_podman_mode')}</Label>
