@@ -37,7 +37,7 @@ it('opens certificate settings when custom is chosen without a saved certificate
 	await waitFor(() => expect(mocks.list).toHaveBeenCalled());
 	await fireEvent.change(screen.getByRole('combobox'), { target: { value: 'custom' } });
 	await waitFor(() => expect(mocks.goto).toHaveBeenCalledWith('/system?tab=certificates'));
-	expect(screen.getByRole('link', { name: 'Settings → Certificates' }).getAttribute('href')).toBe(
+	expect(screen.getByRole('link', { name: 'System → Instance → Certificates' }).getAttribute('href')).toBe(
 		'/system?tab=certificates',
 	);
 });
