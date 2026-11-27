@@ -267,6 +267,24 @@ fn parse_host_probe(output: &str) -> HostProbe {
     (disk, cores, memory)
 }
 
+/// `(used, total)` swap bytes from the `/proc/meminfo` part of [`HOST_PROBE`]
+/// output; used is `SwapTotal - SwapFree`. `Some((0, 0))` is a host with no swap.
+fn parse_host_swap(output: &str) -> Option<(i64, i64)> {
+    let meminfo = output.split("---\n").nth(2)?;
+    let field = |name: &str| -> Option<i64> {
+        meminfo
+            .lines()
+            .find_map(|line| line.strip_prefix(name))?
+            .split_whitespace()
+            .next()?
+            .parse::<i64>()
+            .ok()?
+            .checked_mul(1024)
+    };
+    let total = field("SwapTotal:")?;
+    Some(((total - field("SwapFree:")?).max(0), total))
+}
+
 /// What the SysAdmin debug page shows about this store. Counters only, never sample rows.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct DebugStats {
@@ -774,6 +792,18 @@ async fn sample_host(server: &repository::ServerRecord) -> Result<HostSample, Ap
             "unreadable host probe output".into(),
         ));
     }
+    let swap = parse_host_swap(&output);
+    latest::store_host(
+        &server.id,
+        latest::HostSnapshot {
+            observed_at: chrono::Utc::now(),
+            mem_used_bytes: memory.map(|(used, _)| used),
+            mem_total_bytes: memory.map(|(_, total)| total),
+            swap_used_bytes: swap.map(|(used, _)| used),
+            swap_total_bytes: swap.map(|(_, total)| total),
+            cpu_cores,
+        },
+    );
     Ok(HostSample {
         ts_ms: chrono::Utc::now().timestamp_millis(),
         organization_id: server.organization_id.clone(),
@@ -784,6 +814,21 @@ async fn sample_host(server: &repository::ServerRecord) -> Result<HostSample, Ap
         mem_total_bytes: memory.map(|(_, total)| total),
         cpu_cores,
     })
+}
+
+/// The server's memory, swap and cores: the host sampler's last probe while it
+/// is recent, otherwise one live probe (bounded by [`SAMPLE_TIMEOUT`]). `None`
+/// when the server is unknown or does not answer in time.
+pub async fn host_snapshot(state: &SharedState, server_id: &str) -> Option<latest::HostSnapshot> {
+    if let Some(snapshot) = latest::fresh_host(server_id) {
+        return Some(snapshot);
+    }
+    let server = repository::get(state, server_id).await.ok()??;
+    tokio::time::timeout(SAMPLE_TIMEOUT, sample_host(&server))
+        .await
+        .ok()?
+        .ok()?;
+    latest::fresh_host(server_id)
 }
 
 async fn host_tick(state: SharedState) -> Result<(), AppError> {
@@ -1277,6 +1322,20 @@ mod tests {
         // macOS dev host: no /proc/meminfo.
         let (disk, _, memory) = parse_host_probe("garbage\n---\n\n---\n");
         assert_eq!((disk, memory), (None, None));
+    }
+
+    #[test]
+    fn host_probe_reads_swap_from_meminfo() {
+        let output = "df\n---\n4\n---\nMemTotal: 8000000 kB\nMemAvailable: 6000000 kB\n\
+                      SwapTotal:       2097148 kB\nSwapFree:         1048574 kB\n---\n";
+        assert_eq!(
+            parse_host_swap(output),
+            Some((1_048_574 * 1024, 2_097_148 * 1024))
+        );
+        let no_swap = "df\n---\n4\n---\nMemTotal: 8000000 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n";
+        assert_eq!(parse_host_swap(no_swap), Some((0, 0)));
+        // FreeBSD and macOS: no /proc/meminfo part.
+        assert_eq!(parse_host_swap("df\n---\n4\n---\n---\n4195840000\n"), None);
     }
 
     #[test]

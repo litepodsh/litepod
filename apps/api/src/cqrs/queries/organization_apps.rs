@@ -469,6 +469,202 @@ async fn group_members(
     Ok(members)
 }
 
+/// The servers each application runs on: its replicas when it has any, else its
+/// server, else every member of its server group.
+fn servers_by_application<'a>(
+    apps: &'a [AppRow],
+    replicas: &ReplicasByApplication,
+    group_members: &HashMap<String, Vec<String>>,
+) -> HashMap<&'a str, Vec<String>> {
+    apps.iter()
+        .map(|app| {
+            let servers = match replicas.servers.get(&app.application_id) {
+                Some(servers) if !servers.is_empty() => servers.clone(),
+                _ => match (&app.server_id, &app.server_group_id) {
+                    (Some(server_id), _) => vec![server_id.clone()],
+                    (None, Some(group_id)) => {
+                        group_members.get(group_id).cloned().unwrap_or_default()
+                    }
+                    (None, None) => Vec::new(),
+                },
+            };
+            (app.application_id.as_str(), servers)
+        })
+        .collect()
+}
+
+/// One running container and what it uses at `observed_at` of its server.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContainerUsage {
+    pub name: String,
+    pub server_id: String,
+    pub cpu_percent: Option<f64>,
+    pub memory_bytes: Option<u64>,
+    pub memory_limit_bytes: Option<u64>,
+}
+
+/// An application and its running containers, on every server it is placed on.
+#[derive(Debug, Clone)]
+pub struct ApplicationUsage {
+    pub name: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub environment_id: String,
+    pub environment_name: String,
+    pub containers: Vec<ContainerUsage>,
+}
+
+/// One server the organization's applications run on. `observed_at` is `None`
+/// when the server gave no numbers (unreachable, or no recent sample and no live
+/// read asked for). `unowned` are its running containers no application of this
+/// organization owns: litepod's own, other organizations', leftovers.
+#[derive(Debug, Clone)]
+pub struct ServerUsage {
+    pub server_id: String,
+    pub observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub unowned: Vec<ContainerUsage>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OrganizationUsage {
+    pub applications: Vec<ApplicationUsage>,
+    pub servers: Vec<ServerUsage>,
+}
+
+/// Live CPU and memory of every running container of the organization, attributed
+/// to its application (and so its project) with the same ownership rule as the
+/// container counts. Reads the sampler's last `podman stats` per server; with
+/// `live`, a server it has no recent snapshot for is read once (10 s at most),
+/// otherwise it reads as unknown. One read per server, whatever the app count.
+pub async fn organization_usage(
+    state: &SharedState,
+    organization_id: &str,
+    live: bool,
+) -> Result<OrganizationUsage, AppError> {
+    let conn = get_conn(state).await;
+    let rows = sqlx::query(APPS_SQL)
+        .bind(organization_id)
+        .fetch_all(&conn)
+        .await
+        .map_err(db)?;
+    let apps: Vec<AppRow> = rows
+        .iter()
+        .map(parse_app_row)
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let replicas = replicas_by_application(&conn, organization_id).await?;
+    let group_members = group_members(&conn, organization_id).await?;
+    let placement = servers_by_application(&apps, &replicas, &group_members);
+
+    let mut server_ids = placement
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    server_ids.sort();
+    let snapshots = futures_util::future::join_all(server_ids.iter().map(|server_id| async move {
+        match crate::metrics_history::latest::fresh(server_id) {
+            Some(snapshot) => Some(snapshot),
+            None if live => full_snapshot(state, server_id).await,
+            None => None,
+        }
+    }))
+    .await;
+    let snapshots: HashMap<&str, _> = server_ids
+        .iter()
+        .map(String::as_str)
+        .zip(snapshots)
+        .collect();
+
+    let runtime_names: Vec<String> = apps.iter().map(|app| runtime_name(state, app)).collect();
+    let usage_of =
+        |server_id: &str, metric: &crate::podman::podman_metrics::ContainerMetric| ContainerUsage {
+            name: metric.name.clone(),
+            server_id: server_id.to_owned(),
+            cpu_percent: metric.cpu_percent,
+            memory_bytes: metric.memory_usage_bytes,
+            memory_limit_bytes: metric.memory_limit_bytes,
+        };
+    let running = |server_id: &str| {
+        snapshots
+            .get(server_id)
+            .and_then(Option::as_ref)
+            .into_iter()
+            .flat_map(|snapshot| snapshot.metrics.iter())
+            .filter(|metric| metric.state == ContainerMetricState::Running)
+    };
+
+    let applications = apps
+        .iter()
+        .zip(&runtime_names)
+        .map(|(app, runtime)| {
+            let containers = if runtime.is_empty() {
+                Vec::new()
+            } else {
+                placement
+                    .get(app.application_id.as_str())
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|server_id| {
+                        running(server_id)
+                            .filter(|metric| belongs_to(&metric.name, runtime))
+                            .map(|metric| usage_of(server_id, metric))
+                    })
+                    .collect()
+            };
+            ApplicationUsage {
+                name: app.name.clone(),
+                project_id: app.project_id.clone(),
+                project_name: app.project_name.clone(),
+                environment_id: app.environment_id.clone(),
+                environment_name: app.environment_name.clone(),
+                containers,
+            }
+        })
+        .collect();
+
+    let servers = server_ids
+        .iter()
+        .map(|server_id| ServerUsage {
+            server_id: server_id.clone(),
+            observed_at: snapshots
+                .get(server_id.as_str())
+                .and_then(Option::as_ref)
+                .map(|snapshot| snapshot.observed_at),
+            unowned: running(server_id)
+                .filter(|metric| {
+                    !runtime_names
+                        .iter()
+                        .any(|runtime| !runtime.is_empty() && belongs_to(&metric.name, runtime))
+                })
+                .map(|metric| usage_of(server_id, metric))
+                .collect(),
+        })
+        .collect();
+
+    Ok(OrganizationUsage {
+        applications,
+        servers,
+    })
+}
+
+/// Every container on the server with its stats, read now. `None` when the
+/// server cannot be reached in 10 seconds.
+async fn full_snapshot(
+    state: &SharedState,
+    server_id: &str,
+) -> Option<crate::podman::podman_metrics::ContainerMetricsSnapshot> {
+    let runtime = ServerRuntime::for_server(state, server_id).await.ok()?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        crate::podman::podman_metrics::collect_runtime_container_metrics(&runtime, &[]),
+    )
+    .await
+    .ok()?
+    .ok()
+}
+
 /// `(running, total)` per application, `None` for an application one of its
 /// servers could not answer for. `Some(0, 0)` is the honest "runs nothing"
 /// case the lists show as `0/0`.
@@ -478,18 +674,7 @@ async fn container_counts(
     replicas: &ReplicasByApplication,
     group_members: &HashMap<String, Vec<String>>,
 ) -> HashMap<String, Option<AppContainersDto>> {
-    let mut servers_by_application: HashMap<&str, Vec<String>> = HashMap::new();
-    for app in apps {
-        let servers = match replicas.servers.get(&app.application_id) {
-            Some(servers) if !servers.is_empty() => servers.clone(),
-            _ => match (&app.server_id, &app.server_group_id) {
-                (Some(server_id), _) => vec![server_id.clone()],
-                (None, Some(group_id)) => group_members.get(group_id).cloned().unwrap_or_default(),
-                (None, None) => Vec::new(),
-            },
-        };
-        servers_by_application.insert(app.application_id.as_str(), servers);
-    }
+    let servers_by_application = servers_by_application(apps, replicas, group_members);
 
     let mut listings: HashMap<String, Option<Vec<(String, bool)>>> = HashMap::new();
     for server_id in servers_by_application

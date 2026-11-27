@@ -22,6 +22,7 @@ pub const RESOURCES: &[&str] = &[
     "source_archive",
     "domains",
     "servers",
+    "usage",
     "git_providers",
     "repositories",
     "url",

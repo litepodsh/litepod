@@ -13,6 +13,8 @@
 //! `exec` writes nothing. It validates and stores an action for a person to
 //! confirm; see `actions`.
 
+use std::collections::HashMap;
+
 use serde::Serialize;
 use serde_json::json;
 
@@ -24,7 +26,9 @@ use crate::{
         actions::{self, ActionTarget, SetComposeFile, SetEnvironmentVariable},
         capabilities, redaction,
     },
-    cqrs::queries::{organization as organization_queries, project as project_queries},
+    cqrs::queries::{
+        organization as organization_queries, organization_apps, project as project_queries,
+    },
     deployment::{self, compose::store::ComposeFileStore},
     security::middleware::auth::AuthUser,
     servers::runtime::ServerRuntime,
@@ -64,7 +68,11 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
         "`organizations` (the ones this user belongs to, with the current one marked; \
         you can only read and change the current one)",
     ),
-    ("projects", "`projects` (no other argument)"),
+    (
+        "projects",
+        "`projects` (no other argument; each project with the memory and CPU its running containers use right now, \
+        when the servers have reported them. To rank projects, applications or containers by what they use, read `usage`)",
+    ),
     (
         "repositories",
         "`repositories` (the repositories the organization's Git providers can see, private ones included: \
@@ -118,7 +126,7 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
     ),
     (
         "containers",
-        "`containers` (live container state from the runtime; needs `application`)",
+        "`containers` (live container state from the runtime, with each running container's memory and CPU; needs `application`)",
     ),
     (
         "container_logs",
@@ -150,6 +158,14 @@ const RESOURCE_HELP: &[(&str, &str)] = &[
         "`servers` (the ready servers a new application can be placed on, with each one's address, OS and \
         whether it is `local`, the host Litepod itself runs on, and the `default` one a new application goes to; plus the server groups and their members. \
         `applications` says where each one runs: one `server`, or a `server_group` that fans out to all its servers)",
+    ),
+    (
+        "usage",
+        "`usage` (what is using the servers right now: every project, its applications and their running containers by name, \
+        with memory and CPU, sorted by `sort` - `memory` (default) or `cpu` - biggest first; every environment unless `environment` names one, and \
+        `project` for one project. Also each server's total, used and available memory, its swap and cores, and how much \
+        memory goes to containers that are not this organization's applications. Use it when the user asks what uses the most \
+        RAM or CPU, why a server is slow or full, or whether it needs more memory or swap)",
     ),
     (
         "git_providers",
@@ -422,6 +438,7 @@ pub fn definitions_for(direct: &[&str], web_search: bool) -> Vec<ToolDefinition>
                         "query": { "type": "string", "description": "Search text for `templates` (a name, a tag or what the app does, e.g. `uptime`) or for `web_search`, and to filter `repositories` by name." },
                         "category": { "type": "string", "description": "Category filter for `templates`, e.g. `monitoring`. One of the categories `get templates` lists." },
                         "scope": { "type": "string", "enum": ["runtime", "build"] },
+                        "sort": { "type": "string", "enum": ["memory", "cpu"], "description": "`usage` only: what to rank by, biggest first. `memory` when omitted." },
                         "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 55, "description": "How long `wait_deployment` may block before it answers `finished: false`." }
                     },
                     "required": ["resource"],
@@ -1012,14 +1029,48 @@ async fn get(
         }
 
         "projects" => match project_queries::list_projects(state, organization_id).await {
-            Ok(projects) => ToolOutcome::data(json!({
-                "projects": projects
-                    .into_iter()
-                    .map(|project| json!({ "id": project.id, "name": project.name }))
-                    .collect::<Vec<_>>()
-            })),
+            Ok(projects) => {
+                // The sampler's numbers only: listing projects never waits on a server.
+                let usage = organization_apps::organization_usage(state, organization_id, false)
+                    .await
+                    .ok();
+                ToolOutcome::data(json!({
+                    "projects": projects
+                        .into_iter()
+                        .map(|project| {
+                            let mut entry = json!({ "id": project.id, "name": project.name });
+                            if let Some(usage) = &usage {
+                                let totals = Totals::of(
+                                    usage
+                                        .applications
+                                        .iter()
+                                        .filter(|app| app.project_id == project.id)
+                                        .flat_map(|app| app.containers.iter()),
+                                );
+                                entry["memory"] = json!(totals.memory_label());
+                                entry["memory_bytes"] = json!(totals.memory_bytes);
+                                entry["cpu_percent"] = json!(totals.cpu_percent());
+                                entry["running_containers"] = json!(totals.containers);
+                            }
+                            entry
+                        })
+                        .collect::<Vec<_>>()
+                }))
+            }
             Err(error) => ToolOutcome::failure(error.to_string()),
         },
+
+        "usage" => {
+            usage_in(
+                state,
+                organization_id,
+                actor,
+                string_of(arguments, "project").as_deref(),
+                string_of(arguments, "environment").as_deref(),
+                string_of(arguments, "sort").as_deref(),
+            )
+            .await
+        }
 
         "environments" => {
             environments_in(
@@ -1347,7 +1398,7 @@ async fn get(
         }
 
         other => ToolOutcome::failure(format!(
-            "`{other}` is not a resource. Use organizations, projects, applications, environment, deployments, deployment_logs, containers, container_logs, source, domains, servers, git_providers, compose, templates or template."
+            "`{other}` is not a resource. Use organizations, projects, applications, environment, deployments, deployment_logs, containers, container_logs, source, domains, servers, usage, git_providers, compose, templates or template."
         )),
     }
 }
@@ -2978,20 +3029,348 @@ async fn containers(state: &SharedState, resolved: &Resolved) -> ToolOutcome {
         }));
     };
 
+    // One `podman stats` for all of them; a slow server only loses the numbers.
+    let stats = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        crate::podman::podman_metrics::collect_runtime_container_metrics(&runtime, &names),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok);
+
     let mut out = Vec::with_capacity(names.len());
     for name in names {
         let status = crate::handler::deployments::inspect_container_state(&runtime, &name).await;
-        out.push(json!({
+        let mut entry = json!({
             "name": name,
             "status": status,
             "label": crate::handler::deployments::container_status_label(&status),
-        }));
+        });
+        if let Some(metric) = stats.as_ref().and_then(|stats| {
+            stats.metrics.iter().find(|metric| {
+                metric.name == name
+                    && metric.state == crate::podman::podman_metrics::ContainerMetricState::Running
+            })
+        }) {
+            entry["memory"] = json!(metric.memory_usage_bytes.map(human_bytes));
+            entry["memory_bytes"] = json!(metric.memory_usage_bytes);
+            entry["memory_limit"] = json!(metric.memory_limit_bytes.map(human_bytes));
+            entry["cpu_percent"] = json!(metric.cpu_percent.map(round_percent));
+        }
+        out.push(entry);
     }
 
     ToolOutcome::data(json!({
         "application": resolved.target.application_name,
         "origin": resolved.origin,
         "containers": out,
+    }))
+}
+
+/// Running containers added up. CPU is in percent of one core, like `podman stats`.
+#[derive(Debug, Default, Clone, PartialEq)]
+struct Totals {
+    memory_bytes: u64,
+    cpu: f64,
+    containers: usize,
+}
+
+impl Totals {
+    fn of<'a>(containers: impl Iterator<Item = &'a organization_apps::ContainerUsage>) -> Self {
+        let mut totals = Self::default();
+        for container in containers {
+            totals.memory_bytes += container.memory_bytes.unwrap_or(0);
+            totals.cpu += container.cpu_percent.unwrap_or(0.0);
+            totals.containers += 1;
+        }
+        totals
+    }
+
+    fn memory_label(&self) -> String {
+        human_bytes(self.memory_bytes)
+    }
+
+    fn cpu_percent(&self) -> f64 {
+        round_percent(self.cpu)
+    }
+
+    /// Bigger first, by memory or by CPU.
+    fn key(&self, by_cpu: bool) -> f64 {
+        if by_cpu {
+            self.cpu
+        } else {
+            self.memory_bytes as f64
+        }
+    }
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const UNITS: [(&str, u64); 3] = [("GiB", 1 << 30), ("MiB", 1 << 20), ("KiB", 1 << 10)];
+    UNITS
+        .iter()
+        .find(|(_, size)| bytes >= *size)
+        .map(|(unit, size)| format!("{:.1} {unit}", bytes as f64 / *size as f64))
+        .unwrap_or_else(|| format!("{bytes} B"))
+}
+
+fn round_percent(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
+}
+
+fn sort_desc<T>(items: &mut [(Totals, T)], by_cpu: bool) {
+    items.sort_by(|(a, _), (b, _)| b.key(by_cpu).total_cmp(&a.key(by_cpu)));
+}
+
+/// Plain-language warnings about one server's memory, for the model to relay.
+fn memory_notes(host: &crate::metrics_history::latest::HostSnapshot) -> Vec<&'static str> {
+    let mut notes = Vec::new();
+    if let (Some(used), Some(total)) = (host.mem_used_bytes, host.mem_total_bytes)
+        && total > 0
+    {
+        let available = (total - used) as f64 / total as f64;
+        if available < 0.10 {
+            notes.push(
+                "Less than 10% of the memory is available: a new or growing workload can run the server out of memory. Stop or shrink something, or add RAM.",
+            );
+        } else if available < 0.20 {
+            notes.push(
+                "Less than 20% of the memory is available: check what uses the most before deploying anything large.",
+            );
+        }
+    }
+    match (host.swap_used_bytes, host.swap_total_bytes) {
+        (_, Some(0)) => notes.push(
+            "No swap: when memory runs out the kernel kills processes or the server stops answering instead of slowing down. A swap file of 2-4 GB gives it a margin; it does not replace RAM.",
+        ),
+        (Some(used), Some(total)) if total > 0 && used * 2 > total => notes.push(
+            "More than half of the swap is in use: the server is short of RAM. More swap only slows it down further; add RAM or move workloads.",
+        ),
+        _ => {}
+    }
+    notes
+}
+
+/// What uses the organization's servers: projects, their applications and their
+/// running containers with memory and CPU, biggest first, plus each server's own
+/// memory and swap. Containers that are not this organization's applications are
+/// summed per server; only the instance SysAdmin sees their names, since on a
+/// shared server they may belong to another organization.
+async fn usage_in(
+    state: &SharedState,
+    organization_id: &str,
+    actor: &AuthUser,
+    project: Option<&str>,
+    environment: Option<&str>,
+    sort: Option<&str>,
+) -> ToolOutcome {
+    let by_cpu = match sort.map(str::trim).filter(|sort| !sort.is_empty()) {
+        None | Some("memory") => false,
+        Some("cpu") => true,
+        Some(other) => {
+            return ToolOutcome::failure(format!("`sort` is `memory` or `cpu`, not `{other}`"));
+        }
+    };
+    let usage = match organization_apps::organization_usage(state, organization_id, true).await {
+        Ok(usage) => usage,
+        Err(error) => return ToolOutcome::failure(error.to_string()),
+    };
+
+    let wanted_project = project
+        .map(|project| project.trim().to_ascii_lowercase())
+        .filter(|project| !project.is_empty());
+    if let Some(wanted) = &wanted_project {
+        let projects = match project_queries::list_projects(state, organization_id).await {
+            Ok(projects) => projects,
+            Err(error) => return ToolOutcome::failure(error.to_string()),
+        };
+        if !projects.iter().any(|project| {
+            project.name.to_ascii_lowercase() == *wanted
+                || project.id.to_ascii_lowercase() == *wanted
+        }) {
+            let names: Vec<String> = projects.into_iter().map(|project| project.name).collect();
+            return ToolOutcome::miss(
+                format!(
+                    "No project called `{}` in this organization.",
+                    project.unwrap_or_default()
+                ),
+                rank(wanted, names.iter().map(String::as_str)),
+            );
+        }
+    }
+    let wanted_environment = environment
+        .map(|environment| environment.trim().to_ascii_lowercase())
+        .filter(|environment| !environment.is_empty() && environment != "all");
+
+    let applications: Vec<&organization_apps::ApplicationUsage> = usage
+        .applications
+        .iter()
+        .filter(|app| {
+            wanted_project.as_ref().is_none_or(|wanted| {
+                app.project_name.to_ascii_lowercase() == *wanted
+                    || app.project_id.to_ascii_lowercase() == *wanted
+            })
+        })
+        .filter(|app| {
+            wanted_environment.as_ref().is_none_or(|wanted| {
+                app.environment_name.to_ascii_lowercase() == *wanted
+                    || app.environment_id.to_ascii_lowercase() == *wanted
+            })
+        })
+        .collect();
+
+    let mut server_names: HashMap<String, (String, bool)> = HashMap::new();
+    for server in &usage.servers {
+        if let Ok(Some(record)) = crate::servers::repository::get(state, &server.server_id).await {
+            server_names.insert(
+                server.server_id.clone(),
+                (record.name, record.kind == "local"),
+            );
+        }
+    }
+    let server_name = |id: &str| {
+        server_names
+            .get(id)
+            .map(|(name, _)| name.clone())
+            .unwrap_or_else(|| id.to_owned())
+    };
+    let container_json = |container: &organization_apps::ContainerUsage| {
+        json!({
+            "name": container.name,
+            "server": server_name(&container.server_id),
+            "memory": container.memory_bytes.map(human_bytes),
+            "memory_bytes": container.memory_bytes,
+            "memory_limit": container.memory_limit_bytes.map(human_bytes),
+            "cpu_percent": container.cpu_percent.map(round_percent),
+        })
+    };
+
+    // (project id, project name, [(totals, application json)])
+    type ProjectRows = Vec<(String, String, Vec<(Totals, serde_json::Value)>)>;
+    let mut projects: ProjectRows = Vec::new();
+    let mut not_running = Vec::new();
+    for app in &applications {
+        if app.containers.is_empty() {
+            not_running.push(format!(
+                "{} / {} ({})",
+                app.project_name, app.name, app.environment_name
+            ));
+            continue;
+        }
+        let totals = Totals::of(app.containers.iter());
+        let mut containers: Vec<(Totals, serde_json::Value)> = app
+            .containers
+            .iter()
+            .map(|container| {
+                (
+                    Totals::of(std::iter::once(container)),
+                    container_json(container),
+                )
+            })
+            .collect();
+        sort_desc(&mut containers, by_cpu);
+        let entry = json!({
+            "application": app.name,
+            "environment": app.environment_name,
+            "memory": totals.memory_label(),
+            "memory_bytes": totals.memory_bytes,
+            "cpu_percent": totals.cpu_percent(),
+            "containers": containers.into_iter().map(|(_, json)| json).collect::<Vec<_>>(),
+        });
+        match projects.iter_mut().find(|(id, _, _)| *id == app.project_id) {
+            Some((_, _, apps)) => apps.push((totals, entry)),
+            None => projects.push((
+                app.project_id.clone(),
+                app.project_name.clone(),
+                vec![(totals, entry)],
+            )),
+        }
+    }
+    let mut projects: Vec<(Totals, serde_json::Value)> = projects
+        .into_iter()
+        .map(|(_, name, mut apps)| {
+            let totals = apps.iter().fold(Totals::default(), |sum, (app, _)| Totals {
+                memory_bytes: sum.memory_bytes + app.memory_bytes,
+                cpu: sum.cpu + app.cpu,
+                containers: sum.containers + app.containers,
+            });
+            sort_desc(&mut apps, by_cpu);
+            let entry = json!({
+                "project": name,
+                "memory": totals.memory_label(),
+                "memory_bytes": totals.memory_bytes,
+                "cpu_percent": totals.cpu_percent(),
+                "running_containers": totals.containers,
+                "applications": apps.into_iter().map(|(_, json)| json).collect::<Vec<_>>(),
+            });
+            (totals, entry)
+        })
+        .collect();
+    sort_desc(&mut projects, by_cpu);
+
+    let mut servers = Vec::new();
+    for server in &usage.servers {
+        let host = crate::metrics_history::host_snapshot(state, &server.server_id).await;
+        let mine = Totals::of(
+            usage
+                .applications
+                .iter()
+                .flat_map(|app| app.containers.iter())
+                .filter(|container| container.server_id == server.server_id),
+        );
+        let mut others: Vec<(Totals, serde_json::Value)> = server
+            .unowned
+            .iter()
+            .map(|container| {
+                (
+                    Totals::of(std::iter::once(container)),
+                    container_json(container),
+                )
+            })
+            .collect();
+        sort_desc(&mut others, by_cpu);
+        let other_totals = Totals::of(server.unowned.iter());
+        let mut entry = json!({
+            "name": server_name(&server.server_id),
+            "local": server_names.get(&server.server_id).is_some_and(|(_, local)| *local),
+            "observed_at": server.observed_at,
+            "this_organization_containers_memory": mine.memory_label(),
+            "other_containers_memory": other_totals.memory_label(),
+            "other_containers_count": other_totals.containers,
+        });
+        if server.observed_at.is_none() {
+            entry["note"] = json!(
+                "This server did not report container stats, so its applications show no usage. It may be unreachable or overloaded."
+            );
+        }
+        if actor.is_sysadmin {
+            entry["other_containers"] =
+                json!(others.into_iter().map(|(_, json)| json).collect::<Vec<_>>());
+        }
+        if let Some(host) = host {
+            let available = host
+                .mem_total_bytes
+                .zip(host.mem_used_bytes)
+                .map(|(total, used)| (total - used).max(0) as u64);
+            entry["memory_total"] =
+                json!(host.mem_total_bytes.map(|bytes| human_bytes(bytes as u64)));
+            entry["memory_used"] =
+                json!(host.mem_used_bytes.map(|bytes| human_bytes(bytes as u64)));
+            entry["memory_available"] = json!(available.map(human_bytes));
+            entry["swap_total"] =
+                json!(host.swap_total_bytes.map(|bytes| human_bytes(bytes as u64)));
+            entry["swap_used"] = json!(host.swap_used_bytes.map(|bytes| human_bytes(bytes as u64)));
+            entry["cpu_cores"] = json!(host.cpu_cores);
+            entry["notes"] = json!(memory_notes(&host));
+        }
+        servers.push(entry);
+    }
+
+    ToolOutcome::data(json!({
+        "sort": if by_cpu { "cpu" } else { "memory" },
+        "cpu_note": "cpu_percent is a share of one core: 200 means two full cores.",
+        "projects": projects.into_iter().map(|(_, json)| json).collect::<Vec<_>>(),
+        "not_running": not_running,
+        "servers": servers,
     }))
 }
 
@@ -3270,6 +3649,57 @@ mod tests {
             .map(|definition| definition.function.name)
             .collect();
         assert_eq!(names, vec![GET, EXEC]);
+    }
+
+    #[test]
+    fn usage_totals_add_up_and_rank_biggest_first() {
+        let container = |name: &str, memory: u64, cpu: f64| organization_apps::ContainerUsage {
+            name: name.into(),
+            server_id: "local".into(),
+            cpu_percent: Some(cpu),
+            memory_bytes: Some(memory),
+            memory_limit_bytes: None,
+        };
+        let containers = [
+            container("small", 100 << 20, 50.0),
+            container("big", 2 << 30, 5.0),
+        ];
+        let totals = Totals::of(containers.iter());
+        assert_eq!(totals.memory_bytes, (2 << 30) + (100 << 20));
+        assert_eq!(totals.containers, 2);
+        assert_eq!(totals.cpu_percent(), 55.0);
+        assert_eq!(totals.memory_label(), "2.1 GiB");
+
+        let mut ranked: Vec<(Totals, &str)> = containers
+            .iter()
+            .map(|c| (Totals::of(std::iter::once(c)), c.name.as_str()))
+            .collect();
+        sort_desc(&mut ranked, false);
+        assert_eq!(ranked[0].1, "big");
+        sort_desc(&mut ranked, true);
+        assert_eq!(ranked[0].1, "small");
+
+        assert_eq!(human_bytes(512), "512 B");
+        assert_eq!(human_bytes(1536), "1.5 KiB");
+        assert_eq!(human_bytes(300 << 20), "300.0 MiB");
+    }
+
+    #[test]
+    fn memory_notes_flag_pressure_and_swap() {
+        use crate::metrics_history::latest::HostSnapshot;
+        const GIB: i64 = 1 << 30;
+        let host = |used: i64, swap_used: i64, swap_total: i64| HostSnapshot {
+            mem_used_bytes: Some(used * GIB),
+            mem_total_bytes: Some(16 * GIB),
+            swap_used_bytes: Some(swap_used * GIB),
+            swap_total_bytes: Some(swap_total * GIB),
+            ..Default::default()
+        };
+        assert!(memory_notes(&host(8, 0, 8)).is_empty());
+        assert!(memory_notes(&host(15, 0, 8))[0].starts_with("Less than 10%"));
+        assert!(memory_notes(&host(13, 0, 8))[0].starts_with("Less than 20%"));
+        assert!(memory_notes(&host(8, 0, 0))[0].starts_with("No swap"));
+        assert!(memory_notes(&host(8, 5, 8))[0].starts_with("More than half"));
     }
 
     #[test]
